@@ -244,3 +244,42 @@ async fn the_file_tables_hold_the_files_of_the_charts_last_runs() {
         .unwrap();
     assert_eq!(uris(&project), [["data/files/regions.csv"]]);
 }
+
+#[tokio::test]
+async fn a_step_builds_a_table_of_its_script_apart_from_the_session() {
+    let root = tempfile::tempdir().unwrap();
+    let files = [
+        ("avenger.toml", "[project]\nname = \"steps\"\nformat = 1\n"),
+        ("data/files/regions.csv", "region,name\neast,East\nwest,West\n"),
+        (
+            "data/regions.av.sql",
+            "LOAD DATA OVERWRITE regions FROM FILES (format = 'CSV', uris = ['data/files/regions.csv']);\nCREATE TEMP TABLE east AS (FROM regions |> WHERE region = 'east');\nLOAD DATA INTO regions FROM FILES (format = 'CSV', uris = ['data/files/regions.csv']);\n",
+        ),
+    ];
+    for (path, text) in files {
+        write(root.path(), path, text);
+    }
+    let files = ProjectFiles::open(FileSource::directory(root.path()).unwrap())
+        .await
+        .unwrap();
+    let project = LoadedProject::load(files, SessionContext::new())
+        .await
+        .unwrap();
+    let rows = |frame: datafusion::dataframe::DataFrame| async move {
+        let batches = frame.collect().await.unwrap();
+        batches.iter().map(|batch| batch.num_rows()).sum::<usize>()
+    };
+    let text = std::fs::read_to_string(root.path().join("data/regions.av.sql")).unwrap();
+    let at = |statement: &str| text.find(statement).unwrap();
+    // The first load, before the append, and the temporary table after it.
+    let first = project
+        .step("data/regions.av.sql", at("LOAD DATA OVERWRITE"))
+        .await;
+    assert_eq!(rows(first.unwrap()).await, 2);
+    let east = project.step("data/regions.av.sql", at("CREATE TEMP")).await;
+    assert_eq!(rows(east.unwrap()).await, 1);
+    // The session keeps the script's final table, of both loads, and no temporary table.
+    let session = project.session();
+    assert_eq!(rows(session.table("regions").await.unwrap()).await, 4);
+    assert!(session.table("east").await.is_err());
+}

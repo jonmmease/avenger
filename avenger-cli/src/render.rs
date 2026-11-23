@@ -337,7 +337,7 @@ impl Target {
     /// Shows the statement `statement` of the target's text: the script's value as the target's
     /// text, and another statement as a chart script of its own at [`STATEMENT_PATH`].
     fn show(&mut self, statement: Statement) {
-        if statement.shows != Shows::Value {
+        if !matches!(statement.shows, Shows::Value | Shows::Step(_)) {
             let text = statement.text(&self.text);
             let project = self.analysis.project_mut();
             project.add(STATEMENT_PATH, FileRole::Chart, text.as_str());
@@ -472,6 +472,35 @@ pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
         let reports = check_text(analysis, loader, &target.script, file.text, false, &file).await;
         if (reports.iter()).any(|report| report.severity == Severity::Error) {
             return Err(Failure::Reports(reports));
+        }
+        // A step of the script builds its table again, apart from the project's session.
+        if let Some(
+            statement @ Statement {
+                shows: Shows::Step(_),
+                ..
+            },
+        ) = &target.statement
+        {
+            return (loader.step(&target.script, statement.start).await).map_err(|errors| {
+                let reports = (errors.into_iter())
+                    .map(|error| {
+                        let span = (
+                            usize::from(error.range.start()),
+                            usize::from(error.range.end()),
+                        );
+                        Report::at(
+                            &target.file,
+                            file.text,
+                            span,
+                            Severity::Error,
+                            error.message,
+                            "loader",
+                        )
+                        .with_help(error.help)
+                    })
+                    .collect();
+                Failure::Reports(reports)
+            });
         }
     }
     // The script's errors, as `check` reports them, keep it from running.

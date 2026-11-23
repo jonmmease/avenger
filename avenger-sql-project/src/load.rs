@@ -13,6 +13,7 @@ use avenger_sql::{
     catalog::{references, Catalog, FilesTable, SessionCatalog},
     data::{
         file_reads, file_table, file_urls, lower, DataAnalysis, Files, Registered, Registration,
+        ScriptTables,
     },
     library::Library,
     project::{
@@ -731,6 +732,86 @@ impl LoadedProject {
         path: &str,
         files: &mut Vec<(Files, FilesTable)>,
     ) -> Result<LoadedScript, Vec<ProjectDiagnostic>> {
+        let (analysis, catalog) = self.analyze_script(path, files).await?;
+        let diagnostic = |range: TextRange, message: String| ProjectDiagnostic {
+            path: path.to_string(),
+            range,
+            message,
+            help: None,
+        };
+        let schemas_before = self.schema_names();
+        match lower(&self.ctx, &analysis, &catalog).await {
+            Ok(registered) => {
+                let created_schemas = (registered.iter())
+                    .filter(|registered| matches!(registered.registration, Registration::Schema(_)))
+                    .map(|registered| analysis.definitions[registered.definition].names[0].clone())
+                    .filter(|name| {
+                        avenger_sql::catalog::find(schemas_before.clone(), name).is_none()
+                    })
+                    .collect();
+                Ok(LoadedScript {
+                    analysis,
+                    registered,
+                    created_schemas,
+                })
+            }
+            Err(errors) => Err((errors.into_iter())
+                .map(|error| {
+                    diagnostic(analysis.definitions[error.definition].range, error.message)
+                })
+                .collect()),
+        }
+    }
+
+    /// The table of the data script at `path` after its statement that holds the offset `at` of
+    /// its text: a step of the script, such as a temporary table, or a table that a later
+    /// statement of the script loads into again, which the session doesn't hold as the statement
+    /// left it. The script's statements through that one build their tables again, and register
+    /// nothing, so the session keeps the script's final tables. The error is the script's own,
+    /// at its places in the script.
+    pub async fn step(&self, path: &str, at: usize) -> Result<DataFrame, Vec<ProjectDiagnostic>> {
+        let (analysis, catalog) = self.analyze_script(path, &mut Vec::new()).await?;
+        let failure = |range: TextRange, message: String| {
+            vec![ProjectDiagnostic {
+                path: path.to_string(),
+                range,
+                message,
+                help: None,
+            }]
+        };
+        let start = TextRange::empty(Offset::from(0));
+        let offset = Offset::from(at as u32);
+        let Some(index) = (analysis.definitions.iter())
+            .position(|definition| definition.range.contains_inclusive(offset))
+        else {
+            return Err(failure(
+                start,
+                "no statement of the script makes a table there".into(),
+            ));
+        };
+        let definitions = &analysis.definitions[..=index];
+        let tables = ScriptTables::build(&self.ctx, definitions, &catalog)
+            .await
+            .map_err(|errors| {
+                (errors.into_iter())
+                    .flat_map(|error| failure(definitions[error.definition].range, error.message))
+                    .collect::<Vec<_>>()
+            })?;
+        let range = definitions[index].range;
+        let Some(table) = tables.table(index) else {
+            return Err(failure(range, "the statement makes no table".into()));
+        };
+        (self.ctx.read_table(table)).map_err(|error| failure(range, error.to_string()))
+    }
+
+    /// The analysis of the data script at `path`, without errors, with its catalog, which holds
+    /// the definitions of the scripts that it reads. The table of each set of files that it
+    /// reads goes to `files`, also when its analysis fails.
+    async fn analyze_script(
+        &self,
+        path: &str,
+        files: &mut Vec<(Files, FilesTable)>,
+    ) -> Result<(DataAnalysis, ProjectCatalog), Vec<ProjectDiagnostic>> {
         let text = &self.texts[path];
         let diagnostic =
             |range: TextRange, message: String, help: Option<String>| ProjectDiagnostic {
@@ -774,29 +855,7 @@ impl LoadedProject {
                 .map(|error| diagnostic(error.range, error.message.clone(), None))
                 .collect());
         }
-        let schemas_before = self.schema_names();
-        match lower(&self.ctx, &analysis, &catalog).await {
-            Ok(registered) => {
-                let created_schemas = (registered.iter())
-                    .filter(|registered| matches!(registered.registration, Registration::Schema(_)))
-                    .map(|registered| analysis.definitions[registered.definition].names[0].clone())
-                    .filter(|name| {
-                        avenger_sql::catalog::find(schemas_before.clone(), name).is_none()
-                    })
-                    .collect();
-                Ok(LoadedScript {
-                    analysis,
-                    registered,
-                    created_schemas,
-                })
-            }
-            Err(errors) => Err((errors.into_iter())
-                .map(|error| {
-                    let range = analysis.definitions[error.definition].range;
-                    diagnostic(range, error.message, None)
-                })
-                .collect()),
-        }
+        Ok((analysis, catalog))
     }
 
     /// The errors of the graph at the script at `path`, one at each of their places in it.

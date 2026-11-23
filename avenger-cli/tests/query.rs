@@ -608,33 +608,44 @@ fn a_data_script_s_statement_shows_its_table_as_the_project_holds_it() {
     .unwrap();
     let (status, csv, _) = rows_of(&root, "data/loads.av.sql:4");
     assert_eq!((status, csv.lines().count()), (0, 7));
-    let (status, _, stderr) = rows_of(&root, "data/loads.av.sql:1");
-    assert_eq!(status, 2);
-    assert_eq!(
-        stderr.trim(),
-        "error: data/loads.av.sql:1: the statement at line 1 makes `regions_twice`, which the \
-         statement at line 3 loads again; the table shows at line 3"
+    // The first load shows its own rows, as a step that builds the table again.
+    let (status, csv, stderr) = rows_of(&root, "data/loads.av.sql:1");
+    assert_eq!((status, csv.lines().count(), stderr.as_str()), (0, 4, ""));
+    // The project's table is the script's final one.
+    let (_, csv, _) = text(
+        &root,
+        &[
+            "query",
+            "--output",
+            "csv",
+            "FROM regions_twice |> AGGREGATE COUNT(*) AS n",
+        ],
     );
+    assert_eq!(csv, "n\n6\n");
 }
 
 #[test]
 fn a_data_script_s_target_names_its_tables_and_its_errors() {
     let (_directory, root) = project();
-    // A temporary table, which only its script reads, shows nothing.
-    let (status, _, stderr) = rows_of(&root, "data/summaries.av.sql:2");
-    assert_eq!(status, 2);
-    assert_eq!(
-        stderr.trim(),
-        "error: data/summaries.av.sql:2: the statement at line 2 makes the temporary table \
-         `heavy`, which only its script reads"
-    );
+    // A temporary table, which only its script reads, shows its rows as a step.
+    let (status, csv, stderr) = rows_of(&root, "data/summaries.av.sql:3");
+    assert_eq!((status, stderr.as_str()), (0, ""));
+    assert!(csv.starts_with("Acceleration,Cylinders,"), "{csv}");
+    let heavy = csv.lines().count() - 1;
+    // The statement after it that reads it shows from the project's session, as before.
+    let (_, origins, _) = rows_of(&root, "data/summaries.av.sql:7");
+    let cars: usize = (origins.lines().skip(1))
+        .map(|line| line.rsplit(',').next().unwrap().parse::<usize>().unwrap())
+        .sum();
+    assert_eq!(cars, heavy);
     // A data script without a line has no value, and lists the lines of its tables.
     let (status, _, stderr) = rows_of(&root, "data/summaries.av.sql");
     assert_eq!(status, 2);
     assert_eq!(
         stderr.trim(),
         "error: data/summaries.av.sql: a data script has no value; name a table by its line: \
-         data/summaries.av.sql:7 for `heavy_by_origin`, data/summaries.av.sql:12 for `wet_days`"
+         data/summaries.av.sql:2 for `heavy`, data/summaries.av.sql:7 for `heavy_by_origin`, \
+         data/summaries.av.sql:12 for `wet_days`"
     );
     // A data script that doesn't load gives its errors at their places, and no rows.
     let summaries = std::fs::read_to_string(root.join("data/summaries.av.sql")).unwrap();

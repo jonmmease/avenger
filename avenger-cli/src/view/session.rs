@@ -210,6 +210,9 @@ impl Session {
             }
         }
         let target = &self.target;
+        // A data script's statement runs again when a load changes a table, since a step builds
+        // its table from the script and its files, which a chart's reads don't show.
+        run |= target.data && !changes.is_empty();
         if !changes.is_empty() || !reading.is_empty() {
             let schema = target.loader.default_schema().await;
             let chart = [(target.path.as_str(), target.text.as_str())];

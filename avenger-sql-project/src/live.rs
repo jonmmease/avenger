@@ -26,7 +26,7 @@ use datafusion::{
 use tokio::sync::RwLock;
 
 use crate::{
-    load::{ChartError, FilesReload, LoadedProject, ScriptStatus, TableChange},
+    load::{ChartError, FilesReload, LoadedProject, ProjectDiagnostic, ScriptStatus, TableChange},
     project::{ProjectError, ProjectFiles},
     qmd::{cell_path, set_cells, Qmd},
 };
@@ -186,6 +186,12 @@ impl Loader {
     /// [`LoadedProject::run_chart`] runs it.
     pub async fn run_chart(&self, path: &str, text: &str) -> Result<DataFrame, ChartError> {
         self.project.read().await.run_chart(path, text).await
+    }
+
+    /// The table of the data script at `path` after its statement at the offset `at` of its
+    /// text, as [`LoadedProject::step`] builds it.
+    pub async fn step(&self, path: &str, at: usize) -> Result<DataFrame, Vec<ProjectDiagnostic>> {
+        self.project.read().await.step(path, at).await
     }
 
     /// The lifted form of the chart script at `path`, whose text is `text`, as
