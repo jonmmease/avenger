@@ -10,6 +10,7 @@ avenger fmt --check        # list the files that need formatting, and change non
 avenger lsp                # serve the Language Server Protocol to an editor
 avenger render charts/revenue.av.sql -o revenue.png   # draw a chart to PNG, SVG, or PDF
 avenger render reports/overview.qmd#fig-sales -o sales.svg --size 640x400 --color-scheme dark
+avenger view charts/revenue.av.sql                     # a window that reloads as files change
 ```
 
 ## Files and projects
@@ -39,6 +40,10 @@ A result of one row whose one column holds a chart is that chart. Any other resu
 `--size WxH` is the size of a chart, in pixels: of the chart alone, or of each chart of a table. `Wx` and `xH` fix one side. Without it, a chart takes its own width and height, or its natural size, the sizes of its plots and what stands around them, and a table's columns and rows take the largest natural sizes of their charts. `--scale` is the pixel density of PNG, so `--scale 2` doubles its pixels without changing the layout. `--color-scheme light|dark` sets the color scheme that the stylesheets' `prefers-color-scheme` tests and the background that the image draws on, white or `#1e1e1e`, which the stylesheets read as `env(background)`. `--style CSS` adds a stylesheet after the project's, and `--mode NAME`, which repeats, turns on a mode of the chart. The images of a chart, such as the tiles of a map, load with the program's User-Agent through a disk cache in the platform's cache directory, and `render` waits for them for up to `--timeout` seconds (30 by default), then draws without the missing ones and warns.
 
 `avenger render --all -o DIR [PATH]` renders each chart script and cell of the project of `PATH`, or of the current directory, into `DIR`, one image each, in the format of `--format` (`png` by default), named after its path with `/` and `#` as `-`, such as `charts-revenue.av.sql.png` and `reports-overview.qmd-2.png`. A chart that does not render reports its error, and the others render. PNG draws on a GPU through wgpu, and without one, `render` fails and names SVG, which needs none.
+
+`avenger view <CHART>` opens a native window on the result of a chart script, or of a cell, named as `render` names it, and keeps it current. The window shows the result as the editor does: the chart alone, live, so it pans, zooms, selects, and shows its tooltips, or the table of the result, whose columns and rows resize, whose chart cells open their charts over the table until Back or Escape, and whose cells run their charts' apps with Interactive cells. Two buttons switch between the light and the dark color scheme, which starts from the system's, or from `--color-scheme light|dark`.
+
+The window watches the project's files. A change of the chart's own text runs it again, and so does a change of a data script or a module that it reads, through a table that changed or an import, or of a data file that such a data script reads. A change of a stylesheet restyles the chart without running it, a change of the manifest opens the project again, and a change of another chart does nothing. A chart that runs again keeps its pans, zooms, and selections. A run that fails keeps the result before, and its errors show in a bar at the bottom of the window and on standard error. A cell named by its label keeps its label as its document changes around it.
 
 ## Output
 

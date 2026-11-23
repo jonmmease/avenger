@@ -15,6 +15,7 @@ mod fmt;
 pub mod lsp;
 mod render;
 mod report;
+pub mod view;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -59,6 +60,15 @@ enum Command {
         /// Change no file, and list the files that formatting would change.
         #[arg(long)]
         check: bool,
+    },
+    /// Open a window on the result of a chart script, or of a cell of a Quarto document, which
+    /// stays current as the project's files change.
+    View {
+        /// A chart script, or a cell as `report.qmd#NUMBER` or `report.qmd#LABEL`.
+        target: String,
+        /// The color scheme that the window starts in: light or dark. Without it, the system's.
+        #[arg(long)]
+        color_scheme: Option<String>,
     },
     /// Render the chart of a chart script, or of a cell of a Quarto document, to PNG, SVG, or PDF
     /// by the extension of `-o`, as the editor draws it. A result of several charts renders as a
@@ -147,6 +157,29 @@ pub fn main() -> ExitCode {
             }
         };
     }
+    if let Command::View {
+        target,
+        color_scheme,
+    } = &cli.command
+    {
+        let scheme = match color_scheme.as_deref() {
+            None => None,
+            Some("light") => Some(avenger_style::ColorScheme::Light),
+            Some("dark") => Some(avenger_style::ColorScheme::Dark),
+            Some(other) => {
+                eprintln!("error: `--color-scheme {other}`: the color schemes are light and dark");
+                return ExitCode::from(2);
+            }
+        };
+        // The window takes this thread, as a native window needs on macOS.
+        return match view::run(target.clone(), scheme) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let output = Output::new(cli.json);
     // The futures of a loaded project are not `Send`, so they run on this thread.
     let runtime = match tokio::runtime::Builder::new_current_thread().build() {
@@ -213,7 +246,7 @@ pub fn main() -> ExitCode {
             apps.shutdown_background();
             result
         })(),
-        Command::Lsp => unreachable!("the server runs above"),
+        Command::Lsp | Command::View { .. } => unreachable!("these run above"),
     };
     match result {
         Ok(Status::Ok) => ExitCode::SUCCESS,
