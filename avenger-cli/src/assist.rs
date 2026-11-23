@@ -11,7 +11,7 @@ use crate::{at::At, report::Output, Status};
 pub async fn complete(at: &str, limit: usize, output: &Output) -> Result<Status, String> {
     let at = At::resolve(at).await?;
     let document = at.document();
-    let completions = document.completions(at.offset);
+    let completions = at.completions();
     // An editor keeps the items that start with what the user typed before the cursor, and the
     // command keeps them at once: the text from the start of the range to the cursor, and the
     // labels, without the quotes of a string or a quoted name.
@@ -82,7 +82,7 @@ pub async fn complete(at: &str, limit: usize, output: &Output) -> Result<Status,
 /// Prints the signature help at `at`, `PATH:LINE:COLUMN`.
 pub async fn signature(at: &str, output: &Output) -> Result<Status, String> {
     let at = At::resolve(at).await?;
-    let Some(help) = at.document().signature_help(at.offset) else {
+    let Some(help) = at.signature_help() else {
         if output.json() {
             let mut fields = serde_json::Map::new();
             fields.insert("signatures".into(), json!([]));
@@ -147,6 +147,7 @@ fn kind(kind: CompletionKind) -> &'static str {
         CompletionKind::Function(FunctionRole::Window) => "window function",
         CompletionKind::Function(FunctionRole::Table) => "table function",
         CompletionKind::Function(_) => "function",
+        CompletionKind::Constant => "constant",
         CompletionKind::Parameter => "parameter",
         CompletionKind::EnumValue => "value",
         CompletionKind::Type => "type",

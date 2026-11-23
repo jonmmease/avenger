@@ -498,6 +498,10 @@ impl Project {
     /// without one, and another name as [`Document::definition`] defines it.
     pub fn definition(&self, path: &str, offset: Offset) -> Option<ProjectLink> {
         let document = self.document(path)?;
+        // A module's member, by a qualified name, before a name of the document.
+        if let Some(link) = self.member_definition(path, offset) {
+            return Some(link);
+        }
         if let Some(link) = self.module_definition(document, offset) {
             return Some(link);
         }
@@ -537,17 +541,23 @@ impl Project {
                     .filter(|path| path.range().contains_inclusive(offset))
             })?;
         let names = import.names()?;
-        let (path, file) = self.files.iter().find(|(_, file)| {
-            matches!(&file.role, FileRole::Module { names: module } if same_path(module, &names))
-        })?;
-        let module = ast::Module::cast(file.document.root())
+        let (path, document) = self.module_file(&names)?;
+        let module = ast::Module::cast(document.root())
             .and_then(|module| module.module_stmt())
             .map(|stmt| crate::trimmed(stmt.syntax()));
         Some(ProjectLink {
             origin: import.range(),
-            path: path.clone(),
+            path: path.to_string(),
             target: module.unwrap_or_default(),
         })
+    }
+
+    /// The path and the document of the module whose path is `names`.
+    pub(crate) fn module_file(&self, names: &[String]) -> Option<(&str, &Document)> {
+        let (path, file) = self.files.iter().find(|(_, file)| {
+            matches!(&file.role, FileRole::Module { names: module } if same_path(module, names))
+        })?;
+        Some((path, &file.document))
     }
 
     /// The uses of the definition of the name at `offset` in the file at `path`, and the names
@@ -564,6 +574,13 @@ impl Project {
             range: reference.range,
             definition: reference.definition,
         };
+        // A module's member: its names across the project.
+        if let Some(found) = self.member_at(path, offset) {
+            if !matches!(found.at, Some((_, crate::members::Part::Qualifier))) {
+                let references = self.member_references(&found.module, &found.member);
+                return references.into_values().flatten().collect();
+            }
+        }
         match document.table_at(offset) {
             Some(table) => (self.table_references(path, &table).into_iter())
                 .flat_map(|(path, references)| {
@@ -618,6 +635,9 @@ impl Project {
         let document = self
             .document(path)
             .ok_or_else(|| format!("No file {path} in the project"))?;
+        if let Some(range) = self.member_rename_range(path, offset) {
+            return Ok(range);
+        }
         let Some(table) = document.table_at(offset) else {
             return document.prepare_rename(offset);
         };
@@ -652,9 +672,10 @@ impl Project {
         self.prepare_rename(path, offset)?;
         let document = &self.files[path].document;
         let table = document.table_at(offset);
-        let edits = match &table {
-            Some(table) => self.table_edits(path, table, name)?,
-            None => BTreeMap::from([(path.to_string(), document.rename(offset, name)?)]),
+        let edits = match (self.member_edits(path, offset, name), &table) {
+            (Some(edits), _) => edits?,
+            (None, Some(table)) => self.table_edits(path, table, name)?,
+            (None, None) => BTreeMap::from([(path.to_string(), document.rename(offset, name)?)]),
         };
 
         // The renamed project must mean what the project means: no new error in any file,

@@ -50,6 +50,34 @@ impl Target<'_> {
             Target::Loose(document) => document,
         }
     }
+
+    /// The hover at `offset`: of a project's file, with the members of its modules.
+    fn hover(&self, offset: Offset) -> Option<avenger_sql_language::Hover> {
+        match self {
+            Target::Project { path, state, .. } => state.analysis.project().hover(path, offset),
+            Target::Loose(document) => document.hover(offset),
+        }
+    }
+
+    /// The completions at `offset`: of a project's file, with the members of its modules.
+    fn completions(&self, offset: Offset) -> avenger_sql_language::Completions {
+        match self {
+            Target::Project { path, state, .. } => {
+                state.analysis.project().completions(path, offset)
+            }
+            Target::Loose(document) => document.completions(offset),
+        }
+    }
+
+    /// The signature help at `offset`: of a project's file, with the members of its modules.
+    fn signature_help(&self, offset: Offset) -> Option<avenger_sql_language::SignatureHelp> {
+        match self {
+            Target::Project { path, state, .. } => {
+                state.analysis.project().signature_help(path, offset)
+            }
+            Target::Loose(document) => document.signature_help(offset),
+        }
+    }
 }
 
 /// A file of the analysis in a file of the client, and its place there.
@@ -200,7 +228,7 @@ impl Server {
         let Some((part, offset)) = self.at(&params.text_document_position_params) else {
             return answer(Value::Null);
         };
-        let hover = part.target.document().hover(offset).map(|hover| Hover {
+        let hover = part.target.hover(offset).map(|hover| Hover {
             contents: HoverContents::Markup(markdown(hover.markdown)),
             range: Some(part.place.range(hover.range)),
         });
@@ -212,7 +240,7 @@ impl Server {
         let Some((part, offset)) = self.at(&params.text_document_position) else {
             return answer(Value::Null);
         };
-        let completions = part.target.document().completions(offset);
+        let completions = part.target.completions(offset);
         let place = &part.place;
         let (insert, replace) = (
             place.range(completions.range),
@@ -253,7 +281,7 @@ impl Server {
         let Some((part, offset)) = self.at(&params.text_document_position_params) else {
             return answer(Value::Null);
         };
-        let Some(help) = part.target.document().signature_help(offset) else {
+        let Some(help) = part.target.signature_help(offset) else {
             return answer(Value::Null);
         };
         let units = |text: &str| match self.encoding {

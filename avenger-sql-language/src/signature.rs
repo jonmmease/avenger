@@ -61,15 +61,7 @@ impl Document {
     pub fn signature_help(&self, offset: Offset) -> Option<SignatureHelp> {
         let offset = self.clamp(offset);
         let root = self.root();
-        let token = root.token_at_offset(offset).left_biased()?;
-        let list = (token.parent_ancestors())
-            .filter_map(ast::ArgList::cast)
-            .find(|list| {
-                let open = list.l_paren().map(|paren| paren.text_range().end());
-                let close = list.r_paren().map(|paren| paren.text_range().start());
-                open.is_some_and(|open| open <= offset) && close.is_none_or(|close| offset <= close)
-            })?;
-        let call = list.syntax().parent()?;
+        let (list, call) = call_at(&root, offset)?;
         let name = callee(&call)?;
         let at = at(&list, offset);
         // A constructor of a chart's option comes before a temporary function of its name.
@@ -108,6 +100,46 @@ impl Document {
             signatures,
             active_signature,
         })
+    }
+}
+
+/// The argument list that holds `offset`, between its parentheses, and its call, table function,
+/// or pipe `CALL`.
+pub(crate) fn call_at(root: &SyntaxNode, offset: Offset) -> Option<(ast::ArgList, SyntaxNode)> {
+    let token = root.token_at_offset(offset).left_biased()?;
+    let list = (token.parent_ancestors())
+        .filter_map(ast::ArgList::cast)
+        .find(|list| {
+            let open = list.l_paren().map(|paren| paren.text_range().end());
+            let close = list.r_paren().map(|paren| paren.text_range().start());
+            open.is_some_and(|open| open <= offset) && close.is_none_or(|close| offset <= close)
+        })?;
+    let call = list.syntax().parent()?;
+    Some((list, call))
+}
+
+/// The signature help of a call whose argument list `list` holds `offset`, of the function that
+/// `create` defines, which the call names `name`, as a qualified name of a module's member.
+pub(crate) fn function_help(
+    create: &ast::CreateFunctionStmt,
+    name: &str,
+    list: &ast::ArgList,
+    offset: Offset,
+) -> SignatureHelp {
+    let mut signature = temporary_signature(create, &at(list, offset));
+    let written = (create.name_path())
+        .map(|path| path.syntax().to_string())
+        .unwrap_or_default();
+    // The label starts with the name that the call writes, and the parameters' ranges move.
+    let shift = name.len() as isize - written.len() as isize;
+    signature.label = format!("{name}{}", &signature.label[written.len()..]);
+    for parameter in &mut signature.parameters {
+        let range = &mut parameter.range;
+        *range = (range.start as isize + shift) as usize..(range.end as isize + shift) as usize;
+    }
+    SignatureHelp {
+        signatures: vec![signature],
+        active_signature: 0,
     }
 }
 
