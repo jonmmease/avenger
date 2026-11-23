@@ -1,6 +1,7 @@
 //! A target at a line, `FILE:LINE`, and the statement that it names: the top-level statement of
 //! a script, or of a cell, that holds the line, and the text that runs it, so a chart script's
-//! earlier query shows its rows, and a statement that makes a table shows the table.
+//! earlier query shows its rows, a statement that makes a table shows the table, and a data
+//! script's statement shows its table as the project's session holds it.
 
 use avenger_sql_project::qmd::{Cell, Qmd};
 use avenger_sql_syntax::{
@@ -30,28 +31,34 @@ pub(crate) enum Shows {
     Value,
     /// Another query's rows: its ordinal among the script's queries, from 1.
     Query(usize),
-    /// The table that the statement makes, by its path as the statement writes it.
+    /// The table that a chart script's statement makes, by its path as the statement writes it.
     Table(String),
+    /// The table that a data script's statement makes, as the project's session holds it after
+    /// the script loads, by its path as the statement writes it.
+    Loaded(String),
 }
 
-/// The statement at a line: what it shows, the line of its first token, from 1, and the end of
-/// its last token in the text.
+/// The statement at a line: what it shows, the line of its first token, from 1, and the range
+/// of its tokens in the text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Statement {
     pub(crate) shows: Shows,
     pub(crate) line: usize,
+    pub(crate) start: usize,
     pub(crate) end: usize,
 }
 
 impl Statement {
-    /// The text that runs the statement in a chart script whose text is `text`: the whole text
+    /// The text of a chart script that runs the statement of the script `text`: the whole text
     /// for its value, the text through the statement for another query, which becomes the
-    /// script's last, and the text through the statement and a query of its table for a table.
+    /// script's last, the text through the statement and a query of its table for a chart's
+    /// table, and a query of a data script's table in the project's session.
     pub(crate) fn text(&self, text: &str) -> String {
         match &self.shows {
             Shows::Value => text.to_string(),
             Shows::Query(_) => text[..self.end].to_string(),
             Shows::Table(path) => format!("{};\nFROM {path}\n", &text[..self.end]),
+            Shows::Loaded(path) => format!("FROM {path}\n"),
         }
     }
 }
@@ -75,76 +82,164 @@ fn token_range(node: &SyntaxNode) -> Option<(usize, usize)> {
     ))
 }
 
-/// The statement of the chart script `text` at its line `line`, from 1: the top-level statement
-/// whose first token and last token are on the line or around it, the first of two that start on
-/// it. The errors name lines of the file, which has `before` lines before the text, as a cell's
-/// document does.
-pub(crate) fn at_line(text: &str, line: usize, before: usize) -> Result<Statement, String> {
-    let place = |line: usize| line + before;
-    let root = avenger_sql_syntax::parse(text).syntax();
-    let Some(script) = ast::Script::cast(root) else {
-        return Err("the text is no script".to_string());
+/// The kind of a script, which parses with its own grammar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Script {
+    Chart,
+    Data,
+}
+
+/// A top-level statement of a script, with the range of its tokens and the lines of its first
+/// token and its last.
+struct Located {
+    stmt: ast::Stmt,
+    start: usize,
+    end: usize,
+    first: usize,
+    last: usize,
+}
+
+/// The top-level statements of the script `text`, of the kind `script`, in order.
+fn statements(text: &str, script: Script) -> Vec<Located> {
+    let parse = match script {
+        Script::Chart => avenger_sql_syntax::parse(text),
+        Script::Data => avenger_sql_syntax::parse_data(text),
     };
-    let mut statements = Vec::new();
-    for stmt in script.stmts() {
-        if let Some((start, end)) = token_range(stmt.syntax()) {
-            statements.push((stmt, start, end, line_of(text, start), line_of(text, end)));
+    let Some(root) = ast::Script::cast(parse.syntax()) else {
+        return Vec::new();
+    };
+    (root.stmts())
+        .filter_map(|stmt| {
+            let (start, end) = token_range(stmt.syntax())?;
+            Some(Located {
+                stmt,
+                start,
+                end,
+                first: line_of(text, start),
+                last: line_of(text, end),
+            })
+        })
+        .collect()
+}
+
+/// The table that a statement makes: its path as the statement writes it, the path as a name
+/// that compares, without quotes and in lowercase, and whether the table is temporary.
+fn table(stmt: &ast::Stmt) -> Option<(String, String, bool)> {
+    let (path, scope) = match stmt {
+        ast::Stmt::CreateTableStmt(create) => (create.path(), create.scope()),
+        ast::Stmt::CreateExternalTableStmt(create) => (create.path(), create.scope()),
+        ast::Stmt::CreateViewStmt(create) => (create.path(), create.scope()),
+        ast::Stmt::LoadDataStmt(load) => (load.path(), load.scope()),
+        _ => return None,
+    };
+    let written = path?.syntax().text().to_string();
+    let name: String = (written.chars())
+        .filter(|c| *c != '`' && !c.is_whitespace())
+        .collect::<String>()
+        .to_lowercase();
+    let temporary = scope.is_some_and(|scope| {
+        matches!(
+            scope.kind(),
+            avenger_sql_syntax::SyntaxKind::TEMP_KW | avenger_sql_syntax::SyntaxKind::TEMPORARY_KW
+        )
+    });
+    Some((written, name, temporary))
+}
+
+/// The tables of the data script `text` that a target can show, each by its path as its last
+/// statement writes it and that statement's line, in order: a table that another script reads,
+/// not a temporary one.
+pub(crate) fn data_tables(text: &str) -> Vec<(String, usize)> {
+    let statements = statements(text, Script::Data);
+    let mut tables: Vec<(String, String, usize)> = Vec::new();
+    for located in &statements {
+        if let Some((written, name, false)) = table(&located.stmt) {
+            tables.retain(|(_, other, _)| *other != name);
+            tables.push((written, name, located.first));
         }
     }
-    let Some(index) =
-        (statements.iter()).position(|(_, _, _, first, last)| *first <= line && line <= *last)
-    else {
-        let before = (statements.iter()).rev().find(|(.., last)| *last < line);
-        let after = (statements.iter()).find(|(_, _, _, first, _)| *first > line);
+    tables.sort_by_key(|(_, _, line)| *line);
+    (tables.into_iter())
+        .map(|(written, _, line)| (written, line))
+        .collect()
+}
+
+/// The statement of the script `text`, of the kind `script`, at its line `line`, from 1: the
+/// top-level statement whose first token and last token are on the line or around it, the first
+/// of two that start on it. The errors name lines of the file, which has `before` lines before
+/// the text, as a cell's document does.
+///
+/// A data script's statement shows its table as the project's session holds it, so a statement
+/// of a temporary table, which no other script reads, and a statement of a table that a later
+/// statement loads into again, show nothing, and are errors.
+pub(crate) fn at_line(
+    text: &str,
+    line: usize,
+    before: usize,
+    script: Script,
+) -> Result<Statement, String> {
+    let place = |line: usize| line + before;
+    let statements = statements(text, script);
+    let Some(index) = (statements.iter()).position(|at| at.first <= line && line <= at.last) else {
+        let before = (statements.iter()).rev().find(|at| at.last < line);
+        let after = (statements.iter()).find(|at| at.first > line);
         let around = match (before, after) {
             (Some(before), Some(after)) => format!(
                 "the statements around it start at lines {} and {}",
-                place(before.3),
-                place(after.3)
+                place(before.first),
+                place(after.first)
             ),
             (Some(before), None) => {
-                format!("the last statement starts at line {}", place(before.3))
+                format!("the last statement starts at line {}", place(before.first))
             }
             (None, Some(after)) => {
-                format!("the first statement starts at line {}", place(after.3))
+                format!("the first statement starts at line {}", place(after.first))
             }
             (None, None) => "the text has no statements".to_string(),
         };
         return Err(format!("no statement holds the line; {around}"));
     };
-    let (stmt, _, end, first, _) = &statements[index];
+    let at = &statements[index];
     let queries: Vec<usize> = (statements.iter().enumerate())
-        .filter(|(_, (stmt, ..))| matches!(stmt, ast::Stmt::Query(_)))
+        .filter(|(_, at)| matches!(at.stmt, ast::Stmt::Query(_)))
         .map(|(index, _)| index)
         .collect();
-    let path = |path: Option<ast::Path>| match path {
-        Some(path) => Ok(Shows::Table(path.syntax().text().to_string())),
-        None => Err(format!(
-            "the statement at line {} names no table",
-            place(*first)
-        )),
-    };
-    let shows = match stmt {
-        ast::Stmt::Query(_) if queries.last() == Some(&index) => Shows::Value,
-        ast::Stmt::Query(_) => {
+    let no_rows = || format!("the statement at line {} has no rows", place(at.first));
+    let shows = match (&at.stmt, script) {
+        (ast::Stmt::Query(_), _) if queries.last() == Some(&index) => Shows::Value,
+        (ast::Stmt::Query(_), _) => {
             let ordinal = queries.iter().position(|&query| query == index);
             Shows::Query(ordinal.expect("a query of the script") + 1)
         }
-        ast::Stmt::CreateTableStmt(create) => path(create.path())?,
-        ast::Stmt::CreateExternalTableStmt(create) => path(create.path())?,
-        ast::Stmt::CreateViewStmt(create) => path(create.path())?,
-        ast::Stmt::LoadDataStmt(load) => path(load.path())?,
-        _ => {
-            return Err(format!(
-                "the statement at line {} has no rows",
-                place(*first)
-            ))
+        (stmt, Script::Chart) => Shows::Table(table(stmt).ok_or_else(no_rows)?.0),
+        (stmt, Script::Data) => {
+            let (written, name, temporary) = table(stmt).ok_or_else(no_rows)?;
+            if temporary {
+                return Err(format!(
+                    "the statement at line {} makes the temporary table `{written}`, which only \
+                     its script reads",
+                    place(at.first)
+                ));
+            }
+            let later = (statements[index + 1..].iter())
+                .find(|later| table(&later.stmt).is_some_and(|(_, other, _)| other == name));
+            if let Some(later) = later {
+                return Err(format!(
+                    "the statement at line {} makes `{written}`, which the statement at line {} \
+                     loads again; the table shows at line {}",
+                    place(at.first),
+                    place(later.first),
+                    place(later.first)
+                ));
+            }
+            Shows::Loaded(written)
         }
     };
     Ok(Statement {
         shows,
-        line: *first,
-        end: *end,
+        line: at.first,
+        start: at.start,
+        end: at.end,
     })
 }
 

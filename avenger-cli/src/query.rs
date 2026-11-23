@@ -261,12 +261,13 @@ async fn query_target(
         root: Some(opened.root),
         line: None,
         statement: None,
+        data: false,
     })
 }
 
-/// The query of `-f`: a chart script or a cell of a project, as `render` loads it, or another
-/// file of a project, whose text runs in it. A loose script runs as a project of one file. The
-/// project of the file loads once.
+/// The query of `-f`: a chart script, a cell, or a data script's statement, as `render` loads
+/// it, or another file of a project, whose text runs in it. A loose script runs as a project of
+/// one file. The project of the file loads once.
 async fn file_target(file: &str) -> Result<Target, String> {
     // A file of a project without the role of a chart script runs in its project. A document's
     // errors, such as a cell that it lacks, are its own.
@@ -282,7 +283,7 @@ async fn file_target(file: &str) -> Result<Target, String> {
             let relative = relative.to_string_lossy().replace('\\', "/");
             if !matches!(
                 files.manifest().role(&relative),
-                Ok(Some(Role::ChartScript))
+                Ok(Some(Role::ChartScript | Role::DataScript))
             ) {
                 let text = (std::fs::read_to_string(&canonical))
                     .map_err(|error| format!("{file}: {error}"))?;

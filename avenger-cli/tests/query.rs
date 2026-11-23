@@ -548,13 +548,6 @@ fn a_line_without_a_statement_of_rows_is_an_error_that_says_where_they_are() {
             "{line}"
         );
     }
-    // A data script's statement waits for its own change.
-    let (status, _, stderr) = rows_of(&root, "data/summaries.av.sql:2");
-    assert_eq!(status, 2);
-    assert!(
-        stderr.contains("a statement of a data script or a module is no target"),
-        "{stderr}"
-    );
 }
 
 #[test]
@@ -589,4 +582,68 @@ fn a_target_splits_at_its_last_colon_only_before_digits() {
         Ok((r"C:\p\a.av.sql", Some(3)))
     );
     assert!(split_line("charts/a.av.sql:0").is_err());
+}
+
+#[test]
+fn a_data_script_s_statement_shows_its_table_as_the_project_holds_it() {
+    let (_directory, root) = project();
+    // Any line of a statement that makes a table, a view, or a table of files.
+    let (status, csv, stderr) = rows_of(&root, "data/summaries.av.sql:8");
+    assert_eq!(
+        (status, csv.as_str(), stderr.as_str()),
+        (0, "Origin,cars\nEurope,11\nUSA,163\n", "")
+    );
+    let (status, csv, _) = rows_of(&root, "data/summaries.av.sql:12");
+    assert_eq!((status, csv.lines().count()), (0, 624));
+    let (status, csv, _) = rows_of(&root, "data/vega_datasets.av.sql:7");
+    assert!(
+        status == 0 && csv.starts_with("date,precipitation,"),
+        "{csv}"
+    );
+    // A table that a later statement loads into again shows after that statement.
+    std::fs::write(
+        root.join("data/loads.av.sql"),
+        "LOAD DATA INTO regions_twice\nFROM FILES (format = 'CSV', uris = ['data/files/regions.csv']);\nLOAD DATA INTO regions_twice\nFROM FILES (format = 'CSV', uris = ['data/files/regions.csv']);\n",
+    )
+    .unwrap();
+    let (status, csv, _) = rows_of(&root, "data/loads.av.sql:4");
+    assert_eq!((status, csv.lines().count()), (0, 7));
+    let (status, _, stderr) = rows_of(&root, "data/loads.av.sql:1");
+    assert_eq!(status, 2);
+    assert_eq!(
+        stderr.trim(),
+        "error: data/loads.av.sql:1: the statement at line 1 makes `regions_twice`, which the \
+         statement at line 3 loads again; the table shows at line 3"
+    );
+}
+
+#[test]
+fn a_data_script_s_target_names_its_tables_and_its_errors() {
+    let (_directory, root) = project();
+    // A temporary table, which only its script reads, shows nothing.
+    let (status, _, stderr) = rows_of(&root, "data/summaries.av.sql:2");
+    assert_eq!(status, 2);
+    assert_eq!(
+        stderr.trim(),
+        "error: data/summaries.av.sql:2: the statement at line 2 makes the temporary table \
+         `heavy`, which only its script reads"
+    );
+    // A data script without a line has no value, and lists the lines of its tables.
+    let (status, _, stderr) = rows_of(&root, "data/summaries.av.sql");
+    assert_eq!(status, 2);
+    assert_eq!(
+        stderr.trim(),
+        "error: data/summaries.av.sql: a data script has no value; name a table by its line: \
+         data/summaries.av.sql:7 for `heavy_by_origin`, data/summaries.av.sql:12 for `wet_days`"
+    );
+    // A data script that doesn't load gives its errors at their places, and no rows.
+    let summaries = std::fs::read_to_string(root.join("data/summaries.av.sql")).unwrap();
+    let broken = summaries.replace("COUNT(*) AS cars", "COUNT(nope) AS cars");
+    std::fs::write(root.join("data/summaries.av.sql"), broken).unwrap();
+    let (status, csv, stderr) = rows_of(&root, "data/summaries.av.sql:8");
+    assert_eq!((status, csv.as_str()), (1, ""));
+    assert!(
+        stderr.contains("data/summaries.av.sql:9:") && stderr.contains("nope"),
+        "{stderr}"
+    );
 }

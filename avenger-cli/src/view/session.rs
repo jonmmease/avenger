@@ -1,6 +1,7 @@
 //! The chart of a window, without the window: its project, loaded as `render` loads it, its runs,
 //! and what each change of the project's files does to it. A change of the chart's own text runs
-//! it again. A change of a data script or a module loads it again, and runs the chart again when
+//! it again, and a change of a data script whose statement the window shows loads the script
+//! again first. A change of a data script or a module loads it again, and runs the chart again when
 //! a table that it reads changed or it imports a module. A change of a data file loads the data
 //! scripts that read it, and runs the chart again on the same terms. A change of a stylesheet
 //! restyles the chart without running it, and a change of the manifest opens the project again.
@@ -115,6 +116,27 @@ impl Session {
         let mut changes = Vec::new();
         let mut reading = Vec::new();
         for path in paths {
+            if *path == self.target.file && self.target.data {
+                // A data script's statement shows its table after the script loads again.
+                let Ok(text) = std::fs::read_to_string(path) else {
+                    return self.reopen().await;
+                };
+                let target = &mut self.target;
+                match target.loader.reload(&target.script, text.clone()).await {
+                    Ok((tables, state)) => {
+                        let project = target.analysis.project_mut();
+                        project.set_texts([(target.script.clone(), text.clone())]);
+                        target.analysis.apply(&state);
+                        changes.extend(tables);
+                    }
+                    Err(_) => return self.reopen().await,
+                }
+                match self.own_text_changed(path) {
+                    Ok(()) => run = true,
+                    Err(error) => return vec![Outcome::Failed(vec![error])],
+                }
+                continue;
+            }
             if *path == self.target.file {
                 match self.own_text_changed(path) {
                     Ok(()) => run = true,
