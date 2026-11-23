@@ -2,7 +2,7 @@
 //! `path:line:column: severity: message` with the line of the text, and the files that
 //! formatting changes.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use avenger_sql_syntax::{line_column, Offset};
@@ -140,7 +140,7 @@ impl Output {
 
     /// The path `path` as the output writes it: relative to the current directory when it is
     /// under it, and otherwise as it is.
-    fn display(&self, path: &Path) -> String {
+    pub fn display(&self, path: &Path) -> String {
         let path = path.strip_prefix(&self.current).unwrap_or(path);
         path.to_string_lossy().replace('\\', "/")
     }
@@ -154,7 +154,42 @@ impl Output {
 
     /// Prints `reports`, in the order of their paths and their positions, and as text, a count
     /// of the errors and the warnings on standard error.
-    pub fn diagnostics(&self, mut reports: Vec<Report>) {
+    pub fn diagnostics(&self, reports: Vec<Report>) {
+        if self.json {
+            let value =
+                json!({"version": JSON_VERSION, "diagnostics": self.diagnostic_values(reports)});
+            println!("{value}");
+            return;
+        }
+        self.write_diagnostics(&mut std::io::stdout().lock(), reports);
+    }
+
+    /// `reports` as the values of JSON's `diagnostics`, in the order of their paths and their
+    /// positions.
+    pub fn diagnostic_values(&self, reports: Vec<Report>) -> Vec<serde_json::Value> {
+        (self.sorted(reports).iter())
+            .map(|report| {
+                let range = report.range.as_ref().map(|range| {
+                    let position = |p: Position| json!({"line": p.line, "column": p.column});
+                    json!({
+                        "start": position(range.start),
+                        "end": position(range.end),
+                        "bytes": [range.bytes.0, range.bytes.1],
+                    })
+                });
+                json!({
+                    "path": self.display(&report.path),
+                    "range": range,
+                    "severity": report.severity.name(),
+                    "message": report.message,
+                    "help": report.help,
+                    "source": report.source,
+                })
+            })
+            .collect()
+    }
+
+    fn sorted(&self, mut reports: Vec<Report>) -> Vec<Report> {
         reports.sort_by(|a, b| {
             (
                 self.display(&a.path),
@@ -167,31 +202,13 @@ impl Output {
                     b.severity,
                 ))
         });
-        if self.json {
-            let diagnostics: Vec<serde_json::Value> = (reports.iter())
-                .map(|report| {
-                    let range = report.range.as_ref().map(|range| {
-                        let position = |p: Position| json!({"line": p.line, "column": p.column});
-                        json!({
-                            "start": position(range.start),
-                            "end": position(range.end),
-                            "bytes": [range.bytes.0, range.bytes.1],
-                        })
-                    });
-                    json!({
-                        "path": self.display(&report.path),
-                        "range": range,
-                        "severity": report.severity.name(),
-                        "message": report.message,
-                        "help": report.help,
-                        "source": report.source,
-                    })
-                })
-                .collect();
-            let value = json!({"version": JSON_VERSION, "diagnostics": diagnostics});
-            println!("{value}");
-            return;
-        }
+        reports
+    }
+
+    /// Writes `reports` to `out` as text, in the order of their paths and their positions, and a
+    /// count of the errors and the warnings on standard error.
+    pub fn write_diagnostics(&self, out: &mut dyn Write, reports: Vec<Report>) {
+        let reports = self.sorted(reports);
         for report in &reports {
             let severity = match report.severity {
                 Severity::Error => self.paint("error", "1;31"),
@@ -206,7 +223,8 @@ impl Output {
                 ),
                 None => self.display(&report.path),
             };
-            println!(
+            let _ = writeln!(
+                out,
                 "{}: {severity}: {}",
                 self.paint(&place, "1"),
                 report.message
@@ -223,11 +241,11 @@ impl Output {
                     " ".repeat(range.start.column - 1),
                     "^".repeat(width)
                 );
-                println!(" {number} | {}", range.line);
-                println!(" {gutter} | {}", self.paint(&marker, "1;34"));
+                let _ = writeln!(out, " {number} | {}", range.line);
+                let _ = writeln!(out, " {gutter} | {}", self.paint(&marker, "1;34"));
             }
             if let Some(help) = &report.help {
-                println!("  = help: {help}");
+                let _ = writeln!(out, "  = help: {help}");
             }
         }
         let count = |severity| reports.iter().filter(|r| r.severity == severity).count();
@@ -243,6 +261,38 @@ impl Output {
                 plural(warnings, "warning")
             );
         }
+    }
+
+    /// Whether the output is JSON.
+    pub fn json(&self) -> bool {
+        self.json
+    }
+
+    /// Prints the JSON object of `fields`, with the output's version, and the field `key` of the
+    /// JSON text `raw` as it is, which a writer of its own wrote.
+    pub fn object_with(
+        &self,
+        key: &str,
+        raw: &[u8],
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) {
+        let mut object = serde_json::Map::new();
+        object.insert("version".into(), json!(JSON_VERSION));
+        object.extend(fields);
+        let text = serde_json::Value::Object(object).to_string();
+        let mut out = std::io::stdout().lock();
+        let _ = out.write_all(&text.as_bytes()[..text.len() - 1]);
+        let _ = write!(out, ",{}:", json!(key));
+        let _ = out.write_all(raw);
+        let _ = writeln!(out, "}}");
+    }
+
+    /// Prints the JSON object of `fields`, with the output's version.
+    pub fn object(&self, fields: serde_json::Map<String, serde_json::Value>) {
+        let mut object = serde_json::Map::new();
+        object.insert("version".into(), json!(JSON_VERSION));
+        object.extend(fields);
+        println!("{}", serde_json::Value::Object(object));
     }
 
     /// Prints the images `paths` that a render wrote.

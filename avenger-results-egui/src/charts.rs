@@ -1,7 +1,7 @@
 //! What the charts of a view share in egui: the surface that they draw on, from egui's visuals,
 //! how their images load, and the static chart of a table cell, which evaluates at the size that
 //! its cell gives it. The label engine, the preferences of a color scheme, and the cascade come
-//! from avenger-sql-project's `charts` module, so a window, an editor, and an image agree.
+//! from avenger-sql-project's `charts` module, so a window and an image agree.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

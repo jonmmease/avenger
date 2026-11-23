@@ -614,6 +614,25 @@ impl LoadedProject {
         changes(before, after, &default_schema(&self.ctx))
     }
 
+    /// The number of rows of the table or the view of the session at the path `names`, as a data
+    /// script writes it, which runs the view's query or reads the table's files.
+    pub async fn row_count(&self, names: &[String]) -> Result<usize, DataFusionError> {
+        let reference = match names {
+            [name] => TableReference::bare(name.as_str()),
+            [schema, name] => TableReference::partial(
+                avenger_sql::data::schema_name(&self.ctx, schema),
+                name.as_str(),
+            ),
+            _ => {
+                return Err(DataFusionError::Plan(format!(
+                    "no table `{}`",
+                    names.join(".")
+                )))
+            }
+        };
+        self.ctx.table(reference).await?.count().await
+    }
+
     /// Removes the tables and then the schemas that `script` registered from the session, and
     /// registers the tables that its tables replaced, such as tables of the host, again, and
     /// returns the paths of the script's tables.

@@ -2,7 +2,7 @@
 name = "avenger-cli"
 version = "0.1.0"
 edition = "2021"
-description = "The avenger command-line program: checking and formatting avenger-sql projects, for people, scripts, CI, and agents"
+description = "The avenger command-line program: checking, formatting, querying, and rendering avenger-sql projects, for people, scripts, CI, and agents"
 readme = "README.md"
 
 [lib]
@@ -22,7 +22,8 @@ avenger-image = { path = "../avenger-image" }
 avenger-pdf = { path = "../avenger-pdf" }
 avenger-results-egui = { path = "../avenger-results-egui" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-sql = { path = "../avenger-sql" }
+# Parquet, for the data files that data scripts read and the rows of `query --output parquet`.
+avenger-sql = { path = "../avenger-sql", features = ["parquet"] }
 avenger-sql-language = { path = "../avenger-sql-language" }
 avenger-sql-project = { path = "../avenger-sql-project" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
