@@ -21,6 +21,10 @@ use datafusion::{
 use super::encoding::{decoded, encoded, Encoding};
 use super::{cast, error::guard, lit_i64, lit_str, null_when, Call, CallError, Function};
 
+/// The note of the regex functions on `\C`, which avenger-sql rejects.
+const BYTE_NOTE: &str = "`\\C`, which matches one byte, is an error. GoogleSQL accepts it, and a \
+                         match of part of a character gives a string of invalid UTF-8.";
+
 pub(super) fn functions() -> Vec<Function> {
     vec![
         Function::scalar("CONCAT", "Joins strings, or bytes, into one.")
@@ -131,7 +135,8 @@ pub(super) fn functions() -> Vec<Function> {
             .example("FORMAT('%t is %T', DATE '2024-05-07', 'Tuesday')", "'2024-05-07 is \"Tuesday\"'"),
         Function::scalar("REGEXP_CONTAINS", "Returns whether a string has a match of a regular expression.")
             .param("value", "The string.")
-            .regex_param("regexp", "The regular expression, in RE2's syntax. A match anywhere in the string counts.")
+            .regex_param("regexp", "The regular expression, in [RE2's syntax](https://github.com/google/re2/wiki/Syntax). A match anywhere in the string counts.")
+            .note(BYTE_NOTE)
             .form("(value: STRING, regexp: STRING) -> BOOL", |call| {
                 check_pattern(call, 1)?;
                 Ok(re2::contains(call.arg(0), call.arg(1)))
@@ -140,7 +145,8 @@ pub(super) fn functions() -> Vec<Function> {
         Function::scalar("REGEXP_EXTRACT", "Returns the first match of a regular expression in a string.")
             .description("Returns `NULL` when the string has no match.")
             .param("value", "The string.")
-            .regex_param("regexp", "The regular expression, in RE2's syntax, with at most one capturing group. With a group, the result is the group's match, and without one, the whole match.")
+            .regex_param("regexp", "The regular expression, in [RE2's syntax](https://github.com/google/re2/wiki/Syntax), with at most one capturing group. With a group, the result is the group's match, and without one, the whole match.")
+            .note(BYTE_NOTE)
             .form("(value: STRING, regexp: STRING) -> STRING", |call| {
                 if let Some(groups) = check_pattern(call, 1)? {
                     if groups > 1 {
@@ -156,8 +162,9 @@ pub(super) fn functions() -> Vec<Function> {
             .example("REGEXP_EXTRACT('user@example.com', r'@(.+)')", "'example.com'"),
         Function::scalar("REGEXP_REPLACE", "Replaces every match of a regular expression in a string.")
             .param("value", "The string.")
-            .regex_param("regexp", "The regular expression, in RE2's syntax.")
+            .regex_param("regexp", "The regular expression, in [RE2's syntax](https://github.com/google/re2/wiki/Syntax).")
             .param("replacement", "The string that takes the place of each match, where `\\1` to `\\9` stand for the matches of the capturing groups, `\\0` for the whole match, and `\\\\` for a backslash. Every other character, `$` included, is itself, and any other escape is an error.")
+            .note(BYTE_NOTE)
             .form("(value: STRING, regexp: STRING, replacement: STRING) -> STRING", |call| {
                 let groups = check_pattern(call, 1)?;
                 if let (Some(groups), Some(Expr::Literal(value, _))) = (groups, call.value(2)) {
