@@ -367,3 +367,25 @@ fn errors_stop_a_render() {
         assert_eq!(status, 2, "{args:?}: {stderr}");
     }
 }
+
+#[test]
+fn a_statement_at_a_line_renders_its_rows_as_a_table() {
+    let (_directory, root) = project();
+    std::fs::write(
+        root.join("charts/steps.av.sql"),
+        "CREATE TEMP TABLE origins AS (\n  FROM vega_datasets.cars\n  |> AGGREGATE COUNT(*) AS cars GROUP BY Origin\n);\nFROM origins |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n",
+    )
+    .unwrap();
+    let (status, _, stderr) = avenger(
+        &root,
+        &["render", "charts/steps.av.sql:2", "-o", "origins.svg"],
+    );
+    assert_eq!(status, 0, "{stderr}");
+    let svg = std::fs::read_to_string(root.join("origins.svg")).unwrap();
+    // The table's rows: the counts of cars print as text, where the script's chart has bars.
+    assert!(svg.contains(">254<") && svg.contains(">79<"), "{svg}");
+    let (status, _, _) = avenger(&root, &["render", "charts/steps.av.sql", "-o", "chart.svg"]);
+    assert_eq!(status, 0);
+    let chart = std::fs::read_to_string(root.join("chart.svg")).unwrap();
+    assert!(!chart.contains(">254<"));
+}

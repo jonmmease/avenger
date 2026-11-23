@@ -253,11 +253,14 @@ async fn query_target(
         stylesheet,
         path: QUERY_PATH.to_string(),
         text,
+        script: QUERY_PATH.to_string(),
         file,
         document: None,
         cell: None,
         files: opened.files,
         root: Some(opened.root),
+        line: None,
+        statement: None,
     })
 }
 
@@ -267,8 +270,10 @@ async fn query_target(
 async fn file_target(file: &str) -> Result<Target, String> {
     // A file of a project without the role of a chart script runs in its project. A document's
     // errors, such as a cell that it lacks, are its own.
-    let document = (file.rsplit_once('#')).is_some_and(|(path, _)| is_document(path));
-    if !document && !is_document(file) {
+    // A target at a line names a statement, as `render` loads it.
+    let (path, line) = crate::statement::split_line(file)?;
+    let document = (path.rsplit_once('#')).is_some_and(|(path, _)| is_document(path));
+    if line.is_none() && !document && !is_document(file) {
         let canonical = std::fs::canonicalize(file).map_err(|error| format!("{file}: {error}"))?;
         if let Some(root) = find_root(&canonical) {
             let files = (ProjectFiles::find(&root).await)

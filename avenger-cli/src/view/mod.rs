@@ -33,8 +33,8 @@ enum Message {
     Outcome(Outcome),
 }
 
-/// Opens a window on `chart`, a chart script or `doc.qmd#NAME`, in the color scheme `scheme`, or
-/// the system's, until the window closes.
+/// Opens a window on `chart`, a chart script, `doc.qmd#NAME`, or a statement as `FILE:LINE`, in
+/// the color scheme `scheme`, or the system's, until the window closes.
 pub fn run(chart: String, scheme: Option<ColorScheme>) -> Result<(), String> {
     let title = format!("avenger view {chart}");
     let options = eframe::NativeOptions {

@@ -25,6 +25,7 @@ mod project;
 mod query;
 mod render;
 mod report;
+pub mod statement;
 pub mod view;
 
 use std::path::{Path, PathBuf};
@@ -140,7 +141,7 @@ enum Command {
         #[arg(required_unless_present = "file", conflicts_with = "file")]
         sql: Option<String>,
         /// A file of the query: a chart script, a cell as `report.qmd#NUMBER` or
-        /// `report.qmd#LABEL`, or another file of a project.
+        /// `report.qmd#LABEL`, a statement at a line as `FILE:LINE`, or another file of a project.
         #[arg(short, long)]
         file: Option<String>,
         /// A directory of the project of the query. Without it, the current directory.
@@ -171,7 +172,8 @@ enum Command {
     /// Open a window on the result of a chart script, or of a cell of a Quarto document, which
     /// stays current as the project's files change.
     View {
-        /// A chart script, or a cell as `report.qmd#NUMBER` or `report.qmd#LABEL`.
+        /// A chart script, a cell as `report.qmd#NUMBER` or `report.qmd#LABEL`, or the statement
+        /// at a line of either as `FILE:LINE`.
         target: String,
         /// The color scheme that the window starts in: light or dark. Without it, the system's.
         #[arg(long)]
@@ -181,8 +183,9 @@ enum Command {
     /// by the extension of `-o`, as `avenger view` draws it. A result of several charts renders as
     /// a table.
     Render {
-        /// A chart script, or a cell as `report.qmd#NUMBER` or `report.qmd#LABEL`. With `--all`,
-        /// a directory of the project, or none for the current directory.
+        /// A chart script, a cell as `report.qmd#NUMBER` or `report.qmd#LABEL`, or the statement
+        /// at a line of either as `FILE:LINE`. With `--all`, a directory of the project, or none
+        /// for the current directory.
         target: Option<String>,
         /// The image, `.png`, `.svg`, or `.pdf`, or with `--all`, its directory.
         #[arg(short, long)]

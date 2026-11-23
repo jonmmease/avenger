@@ -1,0 +1,14 @@
+[
+  {
+    "label": "Avenger: View $ZED_RELATIVE_FILE",
+    "command": "target/release/avenger",
+    "args": ["view", "$ZED_FILE:$ZED_ROW"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["avenger-view"],
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "no_focus",
+    "hide": "never",
+    "save": "all"
+  }
+]

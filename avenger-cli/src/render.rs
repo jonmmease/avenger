@@ -25,6 +25,7 @@ use avenger_scenegraph::{
     marks::{group::SceneGroup, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark},
     scene_graph::SceneGraph,
 };
+use avenger_sql_language::FileRole;
 use avenger_sql_project::{
     charts::{background, label_engine, preferences},
     find_root,
@@ -40,8 +41,13 @@ use crate::{
     check::{check_text, failure_reports, first_line, File, Place},
     project::{load_files, targets},
     report::{Output, Report, Severity},
+    statement::{at_line, cell_at_line, split_line, Shows, Statement},
     Status,
 };
+
+/// The path in the analysis of the text that runs a statement other than a script's value, a
+/// chart script of its own.
+const STATEMENT_PATH: &str = "<statement>";
 
 /// The options of a render.
 pub struct Options {
@@ -265,6 +271,9 @@ pub(crate) struct Target {
     pub(crate) stylesheet: ProjectStylesheet,
     pub(crate) path: String,
     pub(crate) text: String,
+    /// The path in the analysis of the target's file: its script, or its document, which a
+    /// target's run keeps when it runs a statement at [`STATEMENT_PATH`].
+    pub(crate) script: String,
     /// The file on disk, and for a cell, the text of its document.
     pub(crate) file: PathBuf,
     pub(crate) document: Option<Qmd>,
@@ -273,6 +282,10 @@ pub(crate) struct Target {
     /// a project of one file.
     pub(crate) files: ProjectFiles,
     pub(crate) root: Option<PathBuf>,
+    /// The line of the file that the target names, from 1, and its statement, when the target
+    /// names one as `FILE:LINE`.
+    pub(crate) line: Option<usize>,
+    pub(crate) statement: Option<Statement>,
 }
 
 impl Target {
@@ -293,6 +306,27 @@ impl Target {
             }
             _ => Report::file(&self.file, Severity::Error, message, "render"),
         }
+    }
+
+    /// Points the target at the statement of its text at the line `line` of its file, from 1: a
+    /// line of its script, or of its cell's document. A statement other than the script's value
+    /// runs as a chart script of its own, at [`STATEMENT_PATH`], whose text runs the statement.
+    pub(crate) fn point_at(&mut self, line: usize) -> Result<(), String> {
+        let before = match (&self.document, self.cell()) {
+            (Some(document), Some(cell)) => document.text[..cell.range.start].matches('\n').count(),
+            _ => 0,
+        };
+        let statement = at_line(&self.text, line - before, before)?;
+        if statement.shows != Shows::Value {
+            let text = statement.text(&self.text);
+            let project = self.analysis.project_mut();
+            project.add(STATEMENT_PATH, FileRole::Chart, text.as_str());
+            self.path = STATEMENT_PATH.to_string();
+            self.text = text;
+        }
+        self.line = Some(line);
+        self.statement = Some(statement);
+        Ok(())
     }
 
     /// The reports of the error `error` of a run of the target, at their places in its file.
@@ -393,12 +427,19 @@ async fn render_target(
 }
 
 /// Loads the project of the chart `chart`, a path of a chart script or `doc.qmd#NAME`, or a
-/// loose script or document as a project of one file, and finds its text.
+/// loose script or document as a project of one file, and finds its text. A target at a line,
+/// `FILE:LINE`, names the statement at a line of a script or of a document's cell.
 pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
+    let (chart, line) = split_line(chart)?;
     let (path, name) = match chart.rsplit_once('#') {
         Some((document, name)) if is_document(document) => (document, Some(name)),
         _ => (chart, None),
     };
+    if let (Some(name), Some(_)) = (name, line) {
+        return Err(Failure::Usage(format!(
+            "{chart}: a target names a cell by its line or as `#{name}`, not both"
+        )));
+    }
     let file = std::fs::canonicalize(path).map_err(|error| format!("{path}: {error}"))?;
     let (files, relative, root) = match find_root(&file) {
         Some(root) => {
@@ -411,6 +452,12 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
             let role = files.manifest().role(&relative);
             match role {
                 Ok(Some(Role::ChartScript | Role::Document)) => (files, relative, Some(root)),
+                Ok(Some(Role::DataScript | Role::Module(_))) if line.is_some() => {
+                    return Err(Failure::Usage(format!(
+                        "{}: a statement of a data script or a module is no target",
+                        file.display()
+                    )))
+                }
                 _ => {
                     let (files, relative) = loose(&file).await?;
                     (files, relative, None)
@@ -426,14 +473,17 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
     let stylesheet = files.load_stylesheet().await.map_err(|e| e.to_string())?;
     let (path, text, document, cell) = match analysis.qmd(&relative) {
         Some(document) => {
-            let (index, cell) = match name {
-                Some(name) => document.cell(name).ok_or_else(|| {
+            let (index, cell) = match (name, line) {
+                (_, Some(line)) => (cell_at_line(document, line))
+                    .map_err(|error| format!("{chart}:{line}: {error}"))?,
+                (Some(name), None) => document.cell(name).ok_or_else(|| {
                     format!("{}: no `{{avenger-sql}}` cell `{name}`", file.display())
                 })?,
-                None if document.cells.len() == 1 => (0, &document.cells[0]),
-                None => {
+                (None, None) if document.cells.len() == 1 => (0, &document.cells[0]),
+                (None, None) => {
                     return Err(Failure::Usage(format!(
-                        "{}: the document has {} cells; name one as `#NUMBER` or `#LABEL`",
+                        "{}: the document has {} cells; name one as `#NUMBER` or `#LABEL`, or \
+                         by a line as `:LINE`",
                         file.display(),
                         document.cells.len()
                     )))
@@ -451,21 +501,28 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
             let text = (analysis.project().document(&relative))
                 .map(|document| document.text().to_string())
                 .ok_or_else(|| format!("{}: not a chart script", file.display()))?;
-            (relative, text, None, None)
+            (relative.clone(), text, None, None)
         }
     };
-    Ok(Target {
+    let mut target = Target {
         loader,
         analysis,
         stylesheet,
         path,
         text,
+        script: relative,
         file,
         document,
         cell,
         files,
         root,
-    })
+        line: None,
+        statement: None,
+    };
+    if let Some(line) = line {
+        (target.point_at(line)).map_err(|error| format!("{chart}:{line}: {error}"))?;
+    }
+    Ok(target)
 }
 
 /// A project of the one file `file`, a loose script or document, and its path in the project:

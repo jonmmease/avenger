@@ -163,3 +163,22 @@ async fn a_cell_keeps_its_label_as_its_document_changes() {
     };
     assert_eq!(result.shape(), Shape::Chart);
 }
+
+#[tokio::test]
+async fn a_statement_at_a_line_runs_again_when_its_script_changes() {
+    let (_directory, root) = project();
+    let script = "FROM vega_datasets.cars |> LIMIT 2;\n\nFROM vega_datasets.cars |> AGGREGATE COUNT(*) AS cars\n";
+    std::fs::write(root.join("charts/steps.av.sql"), script).unwrap();
+    let target = format!("{}:1", root.join("charts/steps.av.sql").display());
+    let (mut session, first) = Session::open(&target).await.unwrap();
+    let Outcome::Ran(result) = &first else {
+        panic!("the statement runs when the window opens");
+    };
+    assert_eq!(result.num_rows(), 2);
+    let edited = script.replace("LIMIT 2", "LIMIT 3");
+    let outcomes = edit(&mut session, &root, "charts/steps.av.sql", &edited).await;
+    let [Outcome::Ran(result)] = outcomes.as_slice() else {
+        panic!("{:?}", kinds(&outcomes));
+    };
+    assert_eq!(result.num_rows(), 3);
+}
