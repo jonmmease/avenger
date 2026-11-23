@@ -46,6 +46,9 @@ pub struct Cell {
     pub range: Range<usize>,
     /// Whether a fence closes the cell.
     pub closed: bool,
+    /// The cell's label, as its leading `--|` option lines set it with `label: NAME`, which
+    /// Quarto's cross-references name it by, such as `fig-weather`.
+    pub label: Option<String>,
     lines: Vec<Line>,
 }
 
@@ -59,6 +62,15 @@ struct Line {
 }
 
 impl Qmd {
+    /// The cell that `name` names and its index, from 0: its number, from 1, or its label.
+    pub fn cell(&self, name: &str) -> Option<(usize, &Cell)> {
+        if let Ok(number) = name.parse::<usize>() {
+            let index = number.checked_sub(1)?;
+            return Some((index, self.cells.get(index)?));
+        }
+        (self.cells.iter().enumerate()).find(|(_, cell)| cell.label.as_deref() == Some(name))
+    }
+
     /// The document with `text`, and its cells.
     pub fn parse(text: impl Into<String>) -> Qmd {
         let text = text.into();
@@ -270,12 +282,25 @@ fn cell(text: &str, range: Range<usize>, indent: &str, closed: bool) -> Cell {
         start += line.len();
     }
     Cell {
+        label: label(&cell_text),
         text: cell_text,
         indent: indent.to_string(),
         range,
         closed,
         lines,
     }
+}
+
+/// The label that the leading `--|` option lines of the cell's text `text` set, such as
+/// `fig-weather` in `--| label: fig-weather`, without quotes around it.
+fn label(text: &str) -> Option<String> {
+    let options = (text.lines())
+        .map(str::trim_start)
+        .map_while(|line| line.strip_prefix("--|"));
+    options
+        .filter_map(|option| option.trim().strip_prefix("label:"))
+        .map(|value| value.trim().trim_matches(['"', '\'']).to_string())
+        .find(|label| !label.is_empty())
 }
 
 /// Whether the file at `path` is named as a Quarto document.

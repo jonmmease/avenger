@@ -25,9 +25,9 @@ use crate::{
 
 /// The offsets of a file of the language analysis in the file on disk that holds it: the same
 /// for a script or a module, and in its document for a cell.
-type Place<'a> = &'a dyn Fn(usize) -> usize;
+pub(crate) type Place<'a> = &'a dyn Fn(usize) -> usize;
 
-fn same(offset: usize) -> usize {
+pub(crate) fn same(offset: usize) -> usize {
     offset
 }
 
@@ -111,17 +111,17 @@ async fn check_project(project: &ProjectSelection, run: bool) -> Result<Vec<Repo
 }
 
 /// A file on disk, whose text holds the text of a file of the analysis at `place`.
-struct File<'a> {
-    path: &'a Path,
-    text: &'a str,
-    place: Place<'a>,
+pub(crate) struct File<'a> {
+    pub path: &'a Path,
+    pub text: &'a str,
+    pub place: Place<'a>,
     /// The bytes of the first line of a cell, where the errors of the whole cell are, or `None`
     /// for a whole file.
-    first_line: Option<(usize, usize)>,
+    pub first_line: Option<(usize, usize)>,
 }
 
 /// The bytes of the first line of `cell` in its document's text `text`.
-fn first_line(text: &str, cell: &Cell) -> (usize, usize) {
+pub(crate) fn first_line(text: &str, cell: &Cell) -> (usize, usize) {
     let start = cell.range.start;
     let line = text[start..cell.range.end]
         .lines()
@@ -132,7 +132,7 @@ fn first_line(text: &str, cell: &Cell) -> (usize, usize) {
 
 /// The reports of the file at `path` of the analysis, with `text`, in `file`, and when `run` and
 /// it has no errors, of a run of it as a chart script.
-async fn check_text(
+pub(crate) async fn check_text(
     analysis: &Analysis,
     loader: &Loader,
     path: &str,
@@ -216,7 +216,13 @@ async fn run_chart(loader: &Loader, path: &str, text: &str, file: &File<'_>) -> 
         Err(ChartError::Unloaded { .. }) => return Vec::new(),
         Err(ChartError::Run(error)) => error,
     };
-    if let DataFusionError::External(external) = &error {
+    failure_reports(&error, file)
+}
+
+/// The reports of the error `error` of a run of a chart in `file`: the errors of its script, at
+/// their ranges, or the error of its query, of the whole file or of a cell's first line.
+pub(crate) fn failure_reports(error: &DataFusionError, file: &File<'_>) -> Vec<Report> {
+    if let DataFusionError::External(external) = error {
         if let Some(script) = external.downcast_ref::<ScriptError>() {
             return (script.diagnostics.iter())
                 .map(|diagnostic| {

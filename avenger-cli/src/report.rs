@@ -245,6 +245,15 @@ impl Output {
         }
     }
 
+    /// Prints the images `paths` that a render wrote.
+    pub fn written(&self, paths: &[PathBuf]) {
+        let paths: Vec<String> = paths.iter().map(|path| self.display(path)).collect();
+        match self.json {
+            true => println!("{}", json!({"version": JSON_VERSION, "written": paths})),
+            false => paths.iter().for_each(|path| println!("{path}")),
+        }
+    }
+
     /// Prints the files `paths` that formatting changed, or with `check`, would change.
     pub fn formatted(&self, paths: &[PathBuf], check: bool) {
         let paths: Vec<String> = paths.iter().map(|path| self.display(path)).collect();

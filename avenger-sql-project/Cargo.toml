@@ -9,7 +9,10 @@ readme = "README.md"
 avenger-sql = { path = "../avenger-sql" }
 avenger-sql-language = { path = "../avenger-sql-language" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
+avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googlesql" }
+avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-style = { path = "../avenger-style" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 bytes = "1.12"
 datafusion = { workspace = true }
 glob = "0.3"
