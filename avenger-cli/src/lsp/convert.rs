@@ -212,6 +212,7 @@ pub fn completion_kind(kind: CompletionKind) -> CompletionItemKind {
         CompletionKind::RangeVariable | CompletionKind::Variable => CompletionItemKind::VARIABLE,
         CompletionKind::Table | CompletionKind::Query => CompletionItemKind::CLASS,
         CompletionKind::Function(_) => CompletionItemKind::FUNCTION,
+        CompletionKind::Constant => CompletionItemKind::CONSTANT,
         CompletionKind::Parameter | CompletionKind::Option => CompletionItemKind::PROPERTY,
         CompletionKind::EnumValue => CompletionItemKind::ENUM_MEMBER,
         CompletionKind::Type => CompletionItemKind::TYPE_PARAMETER,

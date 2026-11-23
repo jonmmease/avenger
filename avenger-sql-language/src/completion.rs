@@ -74,6 +74,8 @@ pub enum CompletionKind {
     Query,
     /// A function, by what a call of it computes.
     Function(FunctionRole),
+    /// A constant of a module.
+    Constant,
     /// The name of a parameter, as `name => ` of a named argument.
     Parameter,
     /// A value of a set that a parameter takes, as a string literal.

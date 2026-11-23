@@ -113,6 +113,36 @@ impl At {
         }
     }
 
+    /// The hover at the position: of a project's file, with the members of its modules.
+    pub fn hover(&self) -> Option<avenger_sql_language::Hover> {
+        match &self.analyzed {
+            Analyzed::Project { opened, path } => {
+                opened.analysis.project().hover(path, self.offset)
+            }
+            Analyzed::Alone(document) => document.hover(self.offset),
+        }
+    }
+
+    /// The completions at the position: of a project's file, with the members of its modules.
+    pub fn completions(&self) -> avenger_sql_language::Completions {
+        match &self.analyzed {
+            Analyzed::Project { opened, path } => {
+                opened.analysis.project().completions(path, self.offset)
+            }
+            Analyzed::Alone(document) => document.completions(self.offset),
+        }
+    }
+
+    /// The signature help at the position: of a project's file, with the members of its modules.
+    pub fn signature_help(&self) -> Option<avenger_sql_language::SignatureHelp> {
+        match &self.analyzed {
+            Analyzed::Project { opened, path } => {
+                opened.analysis.project().signature_help(path, self.offset)
+            }
+            Analyzed::Alone(document) => document.signature_help(self.offset),
+        }
+    }
+
     /// The line and the column, from 1, of the offset `offset` of the document.
     pub fn line_column(&self, offset: Offset) -> (u32, u32) {
         let place = Place::new(&self.text, self.cell.as_ref(), Encoding::Utf32);

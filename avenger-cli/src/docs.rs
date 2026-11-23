@@ -87,7 +87,7 @@ pub async fn run(options: &Options, output: &Output) -> Result<Status, String> {
     let library = Library::shared();
     if let Some(at) = &options.at {
         let at = At::resolve(at).await?;
-        let Some(hover) = at.document().hover(at.offset) else {
+        let Some(hover) = at.hover() else {
             eprintln!("nothing at the position has a hover");
             return Ok(Status::Failed);
         };

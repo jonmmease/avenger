@@ -41,6 +41,7 @@ mod data;
 mod embedded;
 mod hover;
 mod markup;
+mod members;
 mod navigation;
 mod outline;
 mod project;
@@ -433,7 +434,7 @@ fn statements(root: &SyntaxNode) -> impl Iterator<Item = ast::Stmt> {
 
 /// The range of `node` from its first token to its last, without the whitespace and comments
 /// around them, which a statement's node holds.
-fn trimmed(node: &SyntaxNode) -> TextRange {
+pub(crate) fn trimmed(node: &SyntaxNode) -> TextRange {
     let mut tokens = (node.descendants_with_tokens())
         .filter_map(|element| element.into_token())
         .filter(|token| !token.kind().is_trivia());
@@ -447,7 +448,7 @@ fn trimmed(node: &SyntaxNode) -> TextRange {
 }
 
 /// The last token of `root` that is not whitespace or a comment and ends at or before `offset`.
-fn token_before(root: &SyntaxNode, offset: Offset) -> Option<SyntaxToken> {
+pub(crate) fn token_before(root: &SyntaxNode, offset: Offset) -> Option<SyntaxToken> {
     if offset == Offset::from(0) {
         return None;
     }
@@ -490,7 +491,7 @@ pub(crate) fn escape(name: &str) -> String {
 }
 
 /// `text` with each run of whitespace as one space.
-fn collapse(text: &str) -> String {
+pub(crate) fn collapse(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

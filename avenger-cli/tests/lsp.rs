@@ -887,3 +887,61 @@ fn regex_patterns_take_no_tokens() {
         "{tokens:?}"
     );
 }
+
+#[test]
+fn a_module_s_member_answers_by_its_qualified_name() {
+    let (_directory, root) = project();
+    let chart = "IMPORT MODULE weather;\nFROM vega_datasets.seattle_weather\n|> WHERE weather.warm(temp_max)\n";
+    std::fs::write(root.join("charts/warm.av.sql"), chart).unwrap();
+    let typing = "IMPORT MODULE weather;\nFROM vega_datasets.seattle_weather\n|> WHERE weather.\n";
+    std::fs::write(root.join("charts/typing.av.sql"), typing).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let warm = uri(&root, "charts/warm.av.sql");
+    client.open(&warm, chart);
+    client.until("the load", |c| {
+        c.diagnostics.contains_key(&warm) && c.messages(&warm).is_empty()
+    });
+    let module = uri(&root, "modules/weather.av.sqlm");
+    let member = "|> WHERE weather.".len() as u32;
+    let at = json!({"textDocument": {"uri": warm}, "position": position(2, member + 1)});
+
+    let definition = client.request::<GotoDefinition>(at.clone());
+    assert_eq!(definition["uri"], json!(module), "{definition}");
+    let hover = client.request::<HoverRequest>(at.clone());
+    let shown = hover["contents"]["value"].as_str().unwrap_or_default();
+    assert!(shown.contains("warm(t FLOAT64)"), "{hover}");
+    let mut signature = json!({"textDocument": {"uri": warm}});
+    signature["position"] = position(2, member + "warm(".len() as u32);
+    let help = client.request::<SignatureHelpRequest>(signature);
+    let label = help["signatures"][0]["label"].as_str().unwrap_or_default();
+    assert_eq!(label, "weather.warm(t FLOAT64)", "{help}");
+
+    let mut references = at.clone();
+    references["context"] = json!({"includeDeclaration": true});
+    let references = client.request::<References>(references);
+    let files: Vec<&str> = (references.as_array().unwrap().iter())
+        .filter_map(|location| location["uri"].as_str())
+        .collect();
+    assert!(
+        files.contains(&module.as_str()) && files.contains(&warm.as_str()),
+        "{references}"
+    );
+    let mut rename = at.clone();
+    rename["newName"] = json!("mild");
+    let edit = client.request::<Rename>(rename);
+    let changes = edit["changes"].as_object().unwrap();
+    assert!(
+        changes.contains_key(module.as_str()) && changes.contains_key(warm.as_str()),
+        "{edit}"
+    );
+
+    let typed = uri(&root, "charts/typing.av.sql");
+    client.open(&typed, typing);
+    let completion = json!({"textDocument": {"uri": typed}, "position": position(2, member)});
+    let completions = client.request::<Completion>(completion);
+    let labels: Vec<&str> = (completions["items"].as_array().unwrap().iter())
+        .filter_map(|item| item["label"].as_str())
+        .collect();
+    // The fields of a column of the qualifier's name, if any, and the module's members.
+    assert!(labels.contains(&"warm"), "{completions}");
+}
