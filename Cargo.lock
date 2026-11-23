@@ -1291,6 +1291,7 @@ dependencies = [
  "glob",
  "prost",
  "regex",
+ "regex-syntax",
  "serde_json",
  "tokio",
  "url",
