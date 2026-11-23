@@ -115,6 +115,10 @@ SPLIT('a b', ' ')	["a", "b"]
 REGEXP_CONTAINS('abc123', r'[0-9]')	true
 REGEXP_EXTRACT('abc123', r'[0-9]+')	"123"
 REGEXP_EXTRACT('user@example.com', r'@(.+)')	"example.com"
+FORMAT("%'d", 1234567)	"1,234,567"
+FORMAT('%08.3f', -3.14159)	"-003.142"
+FORMAT('%-6s|%6s|', 'ab', 'cd')	"ab    |    cd|"
+FORMAT('%t is %T', DATE '2024-05-07', 'Tuesday')	"2024-05-07 is \"Tuesday\""
 REGEXP_REPLACE('a1b2', r'[0-9]', '#')	"a#b#"
 REGEXP_REPLACE('abc', r'(b)', r'<\1>')	"a<b>c"
 REGEXP_REPLACE('a.b', r'\.', r'$\\')	"a$\\b"

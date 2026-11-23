@@ -9,7 +9,7 @@ use avenger_format::NumberFormatProvider;
 use avenger_format_number_googlesql::GoogleSqlNumberFormatProvider;
 
 /// The number of recorded cases, so a case that the parse skips fails the test.
-const CASES: usize = 2208;
+const CASES: usize = 2228;
 
 /// The value of a case, such as `-0`, `1e-5`, `nan`, or `-inf`.
 fn value(text: &str) -> f64 {
