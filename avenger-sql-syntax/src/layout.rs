@@ -4,7 +4,7 @@
 //! A [`Doc`] is text with the places where it can break: a group of a [`Doc`] stays on one line
 //! when it fits in the rest of its line, and otherwise breaks at each of its own lines, while the
 //! groups inside it decide again. A line that breaks starts at the indentation of its nesting, so
-//! a part that breaks onto lines of its own is two spaces deeper than the line that opens it.
+//! a part that breaks onto lines of its own is [`INDENT`] deeper than the line that opens it.
 //! [`list`] lays out a call or an array by the style's rule: on one line, or with each item on a
 //! line of its own, followed by a comma, and the closer at the depth of the line that opens it.
 //!
@@ -18,11 +18,16 @@ pub const WIDTH: usize = 100;
 
 /// The columns that a part that breaks onto lines of its own goes deeper than the line that opens
 /// it, as the items of a list or the operators of a chain.
-pub const INDENT: usize = 2;
+pub const INDENT: usize = 4;
 
-/// The columns of `|> `, which the keyword of a pipe operator and the lines of its body that break
-/// go deeper than the depth of its query.
+/// The columns of `|> `, which the keyword of a pipe operator, its clauses, such as `GROUP BY`, and
+/// the closers of the brackets that its line opens go deeper than the depth of its query.
 pub const PIPE: usize = 3;
+
+/// The columns that a part that breaks under a pipe operator's line goes deeper than the
+/// operator's keyword, so that it is [`INDENT`] deeper than the `|>`, as the items of an
+/// `AGGREGATE` or the arguments of a call that the operator's line opens.
+pub const PIPE_STEP: usize = INDENT - PIPE;
 
 /// Text with the places where it can break.
 #[derive(Clone, Debug)]
@@ -247,9 +252,17 @@ impl Item {
 
 /// A call or an array, `open` with its `items` and `clauses` and `close`: on one line, with the
 /// items separated by `, ` and each clause after a space, or broken after `open`, with each item
-/// on a line of its own, two spaces deeper, followed by a comma, then each clause on a line of
-/// its own, and `close` back at the depth of the line that opens it.
-pub fn list(open: impl Into<String>, items: Vec<Doc>, clauses: Vec<Doc>, close: &str) -> Doc {
+/// on a line of its own, `step` deeper, followed by a comma, then each clause on a line of its
+/// own, and `close` back at the depth of the line that opens it. The step is [`INDENT`], or
+/// [`PIPE_STEP`] for a list that opens on a pipe operator's line, whose depth is that of the
+/// operator's keyword.
+pub fn list(
+    open: impl Into<String>,
+    items: Vec<Doc>,
+    clauses: Vec<Doc>,
+    close: &str,
+    step: usize,
+) -> Doc {
     let items = items.into_iter().map(Item::new).collect();
     list_of(
         Doc::Text(open.into()),
@@ -257,18 +270,20 @@ pub fn list(open: impl Into<String>, items: Vec<Doc>, clauses: Vec<Doc>, close: 
         clauses,
         None,
         Doc::text(close),
+        step,
     )
 }
 
 /// The list of [`list`], with items that keep a blank line before them, which breaks the list,
 /// and `tail`, such as the comments before the closer, on lines of their own after the clauses,
-/// at the depth of the items.
+/// at the depth of the items, which are `step` deeper than the line that opens the list.
 pub fn list_of(
     open: Doc,
     items: Vec<Item>,
     clauses: Vec<Doc>,
     tail: Option<Doc>,
     close: Doc,
+    step: usize,
 ) -> Doc {
     if items.is_empty() && clauses.is_empty() && tail.is_none() {
         return Doc::concat([open, close]);
@@ -303,7 +318,7 @@ pub fn list_of(
     }
     Doc::group(Doc::concat([
         open,
-        Doc::nest(INDENT, Doc::Concat(inner)),
+        Doc::nest(step, Doc::Concat(inner)),
         Doc::SoftLine,
         close,
     ]))

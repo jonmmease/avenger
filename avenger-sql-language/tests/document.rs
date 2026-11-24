@@ -208,7 +208,7 @@ fn formatting_replaces_the_range_that_changes() {
     );
     assert_eq!(
         formatted,
-        "FROM penguins\n|> AGGREGATE mark_bar(\n     x => species,\n     y => count(*),\n   ) AS chart"
+        "FROM penguins\n|> AGGREGATE mark_bar(\n    x => species,\n    y => count(*),\n   ) AS chart"
     );
     // The edit starts where the texts first differ, after `FROM penguins`.
     assert_eq!(at(&document, edits[0].range).chars().next(), Some(' '));

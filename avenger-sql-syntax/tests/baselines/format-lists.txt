@@ -1,28 +1,28 @@
 FROM samples.penguins
 |> AGGREGATE mark_bar(
-     x => species,
-     y => count(*),
+    x => species,
+    y => count(*),
    );
 FROM samples.penguins
 |> AGGREGATE mark_symbol(
-     x => x(flipper_length_mm, scale => scale(zero => FALSE)),
-     y => body_mass_g,
-     color => species,
+    x => x(flipper_length_mm, scale => scale(zero => FALSE)),
+    y => body_mass_g,
+    color => species,
    );
 FROM t
 |> AGGREGATE
-     avg(body_mass_g) AS mu,
-     stddev(body_mass_g) AS sigma,
-     count(*) AS n,
-     min(body_mass_g) AS low,
+    avg(body_mass_g) AS mu,
+    stddev(body_mass_g) AS sigma,
+    count(*) AS n,
+    min(body_mass_g) AS low,
    GROUP BY species, island;
 FROM t
 |> AGGREGATE count(*) AS n, avg(body_mass_g) AS mean_body_mass_in_grams
    GROUP BY species, island, sex;
 FROM t
 |> SELECT
-     a,
-     b,
+    a,
+    b,
 |> EXTEND [1, 2, 3] AS xs, STRUCT(1 AS a, 'x' AS b) AS s;
 FROM t
 |> AGGREGATE count(DISTINCT x) AS n, array_agg(x IGNORE NULLS ORDER BY y LIMIT 3) AS xs;

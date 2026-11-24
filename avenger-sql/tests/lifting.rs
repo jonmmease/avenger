@@ -785,7 +785,7 @@ const LONG_IMPUTE: &str = "FROM penguins\n|> WHERE body_mass_g IS NOT NULL\n\
 /// An indented `AGGREGATE` of an item beside a mark call longer than a line, which plans as a
 /// branch.
 const LONG_BRANCH: &str =
-    "FROM (\n  FROM penguins\n  |> AGGREGATE COUNT(*) AS n, mark_symbol(x => \
+    "FROM (\n    FROM penguins\n    |> AGGREGATE COUNT(*) AS n, mark_symbol(x => \
      x(species, title => 'Species', axis => axis(grid => FALSE)), y => y(AVG(body_mass_g), \
      scale => scale(zero => FALSE)), color => species) AS chart GROUP BY island\n)";
 
@@ -794,7 +794,7 @@ async fn the_printout_of_a_long_call_plans_its_charts() {
     // The printout breaks the long calls, with trailing commas, and plans the same charts.
     for query in [LONG_CALL, LONG_IMPUTE, LONG_BRANCH] {
         let printed = avenger_sql::lift(&session(), query).await.unwrap().text;
-        assert!(printed.contains("(\n     "), "{printed}");
+        assert!(printed.contains("(\n    "), "{printed}");
         assert_eq!(charts(query).await, charts(&printed).await, "{printed}");
         let again = avenger_sql::lift(&session(), &printed).await.unwrap().text;
         assert_eq!(again, printed);
