@@ -17,16 +17,19 @@ use avenger_chart::results::is_chart_field;
 use avenger_sql::types::googlesql_name;
 use datafusion::arrow::{
     array::RecordBatch,
+    datatypes::SchemaRef,
     util::display::{ArrayFormatter, FormatOptions},
 };
 use serde_json::{json, Value};
 
 use super::debuggee::{Debuggee, Ran, Rows};
 use super::protocol::{Output, Request};
-use super::stops::{Move, Place, Reason};
+use super::stops::{Move, Place, Reason, StopKey};
 use avenger_results_egui::ChartState;
 
-use crate::view::{Message, Sink, WindowEvent};
+use avenger_sql_project::watch::{Burst, Watch};
+
+use crate::view::{canonical, Message, Outcome, Sink, WindowEvent};
 
 /// The id of the session's thread, and of its frame.
 const THREAD: i64 = 1;
@@ -38,17 +41,23 @@ const CHUNK: usize = 100;
 /// The longest value of a row, as a summary of its fields.
 const SUMMARY: usize = 120;
 
+/// The rows of a console answer that the console prints as a grid.
+const GRID_ROWS: usize = 10;
+
+/// The longest value of a cell of the console's grid.
+const GRID_CELL: usize = 40;
+
 /// What a variable reference holds, among a stop's variables.
 #[derive(Clone, Copy, Debug)]
 enum Var {
-    /// The scope of a stop's rows: its columns and its rows.
-    Rows,
-    Columns,
-    AllRows,
+    /// The scope of rows, a stop's or a console result's: its columns and its rows.
+    Rows(Source),
+    Columns(Source),
+    AllRows(Source),
     /// The rows `start..end`.
-    Chunk(usize, usize),
+    Chunk(Source, usize, usize),
     /// A row's fields.
-    Row(usize),
+    Row(Source, usize),
     /// The script's variables.
     Script,
     /// The state of the chart at a result stop: its selections, widgets, scales, and modes.
@@ -58,9 +67,35 @@ enum Var {
     Modes,
 }
 
-/// A breakpoint of the target's file: its id, and the stop that it binds to, if any.
+/// Whose rows a variable holds: the stop's, or a result of the console's, by its order.
+#[derive(Clone, Copy, Debug)]
+enum Source {
+    Stop,
+    Console(usize),
+}
+
+/// The rows of `source`: the stop's, of `ran`, or a result of the console's, of `results`.
+fn rows_of<'a>(
+    ran: &'a mut Option<Ran>,
+    results: &'a mut [Rows],
+    source: Source,
+) -> Result<&'a mut Rows, String> {
+    match source {
+        Source::Stop => {
+            let ran = ran.as_mut().ok_or("the session is not stopped")?;
+            ran.rows.as_mut().map_err(|errors| errors.join("\n"))
+        }
+        Source::Console(index) => results
+            .get_mut(index)
+            .ok_or_else(|| "no such result".into()),
+    }
+}
+
+/// A breakpoint of the target's file: its id, its line in the file, and the stop that it binds
+/// to, if any.
 struct Breakpoint {
     id: i64,
+    line: usize,
     bound: Option<usize>,
 }
 
@@ -90,6 +125,10 @@ pub(crate) struct Adapter<W: Write> {
     stop: Option<usize>,
     /// The state of the chart that fills the window, as it last reported it.
     chart: Option<ChartState>,
+    /// The rows of the console's results at the current stop.
+    results: Vec<Rows>,
+    /// The watch of the project's files, which the session follows as `view` does.
+    watch: Option<Watch>,
     /// Whether the client refreshes its panes on an `invalidated` event.
     invalidated: bool,
     ran: Option<Ran>,
@@ -117,6 +156,8 @@ impl<W: Write> Adapter<W> {
             stop: None,
             chart: None,
             invalidated: false,
+            results: Vec::new(),
+            watch: None,
             ran: None,
             vars: Vec::new(),
         })
@@ -136,6 +177,7 @@ impl<W: Write> Adapter<W> {
                         self.out.event("terminated", json!({}));
                     }
                     self.window_events();
+                    self.watch_files();
                     continue;
                 }
             };
@@ -219,6 +261,9 @@ impl<W: Write> Adapter<W> {
             "stepOut" => self.step(request, Move::Out),
             "continue" => self.step(request, Move::Continue),
             "stepBack" => self.step(request, Move::Back),
+            "setVariable" => self.set_variable(request),
+            "evaluate" => self.evaluate(request),
+            "restart" => self.restart(request),
             "reverseContinue" => self.step(request, Move::ReverseContinue),
             // The session stops at each stage and never runs on, so a pause has nothing to do.
             "pause" => self.out.respond(request, json!({})),
@@ -276,6 +321,8 @@ impl<W: Write> Adapter<W> {
                 }
             }
         }
+        // The session follows the project's files as a `view` window does.
+        self.watch = Watch::new(&debuggee.watched_directory(), || {}).ok();
         self.debuggee = Some(debuggee);
         self.out.respond(request, json!({}));
         self.out.event("initialized", json!({}));
@@ -297,7 +344,8 @@ impl<W: Write> Adapter<W> {
             );
             return;
         }
-        let breakpoints = self.bind(&path, &lines);
+        let ids = lines.iter().map(|_| self.next_id()).collect();
+        let breakpoints = self.bind(&path, &lines, ids);
         self.out
             .respond(request, json!({"breakpoints": breakpoints}));
         self.notes();
@@ -308,10 +356,10 @@ impl<W: Write> Adapter<W> {
         self.ids
     }
 
-    /// Binds the breakpoints at `lines` of the file `path`, with new ids, and gives them as the
-    /// protocol's breakpoints. The breakpoints of the target's file replace its breakpoints before.
-    fn bind(&mut self, path: &std::path::Path, lines: &[usize]) -> Vec<Value> {
-        let ids: Vec<i64> = lines.iter().map(|_| self.next_id()).collect();
+    /// Binds the breakpoints at `lines` of the file `path`, with their ids `ids`, and gives them as
+    /// the protocol's breakpoints. The breakpoints of the target's file replace its breakpoints
+    /// before.
+    fn bind(&mut self, path: &std::path::Path, lines: &[usize], ids: Vec<i64>) -> Vec<Value> {
         let debuggee = self.debuggee.as_ref().expect("a loaded target");
         let ours = debuggee.is_file(path);
         let mut breakpoints = Vec::new();
@@ -354,12 +402,211 @@ impl<W: Write> Adapter<W> {
             kept.push(Breakpoint {
                 id,
                 bound: bound.ok(),
+                line: *line,
             });
         }
         if ours {
             self.breakpoints = kept;
         }
         breakpoints
+    }
+
+    /// Binds the breakpoints of the target's file again, by their lines, after its stops changed,
+    /// and tells the client of each.
+    fn rebind(&mut self) {
+        let Some(debuggee) = &self.debuggee else {
+            return;
+        };
+        let path = debuggee.file().to_path_buf();
+        let (lines, ids): (Vec<usize>, Vec<i64>) = (self.breakpoints.iter())
+            .map(|breakpoint| (breakpoint.line, breakpoint.id))
+            .unzip();
+        for breakpoint in self.bind(&path, &lines, ids) {
+            self.out.event(
+                "breakpoint",
+                json!({"reason": "changed", "breakpoint": breakpoint}),
+            );
+        }
+        self.notes();
+    }
+
+    /// Follows the changes of the project's files once a burst of them ends: the session runs its
+    /// stop again, found by its key, as `view` runs its chart again.
+    fn watch_files(&mut self) {
+        let Some(watch) = self.watch.as_mut() else {
+            return;
+        };
+        let Burst::Ended(paths) = watch.changed() else {
+            return;
+        };
+        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+        self.files_changed(&paths);
+    }
+
+    /// What the changes of the files at `paths` do to the session: a restyle of the window, and
+    /// when they change what the target runs, a run of the stop again, at its key, or else at the
+    /// target's result, with a line in the console.
+    fn files_changed(&mut self, paths: &[PathBuf]) {
+        let Some(debuggee) = self.debuggee.as_mut() else {
+            return;
+        };
+        let key = self.stop.map(|index| debuggee.stops().key(index));
+        let outcomes = match self.runtime.block_on(debuggee.changed(paths)) {
+            Ok(outcomes) => outcomes,
+            Err(error) => {
+                self.out.console(&error);
+                return;
+            }
+        };
+        let mut runs = false;
+        for outcome in outcomes {
+            match outcome {
+                Outcome::Restyled(stylesheet) => {
+                    if let Some(sink) = &self.sink {
+                        sink.send(Message::Outcome(Outcome::Restyled(stylesheet)));
+                    }
+                }
+                _ => runs = true,
+            }
+        }
+        if !runs {
+            return;
+        }
+        let names: Vec<String> = (paths.iter())
+            .filter_map(|path| path.file_name())
+            .map(|name| name.to_string_lossy().to_string())
+            .collect();
+        self.out.console(&format!("{} changed", names.join(", ")));
+        self.rebind();
+        self.go_to(key);
+    }
+
+    /// Stops again at the stop that `key` finds, or at the target's result when none does, as
+    /// after the script changed.
+    fn go_to(&mut self, key: Option<StopKey>) {
+        let Some(debuggee) = &self.debuggee else {
+            return;
+        };
+        let Some(key) = key else {
+            return;
+        };
+        let stops = debuggee.stops();
+        let index = stops.find(&key).unwrap_or(stops.len() - 1);
+        self.stop_at(index, Reason::Pause);
+    }
+
+    /// `restart`: opens the target's project again and stops where the session was.
+    fn restart(&mut self, request: &Request) {
+        let Some(debuggee) = self.debuggee.as_mut() else {
+            self.out.fail(request, "the session has not launched");
+            return;
+        };
+        let key = self.stop.map(|index| debuggee.stops().key(index));
+        if let Err(error) = self.runtime.block_on(debuggee.reopen()) {
+            self.out.fail(request, &error);
+            return;
+        }
+        self.out.respond(request, json!({}));
+        self.rebind();
+        self.go_to(key);
+    }
+
+    /// `setVariable`: gives a variable of the `Script` scope a value of its type, and runs the
+    /// stop again with it.
+    fn set_variable(&mut self, request: &Request) {
+        let args = &request.arguments;
+        let reference = args["variablesReference"].as_u64().unwrap_or(0) as usize;
+        let var = reference
+            .checked_sub(1)
+            .and_then(|at| self.vars.get(at).copied());
+        if !matches!(var, Some(Var::Script)) {
+            self.out.fail(
+                request,
+                "only the variables of the Script scope take values",
+            );
+            return;
+        }
+        let (name, value) = (
+            args["name"].as_str().unwrap_or_default(),
+            args["value"].as_str(),
+        );
+        let ty = (self.ran.as_ref())
+            .and_then(|ran| ran.variables.as_ref().ok())
+            .and_then(|variables| variables.iter().find(|(other, _)| other == name))
+            .map(|(_, value)| value.data_type());
+        let (Some(debuggee), Some(index), Some(ty), Some(value)) =
+            (self.debuggee.as_mut(), self.stop, ty, value)
+        else {
+            self.out.fail(
+                request,
+                &format!("the script has no variable `{name}` at this stop"),
+            );
+            return;
+        };
+        match debuggee.set_variable(name, value, &ty) {
+            Ok(scalar) => {
+                let body = json!({"value": scalar_text(&scalar), "type": googlesql_name(&ty)});
+                self.out.respond(request, body);
+                self.stop_at(index, Reason::Pause);
+            }
+            Err(error) => self.out.fail(request, &error),
+        }
+    }
+
+    /// `evaluate`, in the console: runs pipe operators after the stop's rows, or a query that
+    /// starts with `FROM`, shows the rows in the window, and answers with their size and their
+    /// rows as a variable.
+    fn evaluate(&mut self, request: &Request) {
+        let args = &request.arguments;
+        if args["context"].as_str() == Some("hover") {
+            self.out
+                .fail(request, "avenger dap evaluates in the debug console only");
+            return;
+        }
+        let expression = args["expression"].as_str().unwrap_or_default().to_string();
+        let (Some(debuggee), Some(index)) = (self.debuggee.as_mut(), self.stop) else {
+            self.out.fail(request, "the session is not stopped");
+            return;
+        };
+        let frame = match self.runtime.block_on(debuggee.evaluate(index, &expression)) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.out.fail(request, &error);
+                return;
+            }
+        };
+        if let Some(sink) = &self.sink {
+            let outcome = self.runtime.block_on(debuggee.outcome(frame.clone()));
+            let name = debuggee.display_name();
+            sink.send(Message::Title(format!("avenger dap {name}: {expression}")));
+            sink.send(Message::Outcome(outcome));
+        }
+        let mut rows = Rows::new(frame);
+        let columns = rows.schema().fields().len();
+        let count = self.runtime.block_on(rows.count());
+        let summary = match &count {
+            Ok(count) => format!("{count} rows, {columns} columns"),
+            Err(error) => error.clone(),
+        };
+        // The first rows, as a grid under the answer, since the console has the room for a table
+        // that the variables' tree does not.
+        let first = self.runtime.block_on(rows.rows(0, GRID_ROWS));
+        let grid = first.and_then(|batches| grid(&rows.schema(), &batches));
+        self.results.push(rows);
+        let reference = self.reference(Var::AllRows(Source::Console(self.results.len() - 1)));
+        self.out.respond(
+            request,
+            json!({"result": summary, "variablesReference": reference}),
+        );
+        if let Ok(grid) = grid {
+            self.out.console(&grid);
+        }
+        if let Ok(count) = count {
+            if count > GRID_ROWS {
+                self.out
+                    .console(&format!("… {} more rows", count - GRID_ROWS));
+            }
+        }
     }
 
     /// Writes the console's lines about the breakpoints that the last binding moved or left
@@ -439,6 +686,7 @@ impl<W: Write> Adapter<W> {
     /// again, whose references start afresh.
     fn stopped(&mut self, reason: Reason) {
         self.vars.clear();
+        self.results.clear();
         let debuggee = self.debuggee.as_ref().expect("a loaded target");
         let stop = debuggee.stops().get(self.stop.expect("a stop"));
         let line = debuggee.file_line(stop.line);
@@ -498,7 +746,7 @@ impl<W: Write> Adapter<W> {
             Place::Stage(_) => "Stage",
             Place::Result => "Result",
         };
-        let mut scopes = vec![(name, Var::Rows), ("Script", Var::Script)];
+        let mut scopes = vec![(name, Var::Rows(Source::Stop)), ("Script", Var::Script)];
         // At a result, the state of the chart that the window shows, once it reports it.
         if place == Place::Result && self.chart.is_some() {
             scopes.extend([
@@ -529,10 +777,16 @@ impl<W: Write> Adapter<W> {
             self.out.respond(request, json!({"variables": []}));
             return;
         };
-        let variables = match self.children(var) {
+        let mut variables = match self.children(var) {
             Ok(variables) => variables,
             Err(error) => vec![leaf("error", &error, None)],
         };
+        // Only the script's variables take values, so a client may offer to edit only them.
+        if !matches!(var, Var::Script) {
+            for variable in &mut variables {
+                variable["presentationHint"] = json!({"attributes": ["readOnly"]});
+            }
+        }
         self.out.respond(request, json!({"variables": variables}));
     }
 
@@ -567,14 +821,14 @@ impl<W: Write> Adapter<W> {
 
     /// The children of `var`, as the protocol's variables.
     fn children(&mut self, var: Var) -> Result<Vec<Value>, String> {
-        let Some(ran) = self.ran.as_mut() else {
-            return Ok(Vec::new());
-        };
         match var {
             Var::Selections | Var::Widgets | Var::Scales | Var::Modes => {
                 Ok(self.chart_children(var))
             }
             Var::Script => {
+                let Some(ran) = self.ran.as_ref() else {
+                    return Ok(Vec::new());
+                };
                 let variables = ran.variables.as_ref().map_err(|errors| errors.join("\n"))?;
                 Ok((variables.iter())
                     .map(|(name, value)| {
@@ -583,23 +837,22 @@ impl<W: Write> Adapter<W> {
                     })
                     .collect())
             }
-            Var::Rows => {
-                let rows = ran.rows.as_mut().map_err(|errors| errors.join("\n"))?;
+            Var::Rows(source) => {
+                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
                 let columns = rows.schema().fields().len();
-                let count = self.runtime.block_on(rows.count());
-                let count = match count {
+                let count = match self.runtime.block_on(rows.count()) {
                     Ok(count) => format!("{count} rows"),
                     Err(error) => error,
                 };
-                let columns_ref = self.reference(Var::Columns);
-                let rows_ref = self.reference(Var::AllRows);
+                let columns_ref = self.reference(Var::Columns(source));
+                let rows_ref = self.reference(Var::AllRows(source));
                 Ok(vec![
                     parent("columns", &format!("{columns} columns"), columns_ref),
                     parent("rows", &count, rows_ref),
                 ])
             }
-            Var::Columns => {
-                let rows = ran.rows.as_ref().map_err(|errors| errors.join("\n"))?;
+            Var::Columns(source) => {
+                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
                 Ok((rows.schema().fields().iter())
                     .map(|field| {
                         let ty = column_type(field);
@@ -607,23 +860,23 @@ impl<W: Write> Adapter<W> {
                     })
                     .collect())
             }
-            Var::AllRows => {
-                let rows = ran.rows.as_mut().map_err(|errors| errors.join("\n"))?;
+            Var::AllRows(source) => {
+                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
                 let count = self.runtime.block_on(rows.count())?;
                 if count <= CHUNK {
-                    return self.row_variables(0, count);
+                    return self.row_variables(source, 0, count);
                 }
                 let mut chunks = Vec::new();
                 for start in (0..count).step_by(CHUNK) {
                     let end = (start + CHUNK).min(count);
-                    let reference = self.reference(Var::Chunk(start, end));
+                    let reference = self.reference(Var::Chunk(source, start, end));
                     chunks.push(parent(&format!("rows {}-{end}", start + 1), "", reference));
                 }
                 Ok(chunks)
             }
-            Var::Chunk(start, end) => self.row_variables(start, end),
-            Var::Row(row) => {
-                let rows = ran.rows.as_mut().map_err(|errors| errors.join("\n"))?;
+            Var::Chunk(source, start, end) => self.row_variables(source, start, end),
+            Var::Row(source, row) => {
+                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
                 let batches = self.runtime.block_on(rows.rows(row, row + 1))?;
                 let Some(batch) = batches.first() else {
                     return Ok(Vec::new());
@@ -636,10 +889,14 @@ impl<W: Write> Adapter<W> {
         }
     }
 
-    /// The rows `start..end` of the current stop, each a variable whose children are its fields.
-    fn row_variables(&mut self, start: usize, end: usize) -> Result<Vec<Value>, String> {
-        let ran = self.ran.as_mut().expect("a stop's run");
-        let rows: &mut Rows = ran.rows.as_mut().map_err(|errors| errors.join("\n"))?;
+    /// The rows `start..end` of `source`, each a variable whose children are its fields.
+    fn row_variables(
+        &mut self,
+        source: Source,
+        start: usize,
+        end: usize,
+    ) -> Result<Vec<Value>, String> {
+        let rows = rows_of(&mut self.ran, &mut self.results, source)?;
         let batches = self.runtime.block_on(rows.rows(start, end))?;
         let mut variables = Vec::new();
         let mut row = start;
@@ -652,7 +909,7 @@ impl<W: Write> Adapter<W> {
                 if summary.chars().count() > SUMMARY {
                     summary = summary.chars().take(SUMMARY).collect::<String>() + "…";
                 }
-                let reference = self.reference(Var::Row(row));
+                let reference = self.reference(Var::Row(source, row));
                 variables.push(parent(&(row + 1).to_string(), &summary, reference));
                 row += 1;
             }
@@ -667,6 +924,8 @@ fn capabilities() -> Value {
         "supportsConfigurationDoneRequest": true,
         "supportsStepBack": true,
         "supportsTerminateRequest": true,
+        "supportsSetVariable": true,
+        "supportsRestartRequest": true,
         "supportsEvaluateForHovers": false,
     })
 }
@@ -710,6 +969,47 @@ fn fields(batch: &RecordBatch, row: usize) -> Result<Vec<(String, String, String
             Ok((field.name().clone(), value, column_type(field)))
         })
         .collect()
+}
+
+/// The rows `batches`, of the schema `schema`, as a grid of text: a header of the columns' names,
+/// and a line for each row, each value cut to [`GRID_CELL`] characters.
+fn grid(schema: &SchemaRef, batches: &[RecordBatch]) -> Result<String, String> {
+    let cut = |text: String| match text.chars().count() > GRID_CELL {
+        true => text.chars().take(GRID_CELL - 1).collect::<String>() + "…",
+        false => text,
+    };
+    let header: Vec<String> = (schema.fields().iter())
+        .map(|field| cut(field.name().clone()))
+        .collect();
+    let mut lines = vec![header];
+    for batch in batches {
+        for row in 0..batch.num_rows() {
+            let values = fields(batch, row)?.into_iter();
+            lines.push(values.map(|(_, value, _)| cut(value)).collect());
+        }
+    }
+    let widths: Vec<usize> = (0..schema.fields().len())
+        .map(|column| {
+            (lines.iter())
+                .map(|line| line[column].chars().count())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    let rule = (widths.iter())
+        .map(|width| "-".repeat(width + 2))
+        .collect::<Vec<_>>();
+    let rule = format!("+{}+", rule.join("+"));
+    let line = |cells: &[String]| {
+        let cells: Vec<String> = (cells.iter().zip(&widths))
+            .map(|(cell, width)| format!(" {cell}{} ", " ".repeat(width - cell.chars().count())))
+            .collect();
+        format!("|{}|", cells.join("|"))
+    };
+    let mut text = vec![rule.clone(), line(&lines[0]), rule.clone()];
+    text.extend(lines[1..].iter().map(|cells| line(cells)));
+    text.push(rule);
+    Ok(text.join("\n"))
 }
 
 /// A variable's value as text, `NULL` for a null.

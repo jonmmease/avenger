@@ -9,6 +9,7 @@
 //! its natural size, and a table's columns and rows the largest natural sizes of their charts.
 //! The image waits for the images of its charts, such as the tiles of a map, up to a timeout.
 
+use avenger_sql::analysis::Overrides;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -516,16 +517,21 @@ pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
             });
         }
     }
-    plan_chart(target, &target.path, &target.text).await
+    plan_chart(target, &target.path, &target.text, &Overrides::new()).await
 }
 
 /// Checks `text`, a chart script that runs a part of the target's script, such as the rows that
 /// enter an operator of its query, and gives its frame, unrun, or the reports of its errors. The
 /// text keeps the offsets of the target's script, so its reports have their places in the file.
-pub(crate) async fn plan_text(target: &mut Target, text: &str) -> Result<DataFrame, Failure> {
+/// The variables that `overrides` names take its values in place of their own.
+pub(crate) async fn plan_text(
+    target: &mut Target,
+    text: &str,
+    overrides: &Overrides,
+) -> Result<DataFrame, Failure> {
     let project = target.analysis.project_mut();
     project.add(PART_PATH, FileRole::Chart, text);
-    plan_chart(target, PART_PATH, text).await
+    plan_chart(target, PART_PATH, text, overrides).await
 }
 
 /// The variables of `text`, a chart script that runs a part of the target's script, and their
@@ -533,13 +539,23 @@ pub(crate) async fn plan_text(target: &mut Target, text: &str) -> Result<DataFra
 pub(crate) async fn text_variables(
     target: &Target,
     text: &str,
+    overrides: &Overrides,
 ) -> Result<Vec<(String, datafusion::common::ScalarValue)>, Failure> {
-    (target.loader.chart_variables(PART_PATH, text).await).map_err(|error| target.failure(error))
+    let variables = target
+        .loader
+        .chart_variables(PART_PATH, text, overrides)
+        .await;
+    variables.map_err(|error| target.failure(error))
 }
 
 /// Checks the chart script `text` at `path` of the target's analysis, as `check` does, and gives
 /// its frame, unrun, or the reports of its errors.
-async fn plan_chart(target: &Target, path: &str, text: &str) -> Result<DataFrame, Failure> {
+async fn plan_chart(
+    target: &Target,
+    path: &str,
+    text: &str,
+    overrides: &Overrides,
+) -> Result<DataFrame, Failure> {
     // The script's errors, as `check` reports them, keep it from running.
     let place = |offset| target.to_file(offset);
     let file = target.on_disk(&place);
@@ -547,7 +563,7 @@ async fn plan_chart(target: &Target, path: &str, text: &str) -> Result<DataFrame
     if (reports.iter()).any(|report| report.severity == Severity::Error) {
         return Err(Failure::Reports(reports));
     }
-    match target.loader.run_chart(path, text).await {
+    match target.loader.run_chart_with(path, text, overrides).await {
         Ok(frame) => Ok(frame),
         Err(ChartError::Run(error)) | Err(ChartError::Unloaded { error, .. }) => {
             Err(target.failure(error))

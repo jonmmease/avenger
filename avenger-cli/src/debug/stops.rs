@@ -31,6 +31,14 @@ pub(crate) struct Stop {
     pub(crate) name: String,
 }
 
+/// What finds a stop again after its script changes: its statement's key, and its operator's
+/// place among its query's operators, or none at its result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct StopKey {
+    pub(crate) statement: Key,
+    pub(crate) operator: Option<usize>,
+}
+
 /// A move from a stop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Move {
@@ -120,6 +128,29 @@ impl Stops {
 
     pub(crate) fn get(&self, index: usize) -> &Stop {
         &self.stops[index]
+    }
+
+    /// What finds the stop at `index` again after the script changes.
+    pub(crate) fn key(&self, index: usize) -> StopKey {
+        let stop = &self.stops[index];
+        let at = &self.statements[stop.statement];
+        StopKey {
+            statement: at.statement.key.clone(),
+            operator: match stop.place {
+                Place::Stage(place) => Some(place),
+                Place::Result => None,
+            },
+        }
+    }
+
+    /// The stop that `key` finds: its statement's stage of the operator's place, or its result.
+    pub(crate) fn find(&self, key: &StopKey) -> Option<usize> {
+        (0..self.stops.len()).find(|index| self.key(*index) == *key)
+    }
+
+    /// The statement of the stop at `index`, with its stages.
+    pub(crate) fn staged(&self, index: usize) -> &Staged {
+        &self.statements[self.stops[index].statement]
     }
 
     /// The text of a chart script that runs the stop at `index` of the script `text`: the rows

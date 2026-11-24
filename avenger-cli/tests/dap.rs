@@ -409,3 +409,151 @@ fn a_stage_after_a_mark_holds_its_charts() {
     client.request("disconnect", json!({}));
     assert!(client.child.wait().unwrap().success());
 }
+
+#[test]
+fn the_console_runs_pipe_operators_after_the_stop_and_queries_of_the_script() {
+    let (_directory, root) = project();
+    let (mut client, _) = launched(&root, "charts/heavy.av.sql", "charts/heavy.av.sql", &[3]);
+    watchdog(&client.child);
+    let evaluate = |client: &mut Client, expression: &str| {
+        client.request(
+            "evaluate",
+            json!({"expression": expression, "context": "repl", "frameId": 1}),
+        )
+    };
+    // Operators after the rows that enter `WHERE`, and their rows as a variable.
+    let limited = evaluate(&mut client, "|> LIMIT 2");
+    assert_eq!(limited["success"], true, "{limited}");
+    assert_eq!(limited["body"]["result"], "2 rows, 9 columns");
+    // The console prints the rows as a grid under the answer: a header and a line for each row.
+    let grid = client.event("output");
+    let grid = grid["body"]["output"].as_str().unwrap();
+    let lines: Vec<&str> = grid.lines().collect();
+    assert_eq!(lines.len(), 6, "{grid}");
+    assert!(
+        lines[0].starts_with("+-") && lines[1].contains("| Name "),
+        "{grid}"
+    );
+    let rows = client.variables(&limited["body"]["variablesReference"]);
+    assert_eq!(rows.len(), 2);
+    // A grid of more rows than it prints says how many more there are.
+    let named = evaluate(&mut client, "|> SELECT Name |> LIMIT 12");
+    assert_eq!(named["body"]["result"], "12 rows, 1 columns");
+    let grid = client.event("output");
+    assert_eq!(grid["body"]["output"].as_str().unwrap().lines().count(), 14);
+    let more = client.event("output");
+    assert_eq!(more["body"]["output"], "… 2 more rows\n");
+    // A query of its own, after the statements before the stop, which reads their variable.
+    let counted = evaluate(
+        &mut client,
+        "FROM vega_datasets.cars |> WHERE Weight_in_lbs > min_weight |> AGGREGATE COUNT(*) AS n",
+    );
+    assert_eq!(counted["body"]["result"], "1 rows, 1 columns");
+    // An error, and an expression that the console doesn't take.
+    let failed = evaluate(&mut client, "|> WHERE nope");
+    assert_eq!(failed["success"], false);
+    assert!(
+        failed["message"].as_str().unwrap().contains("nope"),
+        "{failed}"
+    );
+    let other = evaluate(&mut client, "SELECT 1");
+    assert_eq!(other["success"], false);
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+/// The value of the stop's row count, from its first scope.
+fn row_count(client: &mut Client) -> String {
+    let scope = client.scopes()[0].1.clone();
+    let stage = client.variables(&scope);
+    named(&stage, "rows")["value"].as_str().unwrap().to_string()
+}
+
+#[test]
+fn a_variable_of_the_script_takes_a_value_of_its_type_and_the_stop_runs_again() {
+    let (_directory, root) = project();
+    let (mut client, _) = launched(&root, "charts/heavy.av.sql", "charts/heavy.av.sql", &[4]);
+    assert_eq!(row_count(&mut client), "174 rows");
+    let script = client.scopes()[1].1.clone();
+    let set = client.request(
+        "setVariable",
+        json!({"variablesReference": script, "name": "min_weight", "value": "4000"}),
+    );
+    assert_eq!(set["success"], true, "{set}");
+    assert_eq!(set["body"]["value"], "4000");
+    assert_eq!(set["body"]["type"], "INT64");
+    assert_eq!(client.event("stopped")["body"]["reason"], "pause");
+    assert_eq!(row_count(&mut client), "67 rows");
+    let script = client.scopes()[1].1.clone();
+    let variables = client.variables(&script);
+    assert_eq!(named(&variables, "min_weight")["value"], "4000");
+    // Only the script's variables take values: the variables of the other scopes are read-only.
+    assert!(named(&variables, "min_weight")["presentationHint"].is_null());
+    let stage = client.scopes()[0].1.clone();
+    let rows = client.variables(&stage);
+    assert_eq!(
+        named(&rows, "rows")["presentationHint"]["attributes"],
+        json!(["readOnly"])
+    );
+    // A value of another type, and a variable of another scope.
+    let wrong = client.request(
+        "setVariable",
+        json!({"variablesReference": script, "name": "min_weight", "value": "heavy"}),
+    );
+    assert_eq!(wrong["success"], false);
+    assert!(
+        wrong["message"].as_str().unwrap().contains("INT64"),
+        "{wrong}"
+    );
+    let stage = client.scopes()[0].1.clone();
+    let other = client.request(
+        "setVariable",
+        json!({"variablesReference": stage, "name": "rows", "value": "1"}),
+    );
+    assert_eq!(other["success"], false);
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+#[test]
+fn an_edit_runs_the_stop_again_and_restart_opens_the_project_again() {
+    let (_directory, root) = project();
+    let (mut client, _) = launched(&root, "charts/heavy.av.sql", "charts/heavy.av.sql", &[4]);
+    watchdog(&client.child);
+    assert_eq!(row_count(&mut client), "174 rows");
+    // An edit of the chart's text runs the stop again, by its operator, and says so.
+    let edited = HEAVY.replace("DEFAULT 3000", "DEFAULT 4000");
+    std::fs::write(root.join("charts/heavy.av.sql"), edited).unwrap();
+    let mut output = String::new();
+    let stopped = loop {
+        let message = client.read();
+        if message["event"] == "output" {
+            output.push_str(message["body"]["output"].as_str().unwrap());
+        }
+        if message["event"] == "stopped" {
+            break message;
+        }
+    };
+    assert_eq!(stopped["body"]["reason"], "pause");
+    assert!(output.contains("heavy.av.sql changed"), "{output}");
+    assert_eq!(client.frame(), ("|> AGGREGATE".to_string(), 4));
+    assert_eq!(row_count(&mut client), "67 rows");
+    // `restart` opens the project again, at the same stop.
+    let restart = client.request("restart", json!({}));
+    assert_eq!(restart["success"], true, "{restart}");
+    client.event("stopped");
+    assert_eq!(client.frame(), ("|> AGGREGATE".to_string(), 4));
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+/// Ends the adapter `child` after a minute, so a test that waits for an event that never comes,
+/// such as a change of a file that the watch misses, fails at the end of its input in place of
+/// waiting for ever.
+fn watchdog(child: &Child) {
+    let pid = child.id().to_string();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        let _ = Command::new("kill").arg(&pid).status();
+    });
+}

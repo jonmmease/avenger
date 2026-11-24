@@ -194,8 +194,24 @@ impl Loader {
         &self,
         path: &str,
         text: &str,
+        overrides: &avenger_sql::analysis::Overrides,
     ) -> Result<Vec<(String, datafusion::common::ScalarValue)>, DataFusionError> {
-        self.project.read().await.chart_variables(path, text).await
+        (self.project.read().await)
+            .chart_variables(path, text, overrides)
+            .await
+    }
+
+    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart_with`] runs it with
+    /// `overrides`.
+    pub async fn run_chart_with(
+        &self,
+        path: &str,
+        text: &str,
+        overrides: &avenger_sql::analysis::Overrides,
+    ) -> Result<DataFrame, ChartError> {
+        (self.project.read().await)
+            .run_chart_with(path, text, overrides)
+            .await
     }
 
     /// The table of the data script at `path` after its statement at the offset `at` of its
