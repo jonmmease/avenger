@@ -7,14 +7,17 @@
 //! into an `ERROR` node. The formatter keeps such a statement as written. The tokens give what is
 //! open at the start of a line directly.
 //!
-//! The indentation follows the depths of the formatter's layout:
-//! the innermost open bracket gives the depth of its line plus 2, and its closer the depth of its
-//! line; `|>` takes the depth of its query; `GROUP BY` and `WINDOW` take the depth of the
-//! operator's keyword; and a line that starts with a binary operator continues the chain of the
-//! line before it. A line's depth is the column of its first token, and of a pipe operator's line
-//! the column of its keyword, after `|> `.
+//! The indentation follows the depths of the formatter's layout: the innermost open bracket gives
+//! its items [`INDENT`] deeper than the depth of its line, and its closer the depth of its line;
+//! `|>` takes the depth of its query; `GROUP BY`, `WINDOW`, and a join's `ON` and `USING` take the
+//! depth of the operator's keyword; the items of a pipe operator's list go [`INDENT`] deeper than
+//! its `|>`; and a line that starts with a binary operator, or that follows a line that ends with
+//! one, continues the chain of the line before it. A line's depth is the column of its first
+//! token, and of a pipe operator's line the column of its keyword, after `|> `, so that what breaks
+//! under a pipe operator's line, or under its clause's line, goes [`PIPE_STEP`] deeper than the
+//! depth of the line, and so [`INDENT`] deeper than the `|>`.
 //!
-//! The rules read what the formatter reads: the depths [`INDENT`] and [`PIPE`] of
+//! The rules read what the formatter reads: the depths [`INDENT`], [`PIPE`], and [`PIPE_STEP`] of
 //! [`layout`](crate::layout), the formatter's tables of the clauses that go on lines of their
 //! own, by their first keywords, and the parser's levels of the binary operators.
 //!
@@ -23,16 +26,19 @@
 //! keyword that starts a list, and otherwise the next pipe operator.
 
 use crate::format::{Clause, BRACKET_CLAUSES, OPERATOR_CLAUSES};
-use crate::layout::{INDENT, PIPE};
+use crate::layout::{INDENT, PIPE, PIPE_STEP};
 use crate::lexer::{tokenize, Token};
 use crate::parser::binary_level;
 use crate::SyntaxKind;
 
 use SyntaxKind as K;
 
-/// An open bracket, or an open `CASE`, and the depth of the line that opens it.
+/// An open bracket, or an open `CASE`, and the depths of its items and of its closer.
 struct Frame {
-    depth: usize,
+    /// The depth of the bracket's items, or of `CASE`'s `WHEN` and `ELSE`.
+    items: usize,
+    /// The depth of the bracket's closer, or of `CASE`'s `END`: that of the line that opens it.
+    close: usize,
     /// Whether a query starts the bracket, so that its lines follow the rules of a query.
     query: bool,
     case: bool,
@@ -61,6 +67,18 @@ fn is_word(text: &str, token: &Token, word: &str) -> bool {
 /// of a line when its chain breaks. `>>` and `<>` start with `>` and `<`, which are operators too.
 fn is_operator(text: &str, token: &Token) -> bool {
     binary_level(&[(token.kind, &text[token.range])]).is_some()
+}
+
+/// The keywords of a join's clauses, which the formatter keeps on the join's line, and which take
+/// the depth of the operator's keyword, as its other clauses do, when a user starts a line with
+/// them.
+const JOIN_CLAUSES: [&str; 2] = ["ON", "USING"];
+
+/// Whether `word` starts a clause of a pipe operator, at the depth of the operator's keyword.
+pub fn starts_operator_clause(word: &str) -> bool {
+    (OPERATOR_CLAUSES.iter().flat_map(|clause| clause.keywords))
+        .chain(JOIN_CLAUSES.iter())
+        .any(|keyword| word.eq_ignore_ascii_case(keyword))
 }
 
 /// Whether `token` is a keyword that starts one of `clauses`.
@@ -121,6 +139,58 @@ pub fn depth(text: &str, line_start: usize) -> Option<usize> {
             false => indent,
         }
     };
+    // How much deeper than the line of `offset` a part goes that breaks under it: [`PIPE_STEP`]
+    // under a pipe operator's line or its clause's line, at the top of the operator's body, and
+    // [`INDENT`] under any other line.
+    let step = |offset: usize| {
+        let start = lines.start(offset);
+        let rest = text[start..].trim_start_matches([' ', '\t']);
+        let word = rest
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .next()
+            .unwrap_or("");
+        match rest.starts_with("|>") || starts_operator_clause(word) {
+            true => PIPE_STEP,
+            false => INDENT,
+        }
+    };
+    // The start of the line that opens what holds `offset`: the line of `offset`, or, when that
+    // line starts with a closer, the line of the closer's bracket, and so on, since what follows a
+    // closer on its line continues what its bracket's line starts.
+    let opening_line = |offset: usize| {
+        let mut start = lines.start(offset);
+        loop {
+            let at = (before.iter()).position(|token| usize::from(token.range.start()) >= start);
+            let Some(at) = at.filter(|at| matches!(before[*at].kind, K::R_PAREN | K::R_BRACK))
+            else {
+                return start;
+            };
+            let mut open = 0usize;
+            let opener = (0..=at).rev().find(|index| {
+                match before[*index].kind {
+                    K::R_PAREN | K::R_BRACK => open += 1,
+                    K::L_PAREN | K::L_BRACK => open = open.saturating_sub(1),
+                    _ => {}
+                }
+                open == 0
+            });
+            match opener {
+                Some(index) => start = lines.start(usize::from(before[index].range.start())),
+                None => return start,
+            }
+        }
+    };
+    // The frame of a bracket or a `CASE` that opens at `start`.
+    let open = |start: usize, case: bool| {
+        let line = opening_line(start);
+        Frame {
+            items: line_depth(line) + step(line),
+            close: line_depth(line),
+            query: false,
+            case,
+            empty: !case,
+        }
+    };
     let mut frames: Vec<Frame> = Vec::new();
     for token in &before {
         let start = usize::from(token.range.start());
@@ -132,12 +202,7 @@ pub fn depth(text: &str, line_start: usize) -> Option<usize> {
         }
         match token.kind {
             K::SEMICOLON => frames.clear(),
-            K::L_PAREN | K::L_BRACK => frames.push(Frame {
-                depth: line_depth(start),
-                query: false,
-                case: false,
-                empty: true,
-            }),
+            K::L_PAREN | K::L_BRACK => frames.push(open(start, false)),
             K::R_PAREN | K::R_BRACK => {
                 // A `CASE` without its `END` closes with the bracket around it.
                 while frames.last().is_some_and(|frame| frame.case) {
@@ -145,12 +210,7 @@ pub fn depth(text: &str, line_start: usize) -> Option<usize> {
                 }
                 frames.pop();
             }
-            K::WORD if is_word(text, token, "CASE") => frames.push(Frame {
-                depth: line_depth(start),
-                query: false,
-                case: true,
-                empty: false,
-            }),
+            K::WORD if is_word(text, token, "CASE") => frames.push(open(start, true)),
             K::WORD
                 if is_word(text, token, "END") && frames.last().is_some_and(|frame| frame.case) =>
             {
@@ -160,22 +220,25 @@ pub fn depth(text: &str, line_start: usize) -> Option<usize> {
         }
     }
     let frame = frames.last();
-    let base = frame.map_or(0, |frame| frame.depth + INDENT);
+    // The depth of the query that holds the line.
+    let base = frame.map_or(0, |frame| frame.items);
     let prev = before.last().copied();
 
     if let Some(first) = first {
         match first.kind {
             K::R_PAREN | K::R_BRACK => {
                 let frame = frames.iter().rev().find(|frame| !frame.case);
-                let items = if commented { INDENT } else { 0 };
-                return Some(frame.map_or(0, |frame| frame.depth + items));
+                return Some(frame.map_or(0, |frame| match commented {
+                    true => frame.items,
+                    false => frame.close,
+                }));
             }
             K::PIPE => {
                 let query = frames.iter().rev().find(|frame| !frame.case);
-                return Some(query.map_or(0, |frame| frame.depth + INDENT));
+                return Some(query.map_or(0, |frame| frame.items));
             }
             K::WORD if is_word(text, first, "END") && frame.is_some_and(|frame| frame.case) => {
-                return frame.map(|frame| frame.depth);
+                return frame.map(|frame| frame.close);
             }
             _ => {}
         }
@@ -186,8 +249,11 @@ pub fn depth(text: &str, line_start: usize) -> Option<usize> {
     if prev.kind == K::SEMICOLON {
         return Some(0);
     }
-    // The depth of the line of `prev`.
-    let previous_line = || line_depth(lines.start(usize::from(prev.range.start())));
+    // The depth of a part that breaks under the line that opens what ends at `prev`.
+    let under_previous = || {
+        let start = opening_line(usize::from(prev.range.start()));
+        line_depth(start) + step(start)
+    };
     // Whether the line of `prev` holds only keywords after its `|>` or its clause's keyword, as a
     // pipe operator's keyword or `GROUP BY` does, so that its list goes on the lines after it.
     let head = || {
@@ -221,38 +287,55 @@ pub fn depth(text: &str, line_start: usize) -> Option<usize> {
     };
     let opened = matches!(prev.kind, K::L_PAREN | K::L_BRACK);
     let item = prev.kind == K::COMMA || opened || head();
-    if let Some(first) = first {
-        if is_operator(text, first) && !item {
-            let start = lines.start(usize::from(prev.range.start()));
-            let line_first =
-                (before.iter()).find(|token| usize::from(token.range.start()) >= start);
-            return Some(match line_first {
-                Some(token) if is_operator(text, token) => line_depth(start),
-                _ => previous_line() + INDENT,
-            });
-        }
+    // Whether `prev` is a binary operator that ends its line, as `AND` in `|> WHERE x AND`, so
+    // that the chain continues on the line. A `*` continues one only after an operand, since
+    // after a keyword, such as `SELECT`, or after `(`, `,`, or `.`, it is the star of all the
+    // columns.
+    let operand = |token: &Token| match token.kind {
+        K::WORD => SyntaxKind::keyword(&text[token.range]).is_none(),
+        kind => matches!(
+            kind,
+            K::QUOTED_IDENT
+                | K::STRING
+                | K::INTEGER
+                | K::FLOAT
+                | K::PARAM
+                | K::R_PAREN
+                | K::R_BRACK
+        ),
+    };
+    let trailing = is_operator(text, prev)
+        && (prev.kind != K::STAR || before.len() >= 2 && operand(before[before.len() - 2]));
+    let starts_operator = first.is_some_and(|first| is_operator(text, first));
+    if (starts_operator || trailing) && !item {
+        let start = lines.start(usize::from(prev.range.start()));
+        let line_first = (before.iter()).find(|token| usize::from(token.range.start()) >= start);
+        return Some(match line_first {
+            Some(token) if is_operator(text, token) => line_depth(start),
+            _ => under_previous(),
+        });
     }
     if let Some(frame) = frame.filter(|frame| !frame.query) {
         let clause = first.is_some_and(|first| starts(BRACKET_CLAUSES, text, first));
         if clause {
-            return Some(frame.depth + INDENT);
+            return Some(frame.items);
         }
         if !opened && head() {
-            return Some(previous_line() + INDENT);
+            return Some(under_previous());
         }
         if prev.kind == K::COMMA {
-            return Some((frame.depth + INDENT).max(item_line()));
+            return Some(frame.items.max(item_line()));
         }
-        return Some(frame.depth + INDENT);
+        return Some(frame.items);
     }
-    if first.is_some_and(|first| starts(OPERATOR_CLAUSES, text, first)) {
+    if first
+        .is_some_and(|first| first.kind == K::WORD && starts_operator_clause(&text[first.range]))
+    {
         return Some(base + PIPE);
     }
-    if prev.kind == K::COMMA {
-        return Some(base + PIPE + INDENT);
-    }
-    if head() {
-        return Some(previous_line() + INDENT);
+    // The items of a pipe operator's list, or of its clause's, [`INDENT`] deeper than the `|>`.
+    if prev.kind == K::COMMA || head() {
+        return Some(base + INDENT);
     }
     Some(base)
 }

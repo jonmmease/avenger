@@ -53,6 +53,9 @@ pub struct CompletionItem {
     pub documentation: Option<String>,
     /// The text that replaces the completion's range.
     pub insert: String,
+    /// The text that an editor matches what the user typed against, when it isn't the label, as
+    /// `WHERE` for the item `|> WHERE`.
+    pub filter: Option<String>,
     /// The key that orders the items: the items of a kind together, the kinds in the order of
     /// their most relevant items, where arguments come before columns, then variables, then
     /// functions, then keywords.
@@ -162,6 +165,7 @@ impl Items {
 
     fn simple(&mut self, label: String, kind: CompletionKind, detail: Option<String>, rank: u8) {
         self.push(CompletionItem {
+            filter: None,
             sort: sort(rank, &label),
             insert: label.clone(),
             label,
@@ -262,6 +266,7 @@ impl Document {
                 let value = list.has_value_at(offset);
                 for option in list.options_at(offset) {
                     items.push(CompletionItem {
+                        filter: None,
                         sort: sort(rank::ARGUMENT, option.name),
                         insert: match value {
                             true => option.name.to_string(),
@@ -381,6 +386,22 @@ impl Document {
                         }
                     }
                 }
+                // Where a `|>` can come, each pipe operator with its `|>`, which leaves the cursor
+                // after its space, and found by its words.
+                Expected::Token(SyntaxKind::PIPE) if self.starts_pipe_line(start, &before) => {
+                    for operator in avenger_sql_syntax::PIPE_OPERATORS {
+                        let label = format!("|> {operator}");
+                        items.push(CompletionItem {
+                            sort: sort(rank::KEYWORD, &label),
+                            insert: format!("{label} "),
+                            filter: Some(operator.to_string()),
+                            label,
+                            kind: CompletionKind::Keyword,
+                            detail: None,
+                            documentation: None,
+                        });
+                    }
+                }
                 // The parser records the words of each pipe operator.
                 Expected::PipeOperator | Expected::Token(_) | Expected::Name(_) => {}
             }
@@ -484,6 +505,7 @@ impl Document {
                 false => rank::COLUMN,
             };
             items.push(CompletionItem {
+                filter: None,
                 sort: sort(rank, &found.path),
                 insert: match raw {
                     true => found.path.clone(),
@@ -651,6 +673,7 @@ impl Document {
                     })
                 });
                 items.push(CompletionItem {
+                    filter: None,
                     sort: sort(rank::VARIABLE, &text),
                     insert: quote(&text),
                     label: text,
@@ -660,6 +683,29 @@ impl Document {
                 });
             }
         }
+    }
+
+    /// Whether a pipe operator with its `|>` completes at `start`, where the parser takes a `|>`:
+    /// at the start of a line, after a token that can end a query, a name, a literal, or a closing
+    /// bracket, and not after a keyword, a comma, or an opening bracket, where the parser's
+    /// recovery takes a `|>` that the text can't.
+    fn starts_pipe_line(&self, start: Offset, before: &Option<SyntaxToken>) -> bool {
+        let start = usize::from(start);
+        let line = self.text[..start].rfind('\n').map_or(0, |end| end + 1);
+        if !self.text[line..start].trim().is_empty() {
+            return false;
+        }
+        before.as_ref().is_some_and(|token| {
+            !token.kind().is_keyword()
+                && !matches!(
+                    token.kind(),
+                    SyntaxKind::COMMA
+                        | SyntaxKind::L_PAREN
+                        | SyntaxKind::L_BRACK
+                        | SyntaxKind::PIPE
+                        | SyntaxKind::DOT
+                )
+        })
     }
 
     /// The tables of the catalog, the pipe `WITH` names and temporary tables of `scope`, and in
@@ -785,6 +831,7 @@ impl Document {
 
     fn function_item(&self, function: &Function) -> CompletionItem {
         CompletionItem {
+            filter: None,
             sort: sort(rank::FUNCTION, &function.name),
             insert: function.name.clone(),
             label: function.name.clone(),
@@ -875,6 +922,7 @@ impl Document {
                 continue;
             }
             items.push(CompletionItem {
+                filter: None,
                 sort: sort(rank::ARGUMENT, &param.name),
                 insert: format!("{} => ", param.name),
                 label: param.name.clone(),
@@ -1043,6 +1091,7 @@ impl Document {
             let mut renamed = constructor.clone();
             renamed.name = builds.name.clone();
             items.push(CompletionItem {
+                filter: None,
                 // Before the values of the parameter, whose labels are letters.
                 sort: format!("{}!{index:03}", rank::ARGUMENT),
                 detail: Some(detail),
@@ -1109,6 +1158,7 @@ impl Items {
             return;
         };
         self.push(CompletionItem {
+            filter: None,
             sort: sort(rank::FUNCTION, &name),
             insert: name.clone(),
             label: name,
@@ -1172,6 +1222,7 @@ fn push_option_values(option: &FileOption, in_string: bool, items: &mut Items) {
     for value in data::values(option) {
         let literal = format!("'{value}'");
         items.push(CompletionItem {
+            filter: None,
             sort: sort(rank::ARGUMENT, value),
             insert: literal.clone(),
             label: literal,
@@ -1200,6 +1251,7 @@ fn push_values(function: &Function, param: &str, items: &mut Items) {
     for value in function.values_of(param) {
         let literal = format!("'{value}'");
         items.push(CompletionItem {
+            filter: None,
             sort: sort(rank::ARGUMENT, value),
             insert: literal.clone(),
             label: literal,
@@ -1237,6 +1289,7 @@ fn before_statement(text: &str, stmt: &ast::Stmt, start: Offset) -> bool {
 fn push_fields(fields: Vec<(String, String)>, items: &mut Items) {
     for (name, ty) in fields {
         items.push(CompletionItem {
+            filter: None,
             sort: sort(rank::COLUMN, &name),
             insert: quote(&name),
             label: name,
@@ -1254,6 +1307,7 @@ fn column_item(column: &Column, rank: u8, expected: Option<&DataType>) -> Comple
         _ => false,
     };
     CompletionItem {
+        filter: None,
         sort: format!(
             "{rank}{}{}",
             u8::from(unexpected),
@@ -1401,6 +1455,7 @@ fn finish(range: TextRange, replace: TextRange, items: Items, quote: Option<bool
 /// The item of a range variable.
 fn range_variable_item(range_variable: &RangeVariable) -> CompletionItem {
     CompletionItem {
+        filter: None,
         sort: sort(rank::VARIABLE, &range_variable.name),
         insert: quote(&range_variable.name),
         label: range_variable.name.clone(),

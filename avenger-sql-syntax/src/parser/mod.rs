@@ -11,6 +11,7 @@
 mod build;
 mod expr;
 mod query;
+pub use query::PIPE_OPERATORS;
 mod script;
 
 pub(crate) use expr::binary_level;

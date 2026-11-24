@@ -100,6 +100,11 @@ fn oracle(env: &Env, prefix: &str, insert: &str, item: Item) -> Option<String> {
             if insert == "OVER" {
                 return over(env, prefix);
             }
+            // A pipe operator with its `|>` is valid where the parser takes it. Alone it lacks
+            // its arguments, whose errors are of the text that the user types next.
+            if insert.starts_with("|> ") {
+                return syntax(env, prefix, insert);
+            }
             // A keyword that starts a clause of a call is valid where the clause is.
             if let Some((_, clause)) = CALL_CLAUSES.iter().find(|(keyword, _)| *keyword == insert) {
                 return judge_clause(env, prefix, insert, clause);
@@ -227,6 +232,16 @@ fn call_of(signature: &Signature, wrapped: bool) -> String {
         });
     }
     format!("({})", values.join(", "))
+}
+
+/// The syntax error that `insert` makes after `prefix`, at the insert or before it, or `None`.
+fn syntax(env: &Env, prefix: &str, insert: &str) -> Option<String> {
+    let text = format!("{prefix}{insert}");
+    let end = prefix.len() + insert.trim_end().len();
+    let document = env.document(&text);
+    (document.diagnostics().into_iter())
+        .find(|d| d.source == Source::Syntax && usize::from(d.range.start()) < end)
+        .map(|error| format!("syntax: {}", error.message))
 }
 
 /// The reason that `insert` and `after` cannot follow `prefix`, or `None`. An error inside

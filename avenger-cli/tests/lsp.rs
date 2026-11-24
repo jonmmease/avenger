@@ -16,9 +16,9 @@ use lsp_types::{
     },
     request::{
         CodeActionRequest, Completion, DocumentSymbolRequest, FoldingRangeRequest, Formatting,
-        GotoDefinition, HoverRequest, Initialize, PrepareRenameRequest, References,
-        RegisterCapability, Rename, Request as _, SelectionRangeRequest, SemanticTokensFullRequest,
-        Shutdown, SignatureHelpRequest,
+        GotoDefinition, HoverRequest, Initialize, OnTypeFormatting, PrepareRenameRequest,
+        References, RegisterCapability, Rename, Request as _, SelectionRangeRequest,
+        SemanticTokensFullRequest, Shutdown, SignatureHelpRequest,
     },
     ClientCapabilities, GeneralClientCapabilities, InitializeParams, InitializeResult, Position,
     PositionEncodingKind, PublishDiagnosticsParams, Url,
@@ -188,6 +188,15 @@ fn the_server_takes_utf_8_positions_when_the_client_offers_them() {
     );
     assert!(capabilities.semantic_tokens_provider.is_some());
     assert!(capabilities.rename_provider.is_some());
+    let on_type = capabilities
+        .document_on_type_formatting_provider
+        .as_ref()
+        .unwrap();
+    assert_eq!(on_type.first_trigger_character, "\n");
+    assert_eq!(
+        on_type.more_trigger_character.as_deref(),
+        Some(&[")", "]", ">", " "].map(String::from)[..])
+    );
     drop(client);
     let utf8 = ClientCapabilities {
         general: Some(GeneralClientCapabilities {
@@ -944,4 +953,95 @@ fn a_module_s_member_answers_by_its_qualified_name() {
         .collect();
     // The fields of a column of the qualifier's name, if any, and the module's members.
     assert!(labels.contains(&"warm"), "{completions}");
+}
+
+#[test]
+fn return_and_a_first_token_indent_their_lines() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("alone.av.sql");
+    // The editor's own indentation put the cursor at 2.
+    let text = "FROM sales\n|> AGGREGATE\n  \n";
+    std::fs::write(&path, text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let alone = Url::from_file_path(&path).unwrap();
+    client.open(&alone, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&alone));
+    let edits = client.request::<OnTypeFormatting>(json!({
+        "textDocument": {"uri": alone}, "position": position(2, 2), "ch": "\n",
+        "options": {"tabSize": 2, "insertSpaces": true}
+    }));
+    assert_eq!(
+        edits,
+        json!([{"range": {"start": position(2, 0), "end": position(2, 0)}, "newText": "  "}])
+    );
+    // A `)` in the middle of a line takes no edit.
+    let edits = client.request::<OnTypeFormatting>(json!({
+        "textDocument": {"uri": alone}, "position": position(0, 4), "ch": ")",
+        "options": {"tabSize": 2, "insertSpaces": true}
+    }));
+    assert_eq!(edits, Value::Null);
+}
+
+#[test]
+fn a_new_line_of_an_indented_cell_takes_the_fence_s_indent() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("alone.qmd");
+    let text = "- An item\n\n  ```{avenger-sql}\n  FROM sales\n  |> AGGREGATE\n    \n  ```\n";
+    std::fs::write(&path, text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let alone = Url::from_file_path(&path).unwrap();
+    client.open(&alone, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&alone));
+    let edits = client.request::<OnTypeFormatting>(json!({
+        "textDocument": {"uri": alone}, "position": position(5, 4), "ch": "\n",
+        "options": {"tabSize": 2, "insertSpaces": true}
+    }));
+    assert_eq!(
+        edits,
+        json!([{"range": {"start": position(5, 0), "end": position(5, 0)}, "newText": "  "}])
+    );
+    // The space after `GROUP` at the items' depth deletes a space at the start of the line, to
+    // the depth of the fence's indent and the operator's keyword.
+    let path = directory.path().canonicalize().unwrap().join("group.qmd");
+    let text = "- An item\n\n  ```{avenger-sql}\n  FROM sales\n  |> AGGREGATE\n      n,\n      GROUP \n  ```\n";
+    std::fs::write(&path, text).unwrap();
+    let group = Url::from_file_path(&path).unwrap();
+    client.open(&group, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&group));
+    let edits = client.request::<OnTypeFormatting>(json!({
+        "textDocument": {"uri": group}, "position": position(6, 12), "ch": " ",
+        "options": {"tabSize": 4, "insertSpaces": true}
+    }));
+    assert_eq!(
+        edits,
+        json!([{"range": {"start": position(6, 0), "end": position(6, 1)}, "newText": ""}])
+    );
+}
+
+#[test]
+fn a_pipe_operator_completes_with_its_pipe_and_filter_text() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("alone.av.sql");
+    let text = "FROM sales\nwh";
+    std::fs::write(&path, text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let alone = Url::from_file_path(&path).unwrap();
+    client.open(&alone, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&alone));
+    let completions = client.request::<Completion>(json!({
+        "textDocument": {"uri": alone}, "position": position(1, 2)
+    }));
+    let item = (completions["items"].as_array().unwrap().iter())
+        .find(|item| item["label"] == "|> WHERE")
+        .unwrap_or_else(|| panic!("{completions}"));
+    assert_eq!(item["filterText"], "WHERE");
+    assert_eq!(item["textEdit"]["newText"], "|> WHERE ");
 }

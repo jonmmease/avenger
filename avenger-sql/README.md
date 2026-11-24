@@ -37,11 +37,11 @@ The cargo features `parquet`, `avro`, and `compression`, which none of the defau
 ```sql
 FROM prices
 |> MATCH_RECOGNIZE(
-     PARTITION BY symbol
-     ORDER BY day
-     MEASURES first(day) AS start_day, min(dn.price) AS low, last(up.price) AS high
-     PATTERN (st dn+ up+)
-     DEFINE st AS TRUE, dn AS price < prev(price), up AS price > prev(price)
+    PARTITION BY symbol
+    ORDER BY day
+    MEASURES first(day) AS start_day, min(dn.price) AS low, last(up.price) AS high
+    PATTERN (st dn+ up+)
+    DEFINE st AS TRUE, dn AS price < prev(price), up AS price > prev(price)
    )
 ```
 
@@ -151,8 +151,8 @@ The scalar functions `layer`, `hconcat`, and `vconcat` compose the charts of a r
 ```sql
 FROM penguins
 |> AGGREGATE layer(
-     mark_symbol(x => bill_length_mm, y => bill_depth_mm),
-     mark_symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
+    mark_symbol(x => bill_length_mm, y => bill_depth_mm),
+    mark_symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
    ) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart
@@ -172,7 +172,7 @@ The aggregates of a layer and the concats take the `_agg` names, as GoogleSQL na
 ```sql
 FROM catches
 |> EXTEND lump(port, weight => sum(tons), keep => row_number() OVER ranked <= 3) OVER (
-     PARTITION BY region
+    PARTITION BY region
    ) AS l
 ```
 

@@ -99,7 +99,7 @@ use rowan::{GreenNode, TextSize};
 
 pub use diagnostic::{line_column, Diagnostic, DiagnosticCode, Fix, TextEdit};
 pub use highlight::{highlight, Highlight, HighlightRange, TypstTag};
-pub use parser::is_reserved;
+pub use parser::{is_reserved, PIPE_OPERATORS};
 pub use rowan::{TextRange, TextSize as Offset};
 pub use syntax_kind::{SqlLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 
