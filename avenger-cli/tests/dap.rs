@@ -389,3 +389,23 @@ fn a_cell_s_stops_and_breakpoints_have_the_lines_of_its_document() {
     client.request("disconnect", json!({}));
     assert!(client.child.wait().unwrap().success());
 }
+
+#[test]
+fn a_stage_after_a_mark_holds_its_charts() {
+    let (_directory, root) = project();
+    let text = "FROM vega_datasets.cars\n|> AGGREGATE mark_bar(x => Origin, y => COUNT(*)) AS chart GROUP BY Cylinders\n|> WHERE Cylinders > 4\n";
+    std::fs::write(root.join("charts/cylinders.av.sql"), text).unwrap();
+    let path = "charts/cylinders.av.sql";
+    let (mut client, _) = launched(&root, path, path, &[3]);
+    assert_eq!(client.frame(), ("|> WHERE".to_string(), 3));
+    let scope = client.scopes()[0].1.clone();
+    let stage = client.variables(&scope);
+    assert_eq!(named(&stage, "rows")["value"], "5 rows");
+    let columns = client.variables(&named(&stage, "columns")["variablesReference"]);
+    assert_eq!(named(&columns, "chart")["type"], "CHART");
+    let rows = client.variables(&named(&stage, "rows")["variablesReference"]);
+    let fields = client.variables(&rows[0]["variablesReference"]);
+    assert_eq!(named(&fields, "chart")["value"], "<chart>");
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}

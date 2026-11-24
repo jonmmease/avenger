@@ -4,6 +4,9 @@
 //! script, so its errors have their places in the file.
 
 use std::path::Path;
+use std::sync::Arc;
+
+use avenger_results_egui::{Code, CodeOperator, RowSource};
 
 use avenger_sql_project::ProjectStylesheet;
 use datafusion::{
@@ -14,10 +17,10 @@ use datafusion::{
 };
 use futures::StreamExt;
 
-use super::stops::Stops;
+use super::stops::{Place, Stops};
 use crate::render::{load, plan_text, text_variables, Failure, Target};
 use crate::statement::Script;
-use crate::view::{lines, outcome, Outcome};
+use crate::view::{lines, outcome, FrameRows, Outcome};
 
 /// The target of a session and its stops.
 pub(crate) struct Debuggee {
@@ -27,6 +30,13 @@ pub(crate) struct Debuggee {
     /// The lines of the file before the text: those of a cell's document before the cell.
     before: usize,
     stops: Stops,
+}
+
+/// What the window shows of a stop: the rows that enter a stage's operator, which the query's
+/// panel shows, or a statement's result.
+pub(crate) enum Shown {
+    Stage(Result<Arc<dyn RowSource>, String>),
+    Result(Outcome),
 }
 
 /// A stop's run: its rows and its variables, which the debugger's panes show.
@@ -110,9 +120,54 @@ impl Debuggee {
         canonical(path) == canonical(&self.target.file)
     }
 
+    /// The query of the statement of the stop at `index`, as the window's panel shows it.
+    pub(crate) fn code(&self, index: usize) -> Code {
+        let at = self.stops.staged(index);
+        let start = at.statement.start;
+        Code {
+            text: self.text[start..at.statement.end].to_string(),
+            operators: (at.operators.iter())
+                .map(|operator| CodeOperator {
+                    ordinal: operator.ordinal,
+                    pipe: operator.start - start,
+                    name: operator.name.clone(),
+                })
+                .collect(),
+            error: None,
+        }
+    }
+
+    /// The rows that enter the operator of the ordinal `ordinal` of the statement of the stop at
+    /// `index`, or the stage's errors, as the reader opens it in the window's panel.
+    pub(crate) async fn stage(
+        &mut self,
+        index: usize,
+        ordinal: usize,
+    ) -> Result<Arc<dyn RowSource>, String> {
+        let at = self.stops.staged(index);
+        let operator = (at.operators.get(ordinal.wrapping_sub(1)))
+            .ok_or_else(|| format!("the query has no operator {ordinal}"))?;
+        let text = at.stage_text(&self.text, operator);
+        match plan_text(&mut self.target, &text).await {
+            Ok(frame) => Ok(Arc::new(FrameRows::new(frame))),
+            Err(Failure::Reports(reports)) => Err(lines(&reports).join("\n")),
+            Err(Failure::Usage(error)) => Err(error),
+        }
+    }
+
+    /// What the window shows of the result of the statement of the stop at `index`.
+    pub(crate) async fn result(&mut self, index: usize) -> Outcome {
+        let text = self.stops.text(self.stops.result_of(index), &self.text);
+        match plan_text(&mut self.target, &text).await {
+            Ok(frame) => outcome(&self.target, frame).await,
+            Err(Failure::Reports(reports)) => Outcome::Failed(lines(&reports)),
+            Err(Failure::Usage(error)) => Outcome::Failed(vec![error]),
+        }
+    }
+
     /// Runs the stop at `index`: plans its text and gives what the window shows, and its rows,
     /// which read as the debugger's panes ask for them, and its variables.
-    pub(crate) async fn run(&mut self, index: usize) -> (Outcome, Ran) {
+    pub(crate) async fn run(&mut self, index: usize) -> (Shown, Ran) {
         let text = self.stops.text(index, &self.text);
         let failed = |failure: Failure| match failure {
             Failure::Usage(error) => vec![error],
@@ -126,12 +181,20 @@ impl Debuggee {
                     rows: Err(errors.clone()),
                     variables: Err(errors.clone()),
                 };
-                return (Outcome::Failed(errors), ran);
+                let shown = match self.stops.get(index).place {
+                    Place::Stage(_) => Shown::Stage(Err(errors.join("\n"))),
+                    Place::Result => Shown::Result(Outcome::Failed(errors)),
+                };
+                return (shown, ran);
             }
         };
         let variables = text_variables(&self.target, &text).await.map_err(failed);
         let rows = Ok(Rows::new(frame.clone()));
-        (outcome(&self.target, frame).await, Ran { rows, variables })
+        let shown = match self.stops.get(index).place {
+            Place::Stage(_) => Shown::Stage(Ok(Arc::new(FrameRows::new(frame)))),
+            Place::Result => Shown::Result(outcome(&self.target, frame).await),
+        };
+        (shown, Ran { rows, variables })
     }
 }
 

@@ -49,6 +49,10 @@ use crate::{
 /// chart script of its own.
 const STATEMENT_PATH: &str = "<statement>";
 
+/// The path in a target's analysis of a part of its script that runs on its own, such as the rows
+/// that enter an operator of its query, apart from [`STATEMENT_PATH`], which its statement keeps.
+const PART_PATH: &str = "<part>";
+
 /// The options of a render.
 pub struct Options {
     /// The size of a chart, either side of which can be unset.
@@ -520,8 +524,8 @@ pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
 /// text keeps the offsets of the target's script, so its reports have their places in the file.
 pub(crate) async fn plan_text(target: &mut Target, text: &str) -> Result<DataFrame, Failure> {
     let project = target.analysis.project_mut();
-    project.add(STATEMENT_PATH, FileRole::Chart, text);
-    plan_chart(target, STATEMENT_PATH, text).await
+    project.add(PART_PATH, FileRole::Chart, text);
+    plan_chart(target, PART_PATH, text).await
 }
 
 /// The variables of `text`, a chart script that runs a part of the target's script, and their
@@ -530,8 +534,7 @@ pub(crate) async fn text_variables(
     target: &Target,
     text: &str,
 ) -> Result<Vec<(String, datafusion::common::ScalarValue)>, Failure> {
-    (target.loader.chart_variables(STATEMENT_PATH, text).await)
-        .map_err(|error| target.failure(error))
+    (target.loader.chart_variables(PART_PATH, text).await).map_err(|error| target.failure(error))
 }
 
 /// Checks the chart script `text` at `path` of the target's analysis, as `check` does, and gives

@@ -119,6 +119,21 @@ impl Stops {
         &self.stops[index]
     }
 
+    /// The statement of the stop at `index`, with its stages.
+    pub(crate) fn staged(&self, index: usize) -> &Staged {
+        &self.statements[self.stops[index].statement]
+    }
+
+    /// The stop of the result of the statement of the stop at `index`.
+    pub(crate) fn result_of(&self, index: usize) -> usize {
+        let statement = self.stops[index].statement;
+        (index..self.stops.len())
+            .find(|at| {
+                self.stops[*at].statement == statement && self.stops[*at].place == Place::Result
+            })
+            .expect("a statement's result")
+    }
+
     /// The text of a chart script that runs the stop at `index` of the script `text`: the rows
     /// that enter its operator, or its statement's result.
     pub(crate) fn text(&self, index: usize, text: &str) -> String {

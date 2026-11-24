@@ -23,9 +23,12 @@ use avenger_results_egui::{RowSource, RowStream};
 use datafusion::{arrow::datatypes::SchemaRef, dataframe::DataFrame};
 use futures::{future::LocalBoxFuture, StreamExt};
 
-use crate::render::{collect_target, load, plan_target, Failure, Target};
+use avenger_results_egui::{Code, CodeOperator};
+
+use crate::render::{collect_target, load, plan_target, plan_text, Failure, Target};
 use crate::report::{Report, Severity};
 use crate::statement::split_line;
+use crate::statement::{staged, Key, Script, Staged};
 
 /// What a change did to the chart.
 pub enum Outcome {
@@ -40,10 +43,12 @@ pub enum Outcome {
     Restyled(ProjectStylesheet),
 }
 
-/// The chart of a window: the chart's name, as the command took it, and its loaded project.
+/// The chart of a window: the chart's name, as the command took it, its loaded project, and the
+/// line of the file of the first error of its last run, which marks the operator that holds it.
 pub struct Session {
     chart: String,
     target: Target,
+    error_line: Option<usize>,
 }
 
 impl Session {
@@ -58,6 +63,7 @@ impl Session {
         let mut session = Session {
             chart: chart.to_string(),
             target,
+            error_line: None,
         };
         let outcome = session.run().await;
         Ok((session, outcome))
@@ -93,13 +99,78 @@ impl Session {
     /// Runs the chart: a result with charts collects, and a table without charts reads its rows
     /// as the window scrolls, so a large table never collects.
     pub async fn run(&mut self) -> Outcome {
-        let failed = |failure| match failure {
-            Failure::Reports(reports) => Outcome::Failed(lines(&reports)),
-            Failure::Usage(error) => Outcome::Failed(vec![error]),
+        self.error_line = None;
+        let failure = match plan_target(&self.target).await {
+            Ok(frame) => return outcome(&self.target, frame).await,
+            Err(failure) => failure,
         };
-        match plan_target(&self.target).await {
-            Ok(frame) => outcome(&self.target, frame).await,
-            Err(failure) => failed(failure),
+        match failure {
+            Failure::Reports(reports) => {
+                self.error_line = (reports.iter())
+                    .find(|report| report.severity == Severity::Error)
+                    .and_then(|report| report.range.as_ref())
+                    .map(|range| range.start.line);
+                Outcome::Failed(lines(&reports))
+            }
+            Failure::Usage(error) => Outcome::Failed(vec![error]),
+        }
+    }
+
+    /// The statement of the chart's query, with its stages: the script's value, or the target's
+    /// statement. A data script's statement has none yet.
+    fn staged(&self) -> Option<(String, Staged)> {
+        if self.target.data {
+            return None;
+        }
+        let text = self.target.script_text();
+        let statements = staged(&text, Script::Chart);
+        let found = match &self.target.statement {
+            Some(statement) => {
+                (statements.into_iter()).find(|at| at.statement.start == statement.start)
+            }
+            None => (statements.into_iter()).find(|at| at.statement.key == Key::Value),
+        };
+        found.map(|found| (text, found))
+    }
+
+    /// The query that the window's panel shows: the statement's text, its top-level operators,
+    /// and the operator that holds the first error of the last run.
+    pub fn code(&self) -> Option<Code> {
+        let (text, at) = self.staged()?;
+        let before = self.target.lines_before();
+        let start = at.statement.start;
+        let error = self.error_line.and_then(|line| {
+            let line = line.checked_sub(before)?;
+            (line <= at.last).then_some(())?;
+            (at.operators.iter())
+                .rev()
+                .find(|operator| operator.line <= line)
+                .map(|operator| operator.ordinal)
+        });
+        Some(Code {
+            text: text[start..at.statement.end].to_string(),
+            operators: (at.operators.iter())
+                .map(|operator| CodeOperator {
+                    ordinal: operator.ordinal,
+                    pipe: operator.start - start,
+                    name: operator.name.clone(),
+                })
+                .collect(),
+            error,
+        })
+    }
+
+    /// The rows that enter the operator of the ordinal `ordinal` of the chart's query, which read
+    /// as the window shows them, or the errors of the stage, as `check` prints them.
+    pub async fn stage(&mut self, ordinal: usize) -> Result<Arc<dyn RowSource>, String> {
+        let (text, at) = self.staged().ok_or("the query has no stages")?;
+        let operator = (at.operators.get(ordinal.wrapping_sub(1)))
+            .ok_or_else(|| format!("the query has no operator {ordinal}"))?;
+        let stage = at.stage_text(&text, operator);
+        match plan_text(&mut self.target, &stage).await {
+            Ok(frame) => Ok(Arc::new(FrameRows::new(frame))),
+            Err(Failure::Reports(reports)) => Err(lines(&reports).join("\n")),
+            Err(Failure::Usage(error)) => Err(error),
         }
     }
 
@@ -268,7 +339,7 @@ impl Session {
 pub(crate) async fn outcome(target: &Target, frame: DataFrame) -> Outcome {
     let charts = (frame.schema().fields().iter()).any(|field| is_chart_field(field));
     if !charts {
-        return Outcome::Rows(Arc::new(FrameRows { frame }));
+        return Outcome::Rows(Arc::new(FrameRows::new(frame)));
     }
     match collect_target(target, frame).await {
         Ok(result) => Outcome::Ran(Arc::new(result)),
@@ -301,8 +372,14 @@ pub(crate) fn lines(reports: &[Report]) -> Vec<String> {
 
 /// The rows of a chart script's frame, which a window reads a page at a time: one run of the
 /// frame's query read forward, and its count beside it.
-struct FrameRows {
+pub(crate) struct FrameRows {
     frame: DataFrame,
+}
+
+impl FrameRows {
+    pub(crate) fn new(frame: DataFrame) -> FrameRows {
+        FrameRows { frame }
+    }
 }
 
 impl RowSource for FrameRows {

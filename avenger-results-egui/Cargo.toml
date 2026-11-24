@@ -16,7 +16,9 @@ avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-sql = { path = "../avenger-sql" }
 avenger-sql-project = { path = "../avenger-sql-project" }
+avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 avenger-style = { path = "../avenger-style" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 # The parallel tessellation of rayon needs threads, so the web build leaves it out.
@@ -33,7 +35,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 tokio = { workspace = true, features = ["rt", "sync"] }
 
 [dev-dependencies]
-avenger-sql = { path = "../avenger-sql" }
 avenger-image = { path = "../avenger-image" }
 datafusion = { workspace = true }
 # The example opens a window, which needs a windowing backend on Linux.

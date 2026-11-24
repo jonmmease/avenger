@@ -18,14 +18,16 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use avenger_results_egui::{Exec, Images, ResultView, Shared, Surface};
+use avenger_results_egui::{
+    Code, Exec, Images, QueryPanel, ResultView, RowSource, Shared, StageEvent, Surface,
+};
 use avenger_sql_project::charts::label_engine;
 use avenger_sql_project::watch::{Burst, Watch};
 use avenger_style::{Cascade, ColorScheme, Preferences, Sheet};
 use avenger_typst_label::LabelEngine;
 use eframe::egui;
 
-pub(crate) use session::{lines, outcome};
+pub(crate) use session::{lines, outcome, FrameRows};
 pub use session::{Outcome, Session};
 
 /// What the session's thread sends the window.
@@ -36,6 +38,13 @@ pub(crate) enum Message {
     /// The window's title: the chart's file, with its statement's line now, its cell, and what
     /// its statement shows.
     Title(String),
+    /// The query that the panel shows, or none.
+    Code(Option<Code>),
+    /// The rows that enter an operator of the query, by its ordinal, or the stage's errors.
+    Stage(usize, Result<Arc<dyn RowSource>, String>),
+    /// The stage where a debugger stopped, by its ordinal, which the panel opens and marks, or
+    /// none at a statement's result, which closes the stages.
+    Current(Option<usize>),
 }
 
 /// Opens a window on `chart`, a chart script, `doc.qmd#NAME`, or a statement as `FILE:LINE`, in
@@ -46,11 +55,13 @@ pub fn run(chart: String, scheme: Option<ColorScheme>) -> Result<(), String> {
 }
 
 /// What the thread that drives a window sends it through: the window's messages, each of which
-/// wakes it, and whether the window closed.
+/// wakes it, whether the window closed, and what the reader does to the query's stages, which the
+/// thread runs.
 pub(crate) struct Sink {
     sender: Sender<Message>,
     ctx: egui::Context,
     closed: Arc<AtomicBool>,
+    events: crossbeam_channel::Receiver<StageEvent>,
 }
 
 impl Sink {
@@ -64,6 +75,11 @@ impl Sink {
     /// Whether the window closed.
     pub(crate) fn closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
+    }
+
+    /// What the reader did to the query's stages, as the window reports it.
+    pub(crate) fn events(&self) -> &crossbeam_channel::Receiver<StageEvent> {
+        &self.events
     }
 
     /// Closes the window.
@@ -103,6 +119,10 @@ pub(crate) fn window(
 struct Window {
     runtime: Exec,
     view: ResultView,
+    /// The query above the result, and its stages.
+    panel: QueryPanel,
+    /// What the reader does to the stages, for the session's thread.
+    events: crossbeam_channel::Sender<StageEvent>,
     images: Images,
     engine: LabelEngine,
     /// The project's entry stylesheet.
@@ -135,11 +155,13 @@ impl Window {
         let runtime = Exec::new().map_err(|error| error.to_string())?;
         let (sender, messages) = channel();
         let closed = Arc::new(AtomicBool::new(false));
+        let (events, stage_events) = crossbeam_channel::unbounded();
         {
             let sink = Sink {
                 sender,
                 ctx: cc.egui_ctx.clone(),
                 closed: closed.clone(),
+                events: stage_events,
             };
             std::thread::Builder::new()
                 .name("avenger-view".into())
@@ -150,6 +172,8 @@ impl Window {
         Ok(Self {
             runtime,
             view: ResultView::new(),
+            panel: QueryPanel::new(),
+            events,
             images: Images::new(&cc.egui_ctx, crate::render::image_options()?),
             engine: label_engine(),
             sheet: None,
@@ -210,6 +234,9 @@ impl Window {
                     self.view.set_rows(source, state);
                 }
                 Message::Outcome(Outcome::Failed(errors)) => self.report(errors),
+                Message::Code(code) => self.panel.set_code(code),
+                Message::Stage(ordinal, rows) => self.panel.set_stage(ordinal, rows),
+                Message::Current(ordinal) => self.panel.set_current(ordinal),
                 Message::Outcome(Outcome::Restyled(stylesheet)) => {
                     let errors: Vec<String> = (stylesheet.diagnostics.iter())
                         .map(|diagnostic| match stylesheet.path(diagnostic.span.source) {
@@ -254,6 +281,10 @@ impl eframe::App for Window {
         }
         egui::TopBottomPanel::top("bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // The left of the bar holds what the window shows, and the right how it looks.
+                if self.panel.code().is_some() {
+                    self.panel.button(ui);
+                }
                 if self.view.shows_chart_cells() {
                     ui.checkbox(&mut self.view.interactive, "Interactive cells")
                         .on_hover_text("The chart cells of a table pan, zoom, and show tooltips");
@@ -277,6 +308,12 @@ impl eframe::App for Window {
                 });
             });
         });
+        if self.panel.code().is_some() {
+            self.panel.show(ctx, &self.runtime);
+            for event in self.panel.take_events() {
+                let _ = self.events.send(event);
+            }
+        }
         if !self.errors.is_empty() {
             egui::TopBottomPanel::bottom("errors").show(ctx, |ui| {
                 let color = ui.visuals().error_fg_color;
@@ -343,6 +380,7 @@ fn follow(chart: String, sink: Sink) {
     if !send(Message::Opened(Ok(sheet)))
         || !send(Message::Title(title.clone()))
         || !send(Message::Outcome(outcome))
+        || !send(Message::Code(session.code()))
     {
         return;
     }
@@ -365,6 +403,10 @@ fn follow(chart: String, sink: Sink) {
                         return;
                     }
                 }
+                // The panel keeps its open stages, which run again on the new text.
+                if !send(Message::Code(session.code())) {
+                    return;
+                }
                 // The statement's line follows edits around it.
                 if session.title() != title {
                     title = session.title();
@@ -377,7 +419,19 @@ fn follow(chart: String, sink: Sink) {
             Burst::Waiting(time) => time,
             Burst::Quiet => Duration::from_millis(500),
         };
-        let _ = wakes.recv_timeout(wait);
+        // A change of the files, or a stage that the reader opened, wakes the thread.
+        crossbeam_channel::select! {
+            recv(wakes) -> _ => {}
+            recv(sink.events()) -> event => {
+                if let Ok(StageEvent::Open(ordinal)) = event {
+                    let rows = runtime.block_on(session.stage(ordinal));
+                    if !send(Message::Stage(ordinal, rows)) {
+                        return;
+                    }
+                }
+            }
+            default(wait) => {}
+        }
     }
 }
 

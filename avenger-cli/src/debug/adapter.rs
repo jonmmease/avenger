@@ -21,9 +21,11 @@ use datafusion::arrow::{
 };
 use serde_json::{json, Value};
 
-use super::debuggee::{Debuggee, Ran, Rows};
+use super::debuggee::{Debuggee, Ran, Rows, Shown};
 use super::protocol::{Output, Request};
 use super::stops::{Move, Place, Reason};
+use avenger_results_egui::StageEvent;
+
 use crate::view::{Message, Sink};
 
 /// The id of the session's thread, and of its frame.
@@ -85,6 +87,8 @@ pub(crate) struct Adapter<W: Write> {
     pending: Vec<(PathBuf, Vec<usize>, Vec<i64>)>,
     /// The current stop, its run, and what the variable references of its panes hold.
     stop: Option<usize>,
+    /// The statement whose result the window shows under the panel.
+    shown: Option<usize>,
     ran: Option<Ran>,
     vars: Vec<Var>,
 }
@@ -109,6 +113,7 @@ impl<W: Write> Adapter<W> {
             notes: Vec::new(),
             pending: Vec::new(),
             stop: None,
+            shown: None,
             ran: None,
             vars: Vec::new(),
         })
@@ -127,6 +132,7 @@ impl<W: Write> Adapter<W> {
                         terminated = true;
                         self.out.event("terminated", json!({}));
                     }
+                    self.window_events();
                     continue;
                 }
             };
@@ -146,6 +152,21 @@ impl<W: Write> Adapter<W> {
         }
         if let Some(sink) = &self.sink {
             sink.close();
+        }
+    }
+
+    /// Runs the stages that the reader opened in the window's panel, of the current stop's
+    /// statement.
+    fn window_events(&mut self) {
+        let (Some(sink), Some(debuggee), Some(index)) = (&self.sink, &mut self.debuggee, self.stop)
+        else {
+            return;
+        };
+        while let Ok(event) = sink.events().try_recv() {
+            if let StageEvent::Open(ordinal) = event {
+                let rows = self.runtime.block_on(debuggee.stage(index, ordinal));
+                sink.send(Message::Stage(ordinal, rows));
+            }
         }
     }
 
@@ -394,11 +415,30 @@ impl<W: Write> Adapter<W> {
     /// Runs the stop at `index`, shows it in the window, and says that the session stopped there.
     fn stop_at(&mut self, index: usize, reason: Reason) {
         let debuggee = self.debuggee.as_mut().expect("a loaded target");
-        let (outcome, ran) = self.runtime.block_on(debuggee.run(index));
-        let title = debuggee.title(index);
+        let (shown, ran) = self.runtime.block_on(debuggee.run(index));
         if let Some(sink) = &self.sink {
-            sink.send(Message::Title(title));
-            sink.send(Message::Outcome(outcome));
+            // The panel shows the stop's statement, with its stage open and marked, and the
+            // window under it the statement's result, which runs once for the statement.
+            let stop = debuggee.stops().get(index).clone();
+            sink.send(Message::Title(debuggee.title(index)));
+            sink.send(Message::Code(Some(debuggee.code(index))));
+            match (shown, stop.place) {
+                (Shown::Stage(rows), Place::Stage(place)) => {
+                    let ordinal = debuggee.stops().staged(index).operators[place].ordinal;
+                    sink.send(Message::Current(Some(ordinal)));
+                    sink.send(Message::Stage(ordinal, rows));
+                    if self.shown != Some(stop.statement) {
+                        let result = self.runtime.block_on(debuggee.result(index));
+                        sink.send(Message::Outcome(result));
+                    }
+                }
+                (Shown::Result(outcome), _) => {
+                    sink.send(Message::Current(None));
+                    sink.send(Message::Outcome(outcome));
+                }
+                (Shown::Stage(_), Place::Result) => unreachable!("a stage at a result"),
+            }
+            self.shown = Some(stop.statement);
         }
         if let Err(errors) = &ran.rows {
             for error in errors {

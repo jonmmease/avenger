@@ -307,3 +307,51 @@ async fn a_step_of_a_data_script_builds_its_table_again_when_the_script_changes(
     let outcomes = edit(&mut session, &root, "data/summaries.av.sql", &lighter).await;
     assert!(ran(&outcomes).await > heavy);
 }
+
+#[tokio::test]
+async fn the_panel_shows_the_query_and_runs_the_rows_that_enter_each_operator() {
+    let (_directory, root) = project();
+    let chart = root.join("charts/origins.av.sql");
+    let (mut session, _) = Session::open(chart.to_str().unwrap()).await.unwrap();
+    let code = session.code().expect("the chart's query");
+    assert!(code.text.starts_with("FROM heavy_by_origin\n|> JOIN"));
+    let names: Vec<&str> = code.operators.iter().map(|op| op.name.as_str()).collect();
+    assert_eq!(names, ["|> JOIN", "|> AGGREGATE"]);
+    assert_eq!(&code.text[code.operators[0].pipe..][..7], "|> JOIN");
+    assert_eq!(code.error, None);
+    // The rows that enter `JOIN`, and those that enter `AGGREGATE`.
+    let join = session.stage(1).await.unwrap();
+    assert_eq!(join.count().await, Ok(2));
+    assert_eq!(join.schema().fields().len(), 2);
+    let aggregate = session.stage(2).await.unwrap();
+    assert_eq!(aggregate.count().await, Ok(2));
+    assert_eq!(aggregate.schema().fields().len(), 3);
+    assert!(session.stage(3).await.is_err());
+    // A run that fails marks the operator that holds its error, and the stage after it fails at
+    // its place in the file.
+    let text = "FROM heavy_by_origin\n|> SELECT Origin, nope\n|> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n";
+    edit(&mut session, &root, "charts/origins.av.sql", text).await;
+    assert_eq!(session.code().unwrap().error, Some(1));
+    let Err(error) = session.stage(2).await else {
+        panic!("the stage after the error fails");
+    };
+    assert!(error.contains("origins.av.sql:2:19"), "{error}");
+    assert!(session.stage(1).await.is_ok());
+}
+
+#[tokio::test]
+async fn a_statement_s_panel_shows_its_own_query() {
+    let (_directory, root) = project();
+    let script = "FROM vega_datasets.cars |> WHERE Cylinders > 4 |> LIMIT 2;\n\nFROM vega_datasets.cars |> AGGREGATE COUNT(*) AS cars\n";
+    std::fs::write(root.join("charts/steps.av.sql"), script).unwrap();
+    let target = format!("{}:1", root.join("charts/steps.av.sql").display());
+    let (mut session, _) = Session::open(&target).await.unwrap();
+    let code = session.code().unwrap();
+    assert_eq!(
+        code.text,
+        "FROM vega_datasets.cars |> WHERE Cylinders > 4 |> LIMIT 2"
+    );
+    assert_eq!(code.operators.len(), 2);
+    let limit = session.stage(2).await.unwrap();
+    assert!(limit.count().await.unwrap() > 2);
+}

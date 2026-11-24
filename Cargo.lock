@@ -1184,6 +1184,7 @@ dependencies = [
  "avenger-scenegraph",
  "avenger-sql",
  "avenger-sql-project",
+ "avenger-sql-syntax",
  "avenger-style",
  "avenger-typst-label",
  "avenger-wgpu",
