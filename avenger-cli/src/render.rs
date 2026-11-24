@@ -134,7 +134,9 @@ pub async fn run(
 ) -> Result<Status, String> {
     let format = Format::of(out)?;
     let renderer = Renderer::new(options)?;
-    match render_target(chart, out, format, options, &renderer).await {
+    let rendered =
+        async { render_target(&load(chart).await?, out, format, options, &renderer).await };
+    match rendered.await {
         Ok(()) => {
             output.written(&[out.to_path_buf()]);
             Ok(Status::Ok)
@@ -160,10 +162,8 @@ pub async fn run_all(
         std::fs::canonicalize(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let root = find_root(&canonical)
         .ok_or_else(|| format!("{}: not in an avenger project", path.display()))?;
-    let files =
-        (ProjectFiles::find(&root).await).map_err(|e| format!("{}: {e}", root.display()))?;
-    let analysis = Analysis::new(&files).await.map_err(|e| e.to_string())?;
-    let targets = targets(&files, &analysis);
+    let mut project = Project::open_root(&root).await?;
+    let targets = targets(&project.files, &project.analysis);
     std::fs::create_dir_all(out).map_err(|error| format!("{}: {error}", out.display()))?;
     let renderer = Renderer::new(options)?;
     let (mut written, mut reports) = (Vec::new(), Vec::new());
@@ -171,7 +171,16 @@ pub async fn run_all(
         let name = format!("{}.{}", target.replace(['/', '#'], "-"), format.extension());
         let file = out.join(name);
         let chart = root.join(&target).to_string_lossy().into_owned();
-        match render_target(&chart, &file, format, options, &renderer).await {
+        let rendered = match project.aim(&chart) {
+            Ok(aim) => {
+                let target = aim.target(project);
+                let rendered = render_target(&target, &file, format, options, &renderer).await;
+                project = target.into_project();
+                rendered
+            }
+            Err(failure) => Err(failure),
+        };
+        match rendered {
             Ok(()) => written.push(file),
             Err(Failure::Reports(failed)) => reports.extend(failed),
             Err(Failure::Usage(error)) => {
@@ -287,6 +296,8 @@ pub(crate) struct Target {
     /// a project of one file.
     pub(crate) files: ProjectFiles,
     pub(crate) root: Option<PathBuf>,
+    /// The loose file of a project of one file, and its path in the project.
+    pub(crate) loose: Option<(PathBuf, String)>,
     /// The line of the file that the target names, from 1, and its statement, when the target
     /// names one as `FILE:LINE`.
     pub(crate) line: Option<usize>,
@@ -297,6 +308,18 @@ pub(crate) struct Target {
 }
 
 impl Target {
+    /// The project of the target, which another target can take.
+    pub(crate) fn into_project(self) -> Project {
+        Project {
+            loader: self.loader,
+            analysis: self.analysis,
+            stylesheet: self.stylesheet,
+            files: self.files,
+            root: self.root,
+            loose: self.loose,
+        }
+    }
+
     /// The report of the error `message` of the target: of its whole file, or of a cell's first
     /// line.
     pub(crate) fn report(&self, message: String) -> Report {
@@ -314,16 +337,6 @@ impl Target {
             }
             _ => Report::file(&self.file, Severity::Error, message, "render"),
         }
-    }
-
-    /// Points the target at the statement of its text at the line `line` of its file, from 1: a
-    /// line of its script, or of its cell's document. A statement other than the script's value
-    /// runs as a chart script of its own, at [`STATEMENT_PATH`], whose text runs the statement.
-    pub(crate) fn point_at(&mut self, line: usize) -> Result<(), String> {
-        let before = self.lines_before();
-        let statement = at_line(&self.text, line - before, before, self.script_kind())?;
-        self.show(statement);
-        Ok(())
     }
 
     /// Points the target at its statement again, by the statement's key, after its text changed:
@@ -356,8 +369,8 @@ impl Target {
     /// The lines of the file before the target's text: none for a script, and those of the
     /// document before its cell.
     pub(crate) fn lines_before(&self) -> usize {
-        match (&self.document, self.cell()) {
-            (Some(document), Some(cell)) => document.text[..cell.range.start].matches('\n').count(),
+        match (&self.document, self.cell) {
+            (Some(document), Some(index)) => lines_before(document, index),
             _ => 0,
         }
     }
@@ -590,16 +603,27 @@ async fn plan_chart(
     }
 }
 
-/// Renders the chart `chart`, a path with a cell's `#NAME` or not, to `out`.
+/// Renders the target `target` to the file `out`, in the format `format`.
 async fn render_target(
-    chart: &str,
+    target: &Target,
     out: &Path,
     format: Format,
     options: &Options,
     renderer: &Renderer,
 ) -> Result<(), Failure> {
-    let target = load(chart).await?;
-    let result = run_target(&target).await?;
+    let bytes = image(target, format, options, renderer).await?;
+    std::fs::write(out, bytes).map_err(|e| Failure::Usage(format!("{}: {e}", out.display())))
+}
+
+/// Runs the target `target` and draws its result in the format `format`, one chart alone or a
+/// table of its rows, as the image's bytes.
+async fn image(
+    target: &Target,
+    format: Format,
+    options: &Options,
+    renderer: &Renderer,
+) -> Result<Vec<u8>, Failure> {
+    let result = run_target(target).await?;
     let cascade = target
         .stylesheet
         .cascade(background(options.color_scheme), renderer.extra.as_ref());
@@ -617,153 +641,278 @@ async fn render_target(
         }
         (None, None) => table_scene(&result, &cascade, options, renderer).await?,
     };
-    write(&scene, out, format, options, renderer)
-        .await
-        .map_err(Failure::Usage)
+    (draw(&scene, format, options, renderer).await).map_err(Failure::Usage)
 }
 
 /// Loads the project of the chart `chart`, a path of a chart script or `doc.qmd#NAME`, or a
 /// loose script or document as a project of one file, and finds its text. A target at a line,
 /// `FILE:LINE`, names the statement at a line of a script or of a document's cell.
 pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
-    let (chart, line) = split_line(chart)?;
-    let (path, name) = match chart.rsplit_once('#') {
-        Some((document, name)) if is_document(document) => (document, Some(name)),
-        _ => (chart, None),
-    };
-    if let (Some(name), Some(_)) = (name, line) {
-        return Err(Failure::Usage(format!(
-            "{chart}: a target names a cell by its line or as `#{name}`, not both"
-        )));
-    }
-    let file = std::fs::canonicalize(path).map_err(|error| format!("{path}: {error}"))?;
-    let (files, relative, root) = match find_root(&file) {
-        Some(root) => {
-            let files = (ProjectFiles::find(&root).await)
-                .map_err(|e| format!("{}: {e}", root.display()))?;
-            let relative = (file.strip_prefix(&root).ok())
-                .and_then(|path| path.to_str())
-                .map(|path| path.replace('\\', "/"))
-                .unwrap_or_default();
-            let role = files.manifest().role(&relative);
-            match role {
-                Ok(Some(Role::ChartScript | Role::Document | Role::DataScript)) => {
-                    (files, relative, Some(root))
-                }
-                Ok(Some(Role::Module(_))) if line.is_some() => {
-                    return Err(Failure::Usage(format!(
-                        "{}: a statement of a module is no target",
-                        file.display()
-                    )))
-                }
-                _ => {
-                    let (files, relative) = loose(&file).await?;
-                    (files, relative, None)
-                }
-            }
-        }
-        None => {
-            let (files, relative) = loose(&file).await?;
-            (files, relative, None)
-        }
-    };
-    let data = matches!(files.manifest().role(&relative), Ok(Some(Role::DataScript)));
-    let (analysis, loader, _) = load_files(&files).await?;
-    let stylesheet = files.load_stylesheet().await.map_err(|e| e.to_string())?;
-    let (path, text, document, cell) = match analysis.qmd(&relative) {
-        Some(document) => {
-            let (index, cell) = match (name, line) {
-                (_, Some(line)) => (cell_at_line(document, line))
-                    .map_err(|error| format!("{chart}:{line}: {error}"))?,
-                (Some(name), None) => document.cell(name).ok_or_else(|| {
-                    format!("{}: no `{{avenger-sql}}` cell `{name}`", file.display())
-                })?,
-                (None, None) if document.cells.len() == 1 => (0, &document.cells[0]),
-                (None, None) => {
-                    return Err(Failure::Usage(format!(
-                        "{}: the document has {} cells; name one as `#NUMBER` or `#LABEL`, or \
-                         by a line as `:LINE`",
-                        file.display(),
-                        document.cells.len()
-                    )))
-                }
-            };
-            let text = cell.text.clone();
-            (
-                cell_path(&relative, index + 1),
-                text,
-                Some(document.clone()),
-                Some(index),
-            )
-        }
-        None => {
-            let text = (analysis.project().document(&relative))
-                .map(|document| document.text().to_string())
-                .ok_or_else(|| format!("{}: not a chart script", file.display()))?;
-            (relative.clone(), text, None, None)
-        }
-    };
-    let mut target = Target {
-        loader,
-        analysis,
-        stylesheet,
-        path,
-        text,
-        script: relative,
-        file,
-        document,
-        cell,
-        files,
-        root,
-        line: None,
-        statement: None,
-        data,
-    };
-    if let (true, None) = (data, line) {
-        // A data script has no value: its tables show by their lines.
-        let tables: Vec<String> = (data_tables(&target.text).into_iter())
-            .map(|(table, line)| format!("{chart}:{line} for `{table}`"))
-            .collect();
-        let tables = match tables.is_empty() {
-            true => "it makes no table that a target shows".to_string(),
-            false => format!("name a table by its line: {}", tables.join(", ")),
-        };
-        return Err(Failure::Usage(format!(
-            "{chart}: a data script has no value; {tables}"
-        )));
-    }
-    if let Some(line) = line {
-        (target.point_at(line)).map_err(|error| format!("{chart}:{line}: {error}"))?;
-    }
-    Ok(target)
+    let (file, line) = split_line(chart)?;
+    let (file, _) = split_name(file);
+    let file = std::fs::canonicalize(file).map_err(|error| format!("{file}: {error}"))?;
+    let project = Project::open(&file, line.is_some()).await?;
+    Ok(project.aim(chart)?.target(project))
 }
 
-/// A project of the one file `file`, a loose script or document, and its path in the project:
-/// a script under `charts/`, and a document at the root.
-async fn loose(file: &Path) -> Result<(ProjectFiles, String), Failure> {
-    let text =
-        std::fs::read_to_string(file).map_err(|error| format!("{}: {error}", file.display()))?;
-    let name = (file.file_name().and_then(|name| name.to_str())).unwrap_or("chart.av.sql");
-    let relative = match is_document(name) {
-        true => name.to_string(),
-        false => format!("charts/{name}"),
-    };
-    let source = FileSource::embedded(
-        "loose",
-        [
-            (
-                "avenger.toml".to_string(),
-                "[project]\nname = \"loose\"\n".to_string(),
-            ),
-            (relative.clone(), text),
-        ],
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    let files = ProjectFiles::open(source)
+/// The file and the name of a cell, `#NAME`, of a target's path.
+fn split_name(chart: &str) -> (&str, Option<&str>) {
+    match chart.rsplit_once('#') {
+        Some((document, name)) if is_document(document) => (document, Some(name)),
+        _ => (chart, None),
+    }
+}
+
+/// A project loaded for the targets that run in it: its files, its analysis, its loader, and its
+/// stylesheet, or a loose script or document as a project of one file. It loads once, and each
+/// of its targets takes it and gives it back, so a run of several targets loads its data scripts
+/// once.
+pub(crate) struct Project {
+    pub(crate) loader: Loader,
+    pub(crate) analysis: Analysis,
+    pub(crate) stylesheet: ProjectStylesheet,
+    pub(crate) files: ProjectFiles,
+    /// The root of the project on disk, or `None` for a loose file.
+    pub(crate) root: Option<PathBuf>,
+    /// The loose file of a project of one file, and its path in the project.
+    pub(crate) loose: Option<(PathBuf, String)>,
+}
+
+impl Project {
+    /// Loads the project of the file `file`, a canonical path: the project above it, or the file
+    /// alone when no project holds it as a chart script, a document, or a data script. A target
+    /// at a statement (`statement`) of a module is an error, since a module's statements don't
+    /// run.
+    pub(crate) async fn open(file: &Path, statement: bool) -> Result<Project, Failure> {
+        let Some(root) = find_root(file) else {
+            return Project::loose(file, None).await;
+        };
+        let files =
+            (ProjectFiles::find(&root).await).map_err(|e| format!("{}: {e}", root.display()))?;
+        let relative = relative(&root, file);
+        match files.manifest().role(&relative) {
+            Ok(Some(Role::ChartScript | Role::Document | Role::DataScript)) => {
+                Ok(Project::load(files, Some(root), None).await?)
+            }
+            Ok(Some(Role::Module(_))) if statement => Err(Failure::Usage(format!(
+                "{}: a statement of a module is no target",
+                file.display()
+            ))),
+            _ => Project::loose(file, None).await,
+        }
+    }
+
+    /// Loads the project whose root is `root`.
+    pub(crate) async fn open_root(root: &Path) -> Result<Project, String> {
+        let files =
+            (ProjectFiles::find(root).await).map_err(|e| format!("{}: {e}", root.display()))?;
+        Project::load(files, Some(root.to_path_buf()), None).await
+    }
+
+    /// The project of one file, the loose script or document `file`, with the text `text`, or
+    /// its text on disk without one: a script under `charts/`, and a document at the root.
+    pub(crate) async fn loose(file: &Path, text: Option<String>) -> Result<Project, Failure> {
+        let text = match text {
+            Some(text) => text,
+            None => std::fs::read_to_string(file)
+                .map_err(|error| format!("{}: {error}", file.display()))?,
+        };
+        let name = (file.file_name().and_then(|name| name.to_str())).unwrap_or("chart.av.sql");
+        let relative = match is_document(name) {
+            true => name.to_string(),
+            false => format!("charts/{name}"),
+        };
+        let source = FileSource::embedded(
+            "loose",
+            [
+                (
+                    "avenger.toml".to_string(),
+                    "[project]\nname = \"loose\"\n".to_string(),
+                ),
+                (relative.clone(), text),
+            ],
+        )
         .await
         .map_err(|error| error.to_string())?;
-    Ok((files, relative))
+        let files = ProjectFiles::open(source)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(Project::load(files, None, Some((file.to_path_buf(), relative))).await?)
+    }
+
+    async fn load(
+        files: ProjectFiles,
+        root: Option<PathBuf>,
+        loose: Option<(PathBuf, String)>,
+    ) -> Result<Project, String> {
+        let (analysis, loader, _) = load_files(&files).await?;
+        let stylesheet = files.load_stylesheet().await.map_err(|e| e.to_string())?;
+        Ok(Project {
+            loader,
+            analysis,
+            stylesheet,
+            files,
+            root,
+            loose,
+        })
+    }
+
+    /// The path in the project of the file `file`, a canonical path, or `None` for a file that
+    /// the project doesn't hold.
+    fn path_of(&self, file: &Path) -> Option<String> {
+        match (&self.root, &self.loose) {
+            (Some(root), _) => file.starts_with(root).then(|| relative(root, file)),
+            (None, Some((loose, relative))) => (loose == file).then(|| relative.clone()),
+            (None, None) => None,
+        }
+    }
+
+    /// What the target of the chart `chart`, as [`load`] names it, runs in the project: its
+    /// script, its cell, and the statement of its line, or the reason that `chart` is no target
+    /// of the project.
+    pub(crate) fn aim(&self, chart: &str) -> Result<Aim, Failure> {
+        let (chart, line) = split_line(chart)?;
+        let (path, name) = split_name(chart);
+        if let (Some(name), Some(_)) = (name, line) {
+            return Err(Failure::Usage(format!(
+                "{chart}: a target names a cell by its line or as `#{name}`, not both"
+            )));
+        }
+        let file = std::fs::canonicalize(path).map_err(|error| format!("{path}: {error}"))?;
+        let relative = (self.path_of(&file))
+            .ok_or_else(|| format!("{}: not a file of the project", file.display()))?;
+        let data = matches!(
+            self.files.manifest().role(&relative),
+            Ok(Some(Role::DataScript))
+        );
+        let (path, text, document, cell) = match self.analysis.qmd(&relative) {
+            Some(document) => {
+                let (index, cell) = match (name, line) {
+                    (_, Some(line)) => (cell_at_line(document, line))
+                        .map_err(|error| format!("{chart}:{line}: {error}"))?,
+                    (Some(name), None) => document.cell(name).ok_or_else(|| {
+                        format!("{}: no `{{avenger-sql}}` cell `{name}`", file.display())
+                    })?,
+                    (None, None) if document.cells.len() == 1 => (0, &document.cells[0]),
+                    (None, None) => {
+                        return Err(Failure::Usage(format!(
+                            "{}: the document has {} cells; name one as `#NUMBER` or `#LABEL`, or \
+                             by a line as `:LINE`",
+                            file.display(),
+                            document.cells.len()
+                        )))
+                    }
+                };
+                let text = cell.text.clone();
+                (
+                    cell_path(&relative, index + 1),
+                    text,
+                    Some(document.clone()),
+                    Some(index),
+                )
+            }
+            None => {
+                let text = (self.analysis.project().document(&relative))
+                    .map(|document| document.text().to_string())
+                    .ok_or_else(|| format!("{}: not a chart script", file.display()))?;
+                (relative.clone(), text, None, None)
+            }
+        };
+        if let (true, None) = (data, line) {
+            // A data script has no value: its tables show by their lines.
+            let tables: Vec<String> = (data_tables(&text).into_iter())
+                .map(|(table, line)| format!("{chart}:{line} for `{table}`"))
+                .collect();
+            let tables = match tables.is_empty() {
+                true => "it makes no table that a target shows".to_string(),
+                false => format!("name a table by its line: {}", tables.join(", ")),
+            };
+            return Err(Failure::Usage(format!(
+                "{chart}: a data script has no value; {tables}"
+            )));
+        }
+        let statement = match line {
+            Some(line) => {
+                let before = match (&document, cell) {
+                    (Some(document), Some(index)) => lines_before(document, index),
+                    _ => 0,
+                };
+                let script = match data {
+                    true => Script::Data,
+                    false => Script::Chart,
+                };
+                let statement = (at_line(&text, line - before, before, script))
+                    .map_err(|error| format!("{chart}:{line}: {error}"))?;
+                Some(statement)
+            }
+            None => None,
+        };
+        Ok(Aim {
+            path,
+            text,
+            script: relative,
+            file,
+            document,
+            cell,
+            statement,
+            data,
+        })
+    }
+}
+
+/// The lines of the text of `document` before its cell at `index`.
+fn lines_before(document: &Qmd, index: usize) -> usize {
+    document.text[..document.cells[index].range.start]
+        .matches('\n')
+        .count()
+}
+
+/// What a target runs in its project: its path in the analysis and its text, its file, and the
+/// statement of the line that it names.
+pub(crate) struct Aim {
+    path: String,
+    text: String,
+    script: String,
+    file: PathBuf,
+    document: Option<Qmd>,
+    cell: Option<usize>,
+    statement: Option<Statement>,
+    data: bool,
+}
+
+impl Aim {
+    /// The target of the aim in `project`, which it takes.
+    pub(crate) fn target(self, project: Project) -> Target {
+        let mut target = Target {
+            loader: project.loader,
+            analysis: project.analysis,
+            stylesheet: project.stylesheet,
+            files: project.files,
+            root: project.root,
+            loose: project.loose,
+            path: self.path,
+            text: self.text,
+            script: self.script,
+            file: self.file,
+            document: self.document,
+            cell: self.cell,
+            line: None,
+            statement: None,
+            data: self.data,
+        };
+        if let Some(statement) = self.statement {
+            target.show(statement);
+        }
+        target
+    }
+}
+
+/// The path of the file `file` under the project's root `root`, with `/` between its parts.
+fn relative(root: &Path, file: &Path) -> String {
+    (file.strip_prefix(root).ok())
+        .and_then(|path| path.to_str())
+        .map(|path| path.replace('\\', "/"))
+        .unwrap_or_default()
 }
 
 /// A cell of a result, as a table shows it: a chart, a value as text, or a null.
@@ -1122,15 +1271,13 @@ async fn table_scene(
     })
 }
 
-/// Writes `scene` to `out` in `format`, on the background of the color scheme.
-async fn write(
+/// The bytes of `scene` drawn in `format`, on the background of the color scheme.
+async fn draw(
     scene: &SceneGraph,
-    out: &Path,
     format: Format,
     options: &Options,
     renderer: &Renderer,
-) -> Result<(), String> {
-    let error = |error: &dyn std::fmt::Display| format!("{}: {error}", out.display());
+) -> Result<Vec<u8>, String> {
     let background = color(background(options.color_scheme));
     let images: Arc<dyn ImageResolver> = Arc::new(renderer.images.clone());
     match format {
@@ -1148,7 +1295,9 @@ async fn write(
             canvas.set_background(background);
             (canvas.set_scene(scene, &renderer.engine)).map_err(|e| e.to_string())?;
             let image = canvas.render().await.map_err(|e| e.to_string())?;
-            image.save(out).map_err(|e| error(&e))
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            (image.write_to(&mut bytes, image::ImageFormat::Png)).map_err(|e| e.to_string())?;
+            Ok(bytes.into_inner())
         }
         Format::Svg => {
             let svg = avenger_svg::SvgRenderer::new()
@@ -1159,20 +1308,17 @@ async fn write(
                 })
                 .with_images(images)
                 .render_scene_graph(scene, &renderer.engine)
-                .map_err(|e| error(&e))?;
-            std::fs::write(out, svg).map_err(|e| error(&e))
+                .map_err(|e| e.to_string())?;
+            Ok(svg.into_bytes())
         }
-        Format::Pdf => {
-            let pdf = avenger_pdf::PdfRenderer::new()
-                .with_options(avenger_pdf::PdfRenderOptions {
-                    background: Some(background),
-                    allow_unready_images: true,
-                })
-                .with_images(images)
-                .render_scene_graph(scene, &renderer.engine)
-                .map_err(|e| error(&e))?;
-            std::fs::write(out, pdf).map_err(|e| error(&e))
-        }
+        Format::Pdf => avenger_pdf::PdfRenderer::new()
+            .with_options(avenger_pdf::PdfRenderOptions {
+                background: Some(background),
+                allow_unready_images: true,
+            })
+            .with_images(images)
+            .render_scene_graph(scene, &renderer.engine)
+            .map_err(|e| e.to_string()),
     }
 }
 
