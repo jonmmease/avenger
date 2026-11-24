@@ -58,6 +58,28 @@ FROM orders
 |> AGGREGATE mark_bar(x => region, y => SUM(amount)) AS chart
 ```
 
+## Quarto documents
+
+The `{avenger-sql}` cells of a Quarto document (`.qmd`), in order, are one chart script. A cell reads what the cells before it define: temporary tables and functions, imports, variables, and tables of files. Each cell can start with `DECLARE`s, as a block of GoogleSQL can, and no statement spans two cells.
+
+````markdown
+```{avenger-sql}
+CREATE TEMP TABLE heavy AS (FROM penguins |> WHERE body_mass_g >= 4500)
+```
+
+```{avenger-sql}
+#| label: fig-heavy
+DECLARE limit_g INT64 DEFAULT 6000;
+FROM heavy
+|> WHERE body_mass_g < limit_g
+|> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart
+```
+````
+
+- A cell's value is its last query, and a cell without a query, such as the first above, has none. A cell's value runs with the statements of its cell before it and what they read, so an error of a statement that it doesn't read doesn't stop it.
+- A cell's leading `#|` lines are its options, a YAML block: avenger reads `label`, `eval`, `fig-width`, `fig-height`, `fig-format`, and `fig-dpi`. A cell with `eval: false` is not part of the script.
+- A target names a cell's value as `report.qmd#NUMBER` or `report.qmd#LABEL`, and a statement as `report.qmd:LINE`.
+
 ## Queries
 
 A query starts with `FROM` and continues with pipe operators. `SELECT ... FROM` and a standard `WITH` are errors that suggest the pipe form.

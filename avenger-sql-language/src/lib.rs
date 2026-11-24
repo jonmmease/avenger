@@ -80,6 +80,8 @@ pub use signature::{ParameterInfo, SignatureHelp, SignatureInfo};
 pub struct Document {
     text: String,
     role: Role,
+    /// The starts of the cells of a script of a Quarto document's cells, or none.
+    cells: Arc<[Offset]>,
     parse: Parse,
     analysis: Analyzed,
     catalog: Arc<dyn Catalog + Send + Sync>,
@@ -179,10 +181,36 @@ impl Document {
         library: Arc<Library>,
         options: Options,
     ) -> Self {
-        let text = text.into();
+        Document::build(text.into(), role, Arc::from([]), catalog, library, options)
+    }
+
+    /// Parses and analyzes `text`, a chart script that holds the cells of a Quarto document,
+    /// whose cells start at `cells`, as [`Document::new`] does a script, with each cell able to
+    /// start with `DECLARE`s, as [`avenger_sql_syntax::parse_cells`] reads it.
+    pub fn new_cells(
+        text: impl Into<String>,
+        cells: Arc<[Offset]>,
+        catalog: Arc<dyn Catalog + Send + Sync>,
+        library: Arc<Library>,
+        options: Options,
+    ) -> Self {
+        Document::build(text.into(), Role::Script, cells, catalog, library, options)
+    }
+
+    fn build(
+        text: String,
+        role: Role,
+        cells: Arc<[Offset]>,
+        catalog: Arc<dyn Catalog + Send + Sync>,
+        library: Arc<Library>,
+        options: Options,
+    ) -> Self {
         let (parse, analysis) = match role {
             Role::Script => {
-                let parse = avenger_sql_syntax::parse(&text);
+                let parse = match cells.is_empty() {
+                    true => avenger_sql_syntax::parse(&text),
+                    false => avenger_sql_syntax::parse_cells(&text, &cells),
+                };
                 let analysis =
                     avenger_sql::analyze(&parse.syntax(), catalog.as_ref(), &library, &options);
                 (parse, Analyzed::Script(Box::new(analysis)))
@@ -205,6 +233,7 @@ impl Document {
         Self {
             text,
             role,
+            cells,
             parse,
             analysis,
             catalog,
@@ -230,6 +259,11 @@ impl Document {
     /// The role of the text, which its parse and its analysis follow.
     pub fn role(&self) -> Role {
         self.role
+    }
+
+    /// The starts of the cells of a script of a Quarto document's cells, or none.
+    pub fn cells(&self) -> &[Offset] {
+        &self.cells
     }
 
     /// The analysis of a chart script: the plans of its statements, which a host runs, and its

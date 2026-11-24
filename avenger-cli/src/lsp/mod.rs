@@ -52,7 +52,7 @@ use lsp_types::{
 
 use self::convert::{Encoding, LineIndex, Place};
 use self::loader::{Load, Loaded, LoaderThread};
-use avenger_sql_project::qmd::{cell_path, is_document, split_cell_path, Qmd};
+use avenger_sql_project::qmd::{is_document, Qmd};
 
 /// Serves the protocol on standard input and standard output until the client exits.
 pub fn serve_stdio() -> Result<(), String> {
@@ -205,10 +205,10 @@ enum Located {
     LooseDocument,
 }
 
-/// A document outside every project: its cells, and the document of each, analyzed alone.
+/// A document outside every project, and the script of its cells, analyzed alone.
 struct LooseDocument {
     qmd: Qmd,
-    cells: Vec<Document>,
+    script: Document,
 }
 
 struct Server {
@@ -503,18 +503,14 @@ impl Server {
             }
             Located::LooseDocument => {
                 let qmd = Qmd::parse(text);
-                let cells = (qmd.cells.iter())
-                    .map(|cell| {
-                        Document::new(
-                            &cell.text,
-                            Role::Script,
-                            Arc::new(MemoryCatalog::new()),
-                            Arc::new(Library::new()),
-                            Options::default(),
-                        )
-                    })
-                    .collect();
-                let document = LooseDocument { qmd, cells };
+                let script = Document::new_cells(
+                    qmd.script.text.as_str(),
+                    qmd.script.cell_starts(),
+                    Arc::new(MemoryCatalog::new()),
+                    Arc::new(Library::new()),
+                    Options::default(),
+                );
+                let document = LooseDocument { qmd, script };
                 self.loose_documents.insert(path.to_path_buf(), document);
                 self.publish_loose(path);
             }
@@ -753,17 +749,14 @@ impl Server {
     }
 
     /// Publishes the diagnostics of the files of the client that hold the files at `paths` of
-    /// the analysis of the project at `root`, each once: a document with the diagnostics of all
-    /// its cells. A file that the project no longer holds has none.
+    /// the analysis of the project at `root`: a document with those of its cells' script and of
+    /// its cells' options. A file that the project no longer holds has none.
     fn publish(&self, root: &Path, paths: &BTreeSet<String>) {
         let Some(state) = self.projects.get(root).filter(|state| state.loaded) else {
             return;
         };
         let project = state.analysis.project();
-        let files: BTreeSet<&str> = (paths.iter())
-            .map(|path| split_cell_path(path).map_or(path.as_str(), |(document, _)| document))
-            .collect();
-        for path in files {
+        for path in paths {
             let file = root.join(path);
             let Ok(uri) = Url::from_file_path(&file) else {
                 continue;
@@ -771,16 +764,10 @@ impl Server {
             let version = self.open.get(&file).map(|file| file.version);
             let mut diagnostics = Vec::new();
             if let Some(document) = state.analysis.qmd(path) {
-                for (index, cell) in document.cells.iter().enumerate() {
-                    let place = Place::new(&document.text, Some(cell), self.encoding);
-                    diagnostics.extend(
-                        (cell.option_diagnostics().iter()).map(|d| lsp_diagnostic(&place, d)),
-                    );
-                    let cell = cell_path(path, index + 1);
-                    diagnostics.extend(
-                        (project.diagnostics(&cell).iter()).map(|d| lsp_diagnostic(&place, d)),
-                    );
-                }
+                let place = Place::new(&document.text, Some(document), self.encoding);
+                diagnostics.extend(option_diagnostics(&place, document));
+                diagnostics
+                    .extend((project.diagnostics(path).iter()).map(|d| lsp_diagnostic(&place, d)));
             } else if let Some(document) = project.document(path) {
                 let place = Place::new(document.text(), None, self.encoding);
                 diagnostics
@@ -806,17 +793,10 @@ impl Server {
             );
         }
         if let Some(document) = self.loose_documents.get(path) {
-            for (cell, analysis) in document.qmd.cells.iter().zip(&document.cells) {
-                let place = Place::new(&document.qmd.text, Some(cell), self.encoding);
-                diagnostics
-                    .extend((cell.option_diagnostics().iter()).map(|d| lsp_diagnostic(&place, d)));
-                diagnostics.extend(
-                    analysis
-                        .diagnostics()
-                        .iter()
-                        .map(|d| lsp_diagnostic(&place, d)),
-                );
-            }
+            let place = Place::new(&document.qmd.text, Some(&document.qmd), self.encoding);
+            diagnostics.extend(option_diagnostics(&place, &document.qmd));
+            diagnostics
+                .extend((document.script.diagnostics().iter()).map(|d| lsp_diagnostic(&place, d)));
         }
         let version = self.open.get(path).map(|file| file.version);
         self.publish_diagnostics(uri, diagnostics, version);
@@ -839,14 +819,33 @@ impl Server {
 /// The paths of the files of the client that the project of `state` holds: its scripts and
 /// modules, and its documents.
 fn client_files(state: &ProjectState) -> BTreeSet<String> {
-    let scripts = (state.analysis.project().files()).filter(|path| split_cell_path(path).is_none());
-    (scripts.map(str::to_string))
-        .chain(state.analysis.documents().map(|(path, _)| path.to_string()))
-        .collect()
+    (state.analysis.project().files().map(str::to_string)).collect()
 }
 
 /// The diagnostic of the protocol of `diagnostic`, at its place `place`, with its help after its
 /// message.
+/// The diagnostics of the errors of the options of the cells of `document`, whose place in the
+/// client's file is `place`.
+fn option_diagnostics(place: &Place, document: &Qmd) -> Vec<lsp_types::Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for cell in &document.cells {
+        for diagnostic in cell.option_diagnostics() {
+            let range = diagnostic.range;
+            let at = |offset: avenger_sql_language::Offset| {
+                place.document_position(cell.to_document(usize::from(offset)))
+            };
+            diagnostics.push(lsp_types::Diagnostic {
+                range: lsp_types::Range::new(at(range.start()), at(range.end())),
+                severity: Some(convert::severity(diagnostic.severity)),
+                source: Some(convert::source(diagnostic.source).to_string()),
+                message: diagnostic.message,
+                ..Default::default()
+            });
+        }
+    }
+    diagnostics
+}
+
 fn lsp_diagnostic(place: &Place, diagnostic: &Diagnostic) -> lsp_types::Diagnostic {
     let message = match &diagnostic.help {
         Some(help) => format!("{}\n\nhelp: {help}", diagnostic.message),

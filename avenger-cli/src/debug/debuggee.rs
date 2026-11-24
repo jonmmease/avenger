@@ -27,10 +27,9 @@ pub(crate) struct Debuggee {
     /// The target as the session launched it, which `restart` opens again.
     name: String,
     session: Session,
-    /// The text of the target's script, or of its cell.
+    /// The text of the target's script, or for a cell, its document's script masked to what the
+    /// cell's statement reads, whose lines are the document's.
     text: String,
-    /// The lines of the file before the text: those of a cell's document before the cell.
-    before: usize,
     stops: Stops,
     /// The values that the debugger gives the script's variables, by name.
     overrides: Overrides,
@@ -42,13 +41,13 @@ pub(crate) struct Ran {
     pub(crate) variables: Result<Vec<(String, ScalarValue)>, Vec<String>>,
 }
 
-/// The text of `target`'s script, the lines of its file before the text, and its stops.
-fn stops_of(target: &Target, name: &str) -> Result<(String, usize, Stops), String> {
+/// The text of `target`'s script and its stops.
+fn stops_of(target: &Target, name: &str) -> Result<(String, Stops), String> {
     let text = target.script_text();
     let statement = target.statement.as_ref().map(|statement| statement.start);
     let stops = Stops::new(&text, target.script_kind(), statement)
         .ok_or_else(|| format!("{name}: the script has no query, so no stage to stop at"))?;
-    Ok((text, target.lines_before(), stops))
+    Ok((text, stops))
 }
 
 impl Debuggee {
@@ -56,12 +55,11 @@ impl Debuggee {
     /// or the statement at a line of either, `FILE:LINE`, of a chart script or a data script.
     pub(crate) async fn open(target: &str) -> Result<Debuggee, String> {
         let (session, _) = Session::open(target).await?;
-        let (text, before, stops) = stops_of(session.target(), target)?;
+        let (text, stops) = stops_of(session.target(), target)?;
         Ok(Debuggee {
             name: target.to_string(),
             session,
             text,
-            before,
             stops,
             overrides: Overrides::new(),
         })
@@ -80,7 +78,7 @@ impl Debuggee {
     /// stops are read again.
     pub(crate) async fn changed(&mut self, paths: &[PathBuf]) -> Result<Vec<Outcome>, String> {
         let outcomes = self.session.changed(paths).await;
-        (self.text, self.before, self.stops) = stops_of(self.session.target(), &self.name)?;
+        (self.text, self.stops) = stops_of(self.session.target(), &self.name)?;
         Ok(outcomes)
     }
 
@@ -118,21 +116,39 @@ impl Debuggee {
             "avenger dap {}: {} at line {}",
             self.display_name(),
             stop.name,
-            self.file_line(stop.line)
+            stop.line
         )
     }
 
-    /// The line of the file of the line `line` of the script's text, both from 1.
-    pub(crate) fn file_line(&self, line: usize) -> usize {
-        line + self.before
-    }
-
-    /// The line of the script's text of the line `line` of the file, both from 1, or `None` for a
-    /// line of a document outside the target's cell.
-    pub(crate) fn script_line(&self, line: usize) -> Option<usize> {
-        let line = line.checked_sub(self.before).filter(|line| *line >= 1)?;
+    /// The line of the script's text of the line `line` of the file, both from 1, or why the
+    /// line takes no stop: a line after the script's text, a line of a document in no cell, or
+    /// a statement of an earlier cell that the cell's statement doesn't read.
+    pub(crate) fn script_line(&self, line: usize) -> Result<usize, String> {
+        let nth = |text: &str| {
+            text.lines()
+                .nth(line.wrapping_sub(1))
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        if let Some(document) = &self.target().document {
+            let line_of = |offset: usize| document.text[..offset].matches('\n').count() + 1;
+            let in_cell = (document.cells.iter())
+                .any(|cell| (line_of(cell.range.start)..=line_of(cell.range.end)).contains(&line));
+            if !in_cell {
+                return Err("the line is in no `{avenger-sql}` cell of the document".into());
+            }
+            if !nth(&document.script.text).is_empty() && nth(&self.text).is_empty() {
+                return Err(format!(
+                    "the statement that the session debugs reads no statement at line {line}"
+                ));
+            }
+        }
         let lines = self.text.matches('\n').count() + 1;
-        (line <= lines).then_some(line)
+        match (1..=lines).contains(&line) {
+            true => Ok(line),
+            false => Err(format!("the session's script ends at line {lines}")),
+        }
     }
 
     /// Whether `path`, a file of a breakpoint, is the target's file.

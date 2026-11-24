@@ -12,13 +12,14 @@ use std::sync::Arc;
 use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library, ScriptError};
 use avenger_sql_language::{Diagnostic, Document, Role as TextRole, Severity as LanguageSeverity};
 use avenger_sql_project::{
-    qmd::{cell_path, is_document, Cell, Qmd},
+    qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, Loader, ProjectStylesheet, Role, MODULE_SUFFIX,
 };
 use datafusion::{common::DataFusionError, prelude::SessionContext};
 
 use crate::{
     files::{select, ProjectSelection},
+    render::{cell_aim, Pick},
     report::{Output, Report, Severity},
     Status,
 };
@@ -92,23 +93,60 @@ async fn check_project(project: &ProjectSelection, run: bool) -> Result<Vec<Repo
                 let Some(document) = analysis.qmd(path) else {
                     continue;
                 };
-                for (index, cell) in document.cells.iter().enumerate() {
-                    let place = |offset| cell.to_document(offset);
-                    let file = File {
-                        path: &file,
-                        text: &document.text,
-                        place: &place,
-                        first_line: Some(first_line(&document.text, cell)),
-                    };
-                    let path = cell_path(path, index + 1);
-                    let text = &cell.text;
-                    reports.extend(check_text(&analysis, &loader, &path, text, run, &file).await);
-                    reports.extend(option_reports(cell, &file));
+                let place = |offset| document.script.to_document(offset);
+                let script = File {
+                    path: &file,
+                    text: &document.text,
+                    place: &place,
+                    first_line: None,
+                };
+                let text = &document.script.text;
+                let checked = check_text(&analysis, &loader, path, text, false, &script).await;
+                let errors = (checked.iter()).any(|report| report.severity == Severity::Error);
+                reports.extend(checked);
+                for cell in &document.cells {
+                    reports.extend(option_reports(cell, &file, &document.text));
+                }
+                if run && !errors {
+                    reports.extend(run_cells(&loader, path, document, &file).await);
                 }
             }
         }
     }
     Ok(reports)
+}
+
+/// The reports of the runs of the values of the cells of `document`, at `path` in the project,
+/// whose file on disk is `file`: each runs on its document's script masked to what it reads, and
+/// a failure is at the cell's first line or at the errors of its script.
+async fn run_cells(loader: &Loader, path: &str, document: &Qmd, file: &Path) -> Vec<Report> {
+    let mut reports = Vec::new();
+    let statements = crate::cells::statements(document);
+    for (index, cell) in document.cells.iter().enumerate() {
+        // A cell without a value, which only defines what later cells read, runs nothing.
+        if crate::cells::value(&statements, index).is_none() {
+            continue;
+        }
+        let line = first_line(&document.text, cell);
+        let pick = Pick::Name((index + 1).to_string());
+        let aim = match cell_aim(document, path, &pick) {
+            Ok(aim) => aim,
+            Err(error) => {
+                let text = &document.text;
+                reports.push(Report::at(file, text, line, Severity::Error, error, "run"));
+                continue;
+            }
+        };
+        let place = |offset| document.script.to_document(offset);
+        let on_disk = File {
+            path: file,
+            text: &document.text,
+            place: &place,
+            first_line: Some(line),
+        };
+        reports.extend(run_chart(loader, path, &aim.masked, &on_disk).await);
+    }
+    reports
 }
 
 /// A file on disk, whose text holds the text of a file of the analysis at `place`.
@@ -182,10 +220,18 @@ fn style_reports(
         .collect()
 }
 
-/// The reports of the errors of the options of `cell`, at their places in `file`.
-fn option_reports(cell: &Cell, file: &File) -> Vec<Report> {
+/// The reports of the errors of the options of `cell`, at their places in its document's file
+/// `file`, whose text is `text`.
+fn option_reports(cell: &Cell, file: &Path, text: &str) -> Vec<Report> {
+    let place = |offset| cell.to_document(offset);
+    let file = File {
+        path: file,
+        text,
+        place: &place,
+        first_line: None,
+    };
     (cell.option_diagnostics().iter())
-        .map(|diagnostic| language_report(file, diagnostic))
+        .map(|diagnostic| language_report(&file, diagnostic))
         .collect()
 }
 
@@ -261,17 +307,23 @@ fn check_loose(path: &Path) -> Result<Vec<Report>, String> {
     let name = path.to_string_lossy();
     if is_document(&name) {
         let document = Qmd::parse(text.as_str());
-        let mut reports = Vec::new();
+        let place = |offset| document.script.to_document(offset);
+        let file = File {
+            path,
+            text: &text,
+            place: &place,
+            first_line: None,
+        };
+        let script = Document::new_cells(
+            document.script.text.as_str(),
+            document.script.cell_starts(),
+            Arc::new(MemoryCatalog::new()),
+            Arc::new(Library::new()),
+            Options::default(),
+        );
+        let mut reports = loose_reports(&script, &file);
         for cell in &document.cells {
-            let place = |offset| cell.to_document(offset);
-            let file = File {
-                path,
-                text: &text,
-                place: &place,
-                first_line: Some(first_line(&text, cell)),
-            };
-            reports.extend(loose_reports(&cell.text, TextRole::Script, &file));
-            reports.extend(option_reports(cell, &file));
+            reports.extend(option_reports(cell, path, &text));
         }
         return Ok(reports);
     }
@@ -285,18 +337,18 @@ fn check_loose(path: &Path) -> Result<Vec<Report>, String> {
         place: &same,
         first_line: None,
     };
-    Ok(loose_reports(&text, role, &file))
-}
-
-/// The reports of `text` of `role`, which analyzes alone, in `file`.
-fn loose_reports(text: &str, role: TextRole, file: &File) -> Vec<Report> {
     let document = Document::new(
-        text,
+        text.as_str(),
         role,
         Arc::new(MemoryCatalog::new()),
         Arc::new(Library::new()),
         Options::default(),
     );
+    Ok(loose_reports(&document, &file))
+}
+
+/// The reports of `document`, which analyzes alone, in `file`.
+fn loose_reports(document: &Document, file: &File) -> Vec<Report> {
     let help = "The file is in no avenger project, or has no role in its manifest, so it reads \
                 no tables of a project: run `avenger check` on it inside a project";
     (document.diagnostics().iter())

@@ -14,6 +14,7 @@
 
 mod assist;
 mod at;
+mod cells;
 mod charts;
 mod check;
 mod data;

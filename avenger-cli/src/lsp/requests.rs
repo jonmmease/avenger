@@ -28,10 +28,10 @@ use serde_json::Value;
 
 use super::convert::{self, Encoding, Place};
 use super::{lsp_diagnostic, relative, ProjectState, Server};
-use avenger_sql_project::qmd::{cell_path, split_cell_path, Cell};
+use avenger_sql_project::qmd::Cell;
 
-/// A file of the analysis that a request reads: a script or a module of a project, or a cell of
-/// a document of a project, by its path in the analysis, or a document that is analyzed alone.
+/// A file of the analysis that a request reads: a script, a module, or the script of a
+/// document's cells, of a project by its path in the analysis, or a file that is analyzed alone.
 enum Target<'a> {
     Project {
         root: &'a Path,
@@ -146,12 +146,9 @@ impl Server {
             return vec![Part { target, place }];
         }
         if let Some(document) = self.loose_documents.get(&path) {
-            return (document.qmd.cells.iter().zip(&document.cells))
-                .map(|(cell, analysis)| Part {
-                    target: Target::Loose(analysis),
-                    place: Place::new(&document.qmd.text, Some(cell), encoding),
-                })
-                .collect();
+            let place = Place::new(&document.qmd.text, Some(&document.qmd), encoding);
+            let target = Target::Loose(&document.script);
+            return vec![Part { target, place }];
         }
         let Some((root, state)) = (self.projects.iter()).find(|(root, _)| path.starts_with(root))
         else {
@@ -161,16 +158,9 @@ impl Server {
             return Vec::new();
         };
         if let Some(document) = state.analysis.qmd(&path) {
-            return (document.cells.iter().enumerate())
-                .map(|(index, cell)| Part {
-                    target: Target::Project {
-                        root,
-                        path: cell_path(&path, index + 1),
-                        state,
-                    },
-                    place: Place::new(&document.text, Some(cell), encoding),
-                })
-                .collect();
+            let place = Place::new(&document.text, Some(document), encoding);
+            let target = Target::Project { root, path, state };
+            return vec![Part { target, place }];
         }
         let Some(document) = state.analysis.project().document(&path) else {
             return Vec::new();
@@ -209,16 +199,11 @@ impl Server {
         state: &'a ProjectState,
         path: &str,
     ) -> Option<(Url, Place<'a>)> {
-        match split_cell_path(path) {
-            Some((document, index)) => {
-                let qmd = state.analysis.qmd(document)?;
-                let cell = qmd.cells.get(index)?;
-                let uri = Url::from_file_path(root.join(document)).ok()?;
-                Some((uri, Place::new(&qmd.text, Some(cell), self.encoding)))
-            }
+        let uri = Url::from_file_path(root.join(path)).ok()?;
+        match state.analysis.qmd(path) {
+            Some(qmd) => Some((uri, Place::new(&qmd.text, Some(qmd), self.encoding))),
             None => {
                 let document = state.analysis.project().document(path)?;
-                let uri = Url::from_file_path(root.join(path)).ok()?;
                 Some((uri, Place::new(document.text(), None, self.encoding)))
             }
         }
@@ -249,7 +234,7 @@ impl Server {
         );
         let items = (completions.items.into_iter())
             .map(|item| {
-                let text = place.replacement(&item.insert);
+                let text = place.replacement(completions.replace.start(), &item.insert);
                 let edit = match self.insert_replace {
                     true => CompletionTextEdit::InsertAndReplace(InsertReplaceEdit {
                         new_text: text,
@@ -296,7 +281,7 @@ impl Server {
         }
         let place = &part.place;
         let edits: Vec<lsp_types::TextEdit> = (edits.into_iter())
-            .filter_map(|edit| match place.cell() {
+            .filter_map(|edit| match place.cell_at(usize::from(offset)) {
                 None => Some(lsp_types::TextEdit::new(
                     place.range(edit.range),
                     edit.replacement,
@@ -570,7 +555,9 @@ impl Server {
                     let at = piece;
                     piece += content.len();
                     let content = content.trim_end_matches(['\n', '\r']);
-                    if content.is_empty() {
+                    // A `;` that a document's script adds is in no cell's text.
+                    let added = (part.place.document()).is_some_and(|qmd| !qmd.script.holds(at));
+                    if content.is_empty() || added {
                         continue;
                     }
                     let position = part.place.position(at);
@@ -612,19 +599,20 @@ impl Server {
         let mut edits = Vec::new();
         for part in &parts {
             let document = part.target.document();
-            match part.place.cell() {
-                None => edits.extend(edits_at(&part.place, &document.formatting())),
-                Some(cell) => {
-                    let formatted = format(&cell.text, TextRole::Script);
-                    if formatted == cell.text {
-                        continue;
-                    }
-                    let range = lsp_types::Range::new(
-                        part.place.document_position(cell.range.start),
-                        part.place.document_position(cell.range.end),
-                    );
-                    edits.push(lsp_types::TextEdit::new(range, cell.indented(&formatted)));
+            let Some(qmd) = part.place.document() else {
+                edits.extend(edits_at(&part.place, &document.formatting()));
+                continue;
+            };
+            for cell in &qmd.cells {
+                let formatted = format(&cell.text, TextRole::Script);
+                if formatted == cell.text {
+                    continue;
                 }
+                let range = lsp_types::Range::new(
+                    part.place.document_position(cell.range.start),
+                    part.place.document_position(cell.range.end),
+                );
+                edits.push(lsp_types::TextEdit::new(range, cell.indented(&formatted)));
             }
         }
         answer(edits)
@@ -677,7 +665,7 @@ fn edits_at(place: &Place, edits: &[TextEdit]) -> Vec<lsp_types::TextEdit> {
         .map(|edit| {
             lsp_types::TextEdit::new(
                 place.range(edit.range),
-                place.replacement(&edit.replacement),
+                place.replacement(edit.range.start(), &edit.replacement),
             )
         })
         .collect()

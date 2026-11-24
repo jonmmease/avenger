@@ -5,9 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use avenger_sql::library::search::closest_name;
-use avenger_sql_project::{
-    find_root, qmd::cell_path, Analysis, LoadState, Loader, ProjectFiles, Status, Table,
-};
+use avenger_sql_project::{find_root, Analysis, LoadState, Loader, ProjectFiles, Status, Table};
 use datafusion::prelude::SessionContext;
 
 use crate::{
@@ -132,12 +130,17 @@ impl Opened {
     }
 }
 
-/// The chart scripts of `files` and the cells of the documents of `analysis`, as
-/// [`Opened::targets`] gives them.
+/// The chart scripts of `files` and the cells with values of the documents of `analysis`, as
+/// `doc.qmd#NUMBER`.
 pub(crate) fn targets(files: &ProjectFiles, analysis: &Analysis) -> Vec<String> {
     let mut targets: Vec<String> = files.chart_scripts().to_vec();
     for (document, qmd) in analysis.documents() {
-        targets.extend((1..=qmd.cells.len()).map(|number| cell_path(document, number)));
+        let statements = crate::cells::statements(qmd);
+        targets.extend(
+            (0..qmd.cells.len())
+                .filter(|index| crate::cells::value(&statements, *index).is_some())
+                .map(|index| format!("{document}#{}", index + 1)),
+        );
     }
     targets
 }

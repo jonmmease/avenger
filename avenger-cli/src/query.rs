@@ -257,6 +257,8 @@ async fn query_target(
         file,
         document: None,
         cell: None,
+        masked: None,
+        pick: None,
         files: opened.files,
         root: Some(opened.root),
         loose: None,

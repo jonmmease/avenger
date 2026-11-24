@@ -384,17 +384,15 @@ impl<W: Write> Adapter<W> {
                     "the session debugs `{}`; a breakpoint of another file takes no stop",
                     debuggee.display_name()
                 )),
-                true => match debuggee.script_line(*line) {
-                    None => Err("the line is outside the cell that the session debugs".into()),
-                    Some(script_line) => debuggee.stops().bind(script_line),
-                },
+                true => (debuggee.script_line(*line))
+                    .and_then(|script_line| debuggee.stops().bind(script_line)),
             };
             // A client may draw a breakpoint at its own line and keep no message, as Zed does,
             // so the console says where a breakpoint of the target's file stops, or why not.
             breakpoints.push(match &bound {
                 Ok(index) => {
                     let stop = debuggee.stops().get(*index);
-                    let at = debuggee.file_line(stop.line);
+                    let at = stop.line;
                     if at != *line {
                         self.notes.push(format!(
                             "{name}:{line}: the breakpoint stops at line {at}, at {}",
@@ -705,7 +703,7 @@ impl<W: Write> Adapter<W> {
         self.kept.clear();
         let debuggee = self.debuggee.as_ref().expect("a loaded target");
         let stop = debuggee.stops().get(self.stop.expect("a stop"));
-        let line = debuggee.file_line(stop.line);
+        let line = stop.line;
         let description = format!("{} at line {line}", stop.name);
         let ids: Vec<i64> = (self.breakpoints.iter())
             .filter(|breakpoint| breakpoint.bound == self.stop)
@@ -734,7 +732,7 @@ impl<W: Write> Adapter<W> {
         let frame = json!({
             "id": THREAD,
             "name": stop.name,
-            "line": debuggee.file_line(stop.line),
+            "line": stop.line,
             "column": 1,
             "source": {
                 "name": debuggee.display_name(),

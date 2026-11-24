@@ -1,7 +1,9 @@
-//! The `{avenger-sql}` cells of Quarto documents (`.qmd`). Each cell is a chart script of the
-//! document's project, a file of the language project at the document's path and the cell's
-//! number, such as `reports/overview.qmd#3`, and a cell of a document outside every project is
-//! a loose script.
+//! The `{avenger-sql}` cells of Quarto documents (`.qmd`). A document's cells, in order, form one
+//! chart script of its project, its [`DocumentScript`], a file of the language project at the
+//! document's path, so a cell sees what the cells before it define: temporary tables and
+//! functions, imports, variables, and tables of files. A cell's value is its last query, and a
+//! cell without a query has none. A cell can start with `DECLARE`s, as a block of GoogleSQL can.
+//! A document outside every project is a project of its own.
 //!
 //! A line scanner finds the fenced code blocks of a document, as Pandoc does: a fence of three
 //! or more backticks or tildes, which a line of the same character, at least as long, closes.
@@ -24,6 +26,7 @@
 
 use std::collections::BTreeSet;
 use std::ops::Range;
+use std::sync::Arc;
 
 use avenger_sql_language::{Diagnostic, FileRole, Project, Severity, Source};
 use avenger_sql_syntax::{Offset, TextRange};
@@ -37,11 +40,150 @@ const CELL_CLASS: &str = "{avenger-sql";
 /// The prefix of the lines of a cell's options.
 const OPTION_PREFIX: &str = "#|";
 
-/// A Quarto document: its text and its cells.
+/// A Quarto document: its text, its cells, and the script of its cells.
 #[derive(Clone, Debug, Default)]
 pub struct Qmd {
     pub text: String,
     pub cells: Vec<Cell>,
+    pub script: DocumentScript,
+}
+
+/// The script of a document: its cells, in order, as one chart script, with a line for each line
+/// of the document, so line `L` of the script is line `L` of the document. A line of a cell is the
+/// cell's line without the fence's indent. The line of a closing fence holds a `;` when the cell's
+/// last statement has none, so that no statement spans two cells. Every other line is empty: of
+/// prose, of other blocks, of opening fences, and of the cells that `eval: false` keeps from
+/// running, which are not part of the script.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DocumentScript {
+    pub text: String,
+    /// The range of each cell in the script, from the start of its first line to the end of the
+    /// line of its closing fence, by the cell's index, or `None` for a cell that is not part of
+    /// the script.
+    pub cells: Vec<Option<Range<usize>>>,
+    lines: Vec<ScriptLine>,
+}
+
+/// A line of a document's script: its start in the script, the start of its line in the
+/// document, and for a line of a cell, the start of its text in the document and its length.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScriptLine {
+    script: usize,
+    document: usize,
+    text: Option<(usize, usize)>,
+}
+
+impl DocumentScript {
+    fn new(text: &str, cells: &[Cell]) -> DocumentScript {
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(text.match_indices('\n').map(|(at, _)| at + 1))
+            .collect();
+        let line_of = |offset: usize| starts.partition_point(|start| *start <= offset) - 1;
+        // Each line of the document: the start and the length of its text in a cell, and the
+        // line of the script.
+        let mut lines: Vec<(Option<(usize, usize)>, String)> =
+            vec![(None, String::new()); starts.len()];
+        let mut ranges = Vec::with_capacity(cells.len());
+        for cell in cells {
+            if cell.options.eval == Some(false) || cell.lines.is_empty() {
+                ranges.push(None);
+                continue;
+            }
+            for (index, line) in cell.lines.iter().enumerate() {
+                let end = (cell.lines.get(index + 1)).map_or(cell.text.len(), |next| next.cell);
+                let content = cell.text[line.cell..end].trim_end_matches(['\n', '\r']);
+                lines[line_of(line.document)] =
+                    (Some((line.document, content.len())), content.to_string());
+            }
+            let last = match cell.closed {
+                true => line_of(cell.range.end),
+                false => starts.len() - 1,
+            };
+            if needs_semicolon(&cell.text) {
+                lines[last].1.push(';');
+            }
+            ranges.push(Some((line_of(cell.lines[0].document), last)));
+        }
+        let mut script = String::with_capacity(text.len());
+        let mut map = Vec::with_capacity(starts.len());
+        for (index, (cell_text, content)) in lines.into_iter().enumerate() {
+            map.push(ScriptLine {
+                script: script.len(),
+                document: starts[index],
+                text: cell_text,
+            });
+            script.push_str(&content);
+            if index + 1 < starts.len() {
+                script.push('\n');
+            }
+        }
+        let cells = (ranges.into_iter())
+            .map(|range| {
+                let (first, last) = range?;
+                let end = (map.get(last + 1)).map_or(script.len(), |line| line.script);
+                Some(map[first].script..end)
+            })
+            .collect();
+        DocumentScript {
+            text: script,
+            cells,
+            lines: map,
+        }
+    }
+
+    /// The starts of the cells in the script, in order, for the cells that are part of it.
+    pub fn cell_starts(&self) -> Arc<[Offset]> {
+        (self.cells.iter().flatten())
+            .map(|range| Offset::from(range.start as u32))
+            .collect()
+    }
+
+    /// The index of the cell whose range in the script holds the offset `offset`.
+    pub fn cell_at(&self, offset: usize) -> Option<usize> {
+        (self.cells.iter()).position(|range| {
+            range
+                .as_ref()
+                .is_some_and(|range| range.start <= offset && offset <= range.end)
+        })
+    }
+
+    /// The offset in the document of the offset `offset` of the script. An offset in a line that
+    /// holds no text of a cell, such as a `;` that the script adds, is the start of its line, or
+    /// the end of the cell's text on its line.
+    pub fn to_document(&self, offset: usize) -> usize {
+        let index = self.lines.partition_point(|line| line.script <= offset) - 1;
+        let line = self.lines[index];
+        match line.text {
+            Some((start, len)) => start + (offset - line.script).min(len),
+            None => line.document,
+        }
+    }
+
+    /// Whether the offset `offset` of the script is in the text of a cell, and not in a `;` that
+    /// the script adds or in a line of no cell.
+    pub fn holds(&self, offset: usize) -> bool {
+        let index = self.lines.partition_point(|line| line.script <= offset) - 1;
+        let line = self.lines[index];
+        line.text.is_some_and(|(_, len)| offset - line.script < len)
+    }
+
+    /// The offset in the script of the offset `offset` of the document, or `None` outside the
+    /// text of a cell of the script. An offset in the indent of a line is the start of the line.
+    pub fn to_script(&self, offset: usize) -> Option<usize> {
+        let index = self.lines.partition_point(|line| line.document <= offset) - 1;
+        let line = self.lines[index];
+        let (start, len) = line.text?;
+        Some(line.script + offset.saturating_sub(start).min(len))
+    }
+}
+
+/// Whether the cell's text `text` ends with a statement that no `;` closes: its last token that
+/// is not a space or a comment is not a `;`.
+fn needs_semicolon(text: &str) -> bool {
+    let (tokens, _) = avenger_sql_syntax::lexer::tokenize(text);
+    (tokens.iter().rev())
+        .find(|token| !token.kind.is_trivia())
+        .is_some_and(|token| token.kind != avenger_sql_syntax::SyntaxKind::SEMICOLON)
 }
 
 /// A cell of a document: its text, and where its lines are in the document.
@@ -122,7 +264,12 @@ impl Qmd {
     pub fn parse(text: impl Into<String>) -> Qmd {
         let text = text.into();
         let cells = cells(&text);
-        Qmd { text, cells }
+        let script = DocumentScript::new(&text, &cells);
+        Qmd {
+            text,
+            cells,
+            script,
+        }
     }
 
     /// The text of the document with the text of each cell formatted by `format`, and the rest
@@ -509,44 +656,18 @@ pub fn is_document(path: &str) -> bool {
     path.ends_with(DOCUMENT_SUFFIX)
 }
 
-/// The path in a language project of the cell numbered `number`, from 1, of the document at
-/// `document`.
-pub fn cell_path(document: &str, number: usize) -> String {
-    format!("{document}#{number}")
-}
-
-/// The document's path and the index, from 0, of the cell at the path `path` of a language
-/// project, or `None` for another file.
-pub fn split_cell_path(path: &str) -> Option<(&str, usize)> {
-    let (document, number) = path.rsplit_once('#')?;
-    let number: usize = number.parse().ok()?;
-    match is_document(document) && number > 0 {
-        true => Some((document, number - 1)),
-        false => None,
+/// Sets the script of the document at `path` in `project` to the script of `new`, or removes it
+/// without one, and returns the files that the change reaches.
+pub(crate) fn set_script(project: &mut Project, path: &str, new: Option<&Qmd>) -> BTreeSet<String> {
+    match new {
+        Some(new) => project.add(path, role(new), new.script.text.clone()),
+        None => project.remove(path),
     }
 }
 
-/// Sets the cells of the document at `path` in `project` to the cells of `new`, after the cells
-/// of `old`, as chart scripts, and returns the files that the change reaches.
-pub(crate) fn set_cells(
-    project: &mut Project,
-    path: &str,
-    old: &[Cell],
-    new: &[Cell],
-) -> BTreeSet<String> {
-    let mut reached = BTreeSet::new();
-    for number in new.len() + 1..=old.len() {
-        reached.extend(project.remove(&cell_path(path, number)));
+/// The role of the script of the document `document` in a language project.
+pub(crate) fn role(document: &Qmd) -> FileRole {
+    FileRole::Cells {
+        cells: document.script.cell_starts(),
     }
-    let mut texts = Vec::new();
-    for (index, cell) in new.iter().enumerate() {
-        let path = cell_path(path, index + 1);
-        match old.get(index) {
-            Some(old) if old.text == cell.text => {}
-            Some(_) => texts.push((path, cell.text.clone())),
-            None => reached.extend(project.add(path, FileRole::Chart, cell.text.clone())),
-        }
-    }
-    reached.extend(project.set_texts(texts));
-    reached
 }
