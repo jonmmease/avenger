@@ -71,6 +71,20 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
     let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("quarto2/_extensions/avenger/dist/avenger-engine.js");
     assert_eq!(read(source.join("dist/avenger-engine.js")), read(bundle));
+    // The grammar of avenger-sql, which q2 highlights the cells' code with.
+    assert!(
+        stdout.contains("grammar: written to _quarto/grammars/avenger-sql/"),
+        "{stdout}"
+    );
+    let vendored = Path::new(env!("CARGO_MANIFEST_DIR")).join("quarto2/grammars/avenger-sql");
+    for file in ["avenger-sql.wasm", "highlights.scm"] {
+        let written = std::fs::read(dir.join("_quarto/grammars/avenger-sql").join(file)).unwrap();
+        assert_eq!(
+            written,
+            std::fs::read(vendored.join(file)).unwrap(),
+            "{file}"
+        );
+    }
     // A Quarto 2 project, whose preview runs the engine on every edit, and q2's working folder
     // ignored.
     let quarto_yml = read(dir.join("_quarto.yml"));
@@ -91,6 +105,7 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
         stdout.contains(".gitignore: ignores `/.quarto/` already"),
         "{stdout}"
     );
+    assert!(stdout.contains("grammar: already current"), "{stdout}");
     assert_eq!(read(dir.join(".gitignore")), "target\n/.quarto/\n");
 }
 
@@ -134,7 +149,15 @@ fn an_extension_newer_than_avenger_s_stays_unless_forced() {
         "{stdout}"
     );
     assert_eq!(calls(bin.path()), ["--version"]);
+    assert!(
+        stdout.contains("grammar: kept, with the newer extension"),
+        "{stdout}"
+    );
+    assert!(!dir.join("_quarto").exists());
     let (_, stdout, _) = init(dir, bin.path(), &["--force"]);
+    assert!(dir
+        .join("_quarto/grammars/avenger-sql/avenger-sql.wasm")
+        .exists());
     assert!(stdout.contains("extension: installed"), "{stdout}");
     assert!(calls(bin.path())
         .contains(&"add .quarto/avenger-extension --no-prompt --force".to_string()));
@@ -151,6 +174,7 @@ fn a_dry_run_writes_nothing_and_runs_no_q2_add() {
         "{stdout}"
     );
     assert!(stdout.contains("would: index.av.qmd: written"), "{stdout}");
+    assert!(stdout.contains("would: grammar: written"), "{stdout}");
     assert_eq!(calls(bin.path()), ["--version"]);
     assert_eq!(std::fs::read_dir(dir).unwrap().count(), 0);
 }

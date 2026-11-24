@@ -1,7 +1,7 @@
 //! `avenger quarto2-init`: a project set up for Quarto 2 and avenger. It installs the engine
 //! extension that the binary embeds, through `q2 add`, so q2 keeps its record of the extension's
-//! files, writes `_quarto.yml` when the project has none, and adds q2's working folder to
-//! `.gitignore`. It installs nothing on the machine: q2, Node, and `avenger` are the user's.
+//! files, writes the grammar of avenger-sql that q2 highlights the cells' code with, writes
+//! `_quarto.yml` when the project has none, and adds q2's working folder to `.gitignore`. It installs nothing on the machine: q2, Node, and `avenger` are the user's.
 //!
 //! The extension's `version` is avenger's, so a release of avenger moves the extension, as `q2 add`
 //! replaces an installed extension only for another version. An installed extension that is newer
@@ -25,6 +25,22 @@ const EXTENSION: &[(&str, &str)] = &[
         include_str!("../quarto2/_extensions/avenger/dist/avenger-engine.js"),
     ),
 ];
+
+/// The grammar of avenger-sql in q2's form, by the paths of its files in its folder: q2 highlights
+/// code of the class `avenger-sql` with it, as `scripts/sync-grammar.mjs` makes it.
+const GRAMMAR: &[(&str, &[u8])] = &[
+    (
+        "avenger-sql.wasm",
+        include_bytes!("../quarto2/grammars/avenger-sql/avenger-sql.wasm"),
+    ),
+    (
+        "highlights.scm",
+        include_bytes!("../quarto2/grammars/avenger-sql/highlights.scm"),
+    ),
+];
+
+/// The folder of the grammar in the project, where q2 looks for the grammars of languages.
+const GRAMMAR_FOLDER: &str = "_quarto/grammars/avenger-sql";
 
 /// The folder in the project, under q2's working folder, that `q2 add` installs the extension
 /// from, so its record names a path of the project rather than of the machine.
@@ -123,6 +139,39 @@ pub fn run(options: &Options) -> Result<Status, String> {
             !added.status.success()
         }
     };
+
+    // The grammar, of which q2 keeps no record: its files belong to avenger, so a file whose bytes
+    // differ is written again, and a newer avenger's extension keeps its grammar.
+    let stale: Vec<&str> = (GRAMMAR.iter())
+        .filter(|(path, bytes)| {
+            std::fs::read(dir.join(GRAMMAR_FOLDER).join(path))
+                .ok()
+                .as_deref()
+                != Some(bytes)
+        })
+        .map(|(path, _)| *path)
+        .collect();
+    match (newer && !options.force, stale.is_empty()) {
+        (true, _) => println!("grammar: kept, with the newer extension"),
+        (false, true) => println!("grammar: already current"),
+        (false, false) => {
+            if !options.dry_run {
+                let folder = dir.join(GRAMMAR_FOLDER);
+                std::fs::create_dir_all(&folder)
+                    .map_err(|error| format!("{}: {error}", folder.display()))?;
+                for (path, bytes) in GRAMMAR {
+                    let file = folder.join(path);
+                    std::fs::write(&file, bytes)
+                        .map_err(|error| format!("{}: {error}", file.display()))?;
+                }
+            }
+            let line = format!(
+                "grammar: written to {GRAMMAR_FOLDER}/ ({})",
+                stale.join(", ")
+            );
+            println!("{}", done(options.dry_run, &line));
+        }
+    }
 
     // The project's files.
     let quarto_yml = dir.join("_quarto.yml");
@@ -285,5 +334,54 @@ mod tests {
         let written = with_version(manifest, "9.8.7");
         assert!(written.contains("\nversion: 9.8.7\n"), "{written}");
         assert_eq!(written.matches("version:").count(), 1);
+    }
+
+    /// The names that the wasm module `wasm` exports.
+    fn exports(wasm: &[u8]) -> Vec<String> {
+        let leb = |at: &mut usize| {
+            let (mut value, mut shift) = (0usize, 0);
+            loop {
+                let byte = wasm[*at];
+                *at += 1;
+                value |= usize::from(byte & 0x7f) << shift;
+                shift += 7;
+                if byte < 0x80 {
+                    return value;
+                }
+            }
+        };
+        let mut at = 8;
+        while at < wasm.len() {
+            let id = wasm[at];
+            at += 1;
+            let size = leb(&mut at);
+            let end = at + size;
+            if id == 7 {
+                let mut names = Vec::new();
+                for _ in 0..leb(&mut at) {
+                    let length = leb(&mut at);
+                    names.push(String::from_utf8_lossy(&wasm[at..at + length]).to_string());
+                    at += length + 1;
+                    leb(&mut at);
+                }
+                return names;
+            }
+            at = end;
+        }
+        Vec::new()
+    }
+
+    #[test]
+    fn the_embedded_grammar_exports_the_function_that_q2_looks_for() {
+        // q2 names a grammar's function after its file, `avenger-sql.wasm`.
+        let (_, wasm) = GRAMMAR[0];
+        let exports = exports(wasm);
+        assert!(
+            exports.iter().any(|name| name == "tree_sitter_avenger-sql"),
+            "{exports:?}"
+        );
+        let (_, query) = GRAMMAR[1];
+        let query = String::from_utf8_lossy(query);
+        assert!(!query.contains("@variable.special") && !query.contains("@comment.doc "));
     }
 }

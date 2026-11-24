@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The CLI embeds the grammar of avenger-sql, a wasm module in Git LFS.
+      - name: Pull the wasm modules from Git LFS
+        run: git lfs pull --include "*.wasm"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -72,6 +75,8 @@ jobs:
           if "$avenger" quarto2-init; then exit 1; fi
           output=$("$avenger" quarto2-init --force)
           grep -q "extension: installed" <<< "$output"
-          # The example renders its chart.
+          # The example renders its chart, and the grammar highlights its code.
+          test -f _quarto/grammars/avenger-sql/avenger-sql.wasm
           PATH="$GITHUB_WORKSPACE/target/release:$PATH" q2 render index.av.qmd
           ls index.av_files/figure-html/*.svg
+          grep -q 'class="hl-keyword"' index.av.html
