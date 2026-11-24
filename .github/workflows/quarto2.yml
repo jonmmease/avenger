@@ -1,0 +1,56 @@
+name: Quarto 2
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # q2 publishes one nightly, which each night replaces, so the job takes the current one and
+      # prints its version.
+      - name: Install q2's nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/q2"
+          gh release download nightly --repo quarto-dev/q2 --dir "$RUNNER_TEMP/q2" \
+            --pattern 'q2-*-linux_amd64.tar.gz' --pattern 'checksums.sha256'
+          cd "$RUNNER_TEMP/q2"
+          sha256sum --check --ignore-missing checksums.sha256
+          tar -xzf q2-*-linux_amd64.tar.gz
+          dirname "$(find "$RUNNER_TEMP/q2" -type f -name q2 -perm -u+x | head -1)" >> "$GITHUB_PATH"
+      - name: Print q2's version
+        run: q2 --version
+      - name: Check that the committed bundle matches its source
+        working-directory: avenger-cli/quarto2/_extensions/avenger
+        run: |
+          q2 call build-ts-extension
+          git diff --exit-code -- dist
+      - name: Test the extension
+        working-directory: avenger-cli/quarto2
+        run: node --test tests/*.test.ts
+      - name: Install the validated Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "quarto2-linux"
+      - name: Build avenger
+        run: cargo build --release -p avenger-cli --locked
+      - name: Render a document with the extension
+        working-directory: avenger-cli/quarto2
+        env:
+          AVENGER: ${{ github.workspace }}/target/release/avenger
+        run: node tests/e2e.mjs

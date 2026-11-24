@@ -1,0 +1,13 @@
+title: Avenger
+author: The Avenger authors
+version: 0.1.0
+contributes:
+  engines:
+    - path: dist/avenger-engine.js
+      name: avenger
+      claims:
+        avenger-sql:
+          kind: primary
+          priority: 1
+      file-extensions: []
+      claims-files: []

@@ -12,3 +12,6 @@ avenger-sql-project/tests/projects/vega/data/files/vega_datasets/* filter=lfs di
 
 # Docs images, which READMEs show
 **/docs/images/*.png filter=lfs diff=lfs merge=lfs -text
+
+# The bundle of the Quarto 2 extension, which q2 call build-ts-extension builds from its source
+avenger-cli/quarto2/_extensions/avenger/dist/** linguist-generated=true
