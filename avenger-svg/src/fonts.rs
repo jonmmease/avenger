@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use avenger_typst_label::{FontEmbedding, FontStyle, TextRun};
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -74,8 +77,12 @@ impl SvgFontCollector {
             };
             let sfnt = standalone_face(&font.data, font.face_index)?;
             let chars = (font.embedding == FontEmbedding::Allowed).then_some(&font.chars);
+            let woff2 = match chars.and_then(|chars| subset_woff2(&sfnt, chars)) {
+                Some(subset) => subset,
+                None => whole_woff2(&font.data, font.face_index, &sfnt),
+            };
             // Preserve the complete face when the subsetter cannot read it.
-            let (data, mime, format) = match face_to_woff2(&sfnt, chars) {
+            let (data, mime, format) = match woff2 {
                 Ok(woff2) => (woff2, "font/woff2", "woff2"),
                 Err(_) => (sfnt, "font/otf", "opentype"),
             };
@@ -89,12 +96,34 @@ impl SvgFontCollector {
     }
 }
 
-/// The face as WOFF2, subset to `chars` when they're given and subsetting keeps its tables.
-fn face_to_woff2(data: &[u8], chars: Option<&BTreeSet<char>>) -> Result<Vec<u8>, String> {
-    let reader = FontReader::new(data).map_err(|err| err.to_string())?;
-    let font = reader.read().map_err(|err| err.to_string())?;
-    let Some(chars) = chars else {
-        return Ok(font.to_woff2());
+/// The whole faces encoded as WOFF2 in this process, by their data and their index in it, with
+/// the error of a face that the subsetter can't read. Brotli at the quality of WOFF2 takes about
+/// half a second for a face of a few hundred kilobytes, such as a face of the bundled Lato, and
+/// every SVG that draws text in the face embeds it, so a process encodes each face once.
+#[allow(clippy::type_complexity)]
+static WHOLE_FACES: Mutex<Vec<(Arc<[u8]>, u32, Result<Vec<u8>, String>)>> = Mutex::new(Vec::new());
+
+/// The whole face `sfnt`, the face `face_index` of `data`, as WOFF2.
+fn whole_woff2(data: &Arc<[u8]>, face_index: u32, sfnt: &[u8]) -> Result<Vec<u8>, String> {
+    let same = |(other, index, _): &&(Arc<[u8]>, u32, _)| {
+        *index == face_index && (Arc::ptr_eq(other, data) || **other == **data)
+    };
+    let faces = || WHOLE_FACES.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, _, woff2)) = faces().iter().find(same) {
+        return woff2.clone();
+    }
+    let woff2 = FontReader::new(sfnt)
+        .and_then(|reader| reader.read().map(|font| font.to_woff2()))
+        .map_err(|err| err.to_string());
+    faces().push((data.clone(), face_index, woff2.clone()));
+    woff2
+}
+
+/// The face as WOFF2 subset to `chars`, or `None` when subsetting would drop its tables.
+fn subset_woff2(data: &[u8], chars: &BTreeSet<char>) -> Option<Result<Vec<u8>, String>> {
+    let reader = match FontReader::new(data) {
+        Ok(reader) => reader,
+        Err(err) => return Some(Err(err.to_string())),
     };
     // Character subsetting drops shaping and color tables. Keep those faces intact.
     let protected = [
@@ -106,23 +135,27 @@ fn face_to_woff2(data: &[u8], chars: Option<&BTreeSet<char>>) -> Result<Vec<u8>,
             .iter()
             .any(|protected| tag.to_string().as_bytes() == protected)
     }) {
-        return Ok(font.to_woff2());
+        return None;
     }
-    let chars: BTreeSet<_> = chars
-        .iter()
-        .copied()
-        .filter(|ch| font.contains_char(*ch))
-        .collect();
-    if chars.is_empty() {
-        return Err("font contains no requested characters".into());
-    }
-    let subset = font.subset(&chars).map_err(|err| err.to_string())?;
-    subset
-        .validate()
-        .map_err(|err| err.to_string())?
-        .into_result()
-        .map_err(|err| err.to_string())?;
-    Ok(subset.to_woff2())
+    let subset = || {
+        let font = reader.read().map_err(|err| err.to_string())?;
+        let chars: BTreeSet<_> = chars
+            .iter()
+            .copied()
+            .filter(|ch| font.contains_char(*ch))
+            .collect();
+        if chars.is_empty() {
+            return Err("font contains no requested characters".to_string());
+        }
+        let subset = font.subset(&chars).map_err(|err| err.to_string())?;
+        subset
+            .validate()
+            .map_err(|err| err.to_string())?
+            .into_result()
+            .map_err(|err| err.to_string())?;
+        Ok(subset.to_woff2())
+    };
+    Some(subset())
 }
 
 /// Extract one collection face as an SFNT with absolute table offsets and a new checksum.
@@ -193,8 +226,10 @@ mod tests {
     fn preserves_shaping_tables_in_embedded_fonts() {
         let fonts = avenger_typst_label::bundled_font_options().registered_fonts;
         let data = &fonts[2].data;
-        let subset = face_to_woff2(data, Some(&"Axis".chars().collect())).unwrap();
+        assert!(subset_woff2(data, &"Axis".chars().collect()).is_none());
+        let subset = whole_woff2(data, 0, data).unwrap();
         assert!(subset.len() < data.len());
+        assert_eq!(whole_woff2(data, 0, data).unwrap(), subset);
         let reader = FontReader::new(&subset).unwrap();
         let font = reader.read().unwrap();
         assert!(font.contains_char('A'));
