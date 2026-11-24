@@ -108,6 +108,9 @@ pub struct Analysis {
     pub file_tables: Vec<crate::data::Definition>,
 }
 
+/// Values of a script's variables, by name, that take the place of their own values.
+pub type Overrides = std::collections::HashMap<String, datafusion::scalar::ScalarValue>;
+
 /// A statement of a script and its plan.
 #[derive(Clone, Debug)]
 pub struct Statement {
@@ -143,11 +146,22 @@ impl Analysis {
         &self,
         ctx: &datafusion::prelude::SessionContext,
     ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
+        self.dataframe_with(ctx, &Overrides::new()).await
+    }
+
+    /// The rows of the last query of the script, as [`Analysis::dataframe`] plans them, with the
+    /// value of each variable that `overrides` names in place of its own: of its `DECLARE` and of
+    /// each of its `SET`s, as a debugger sets a variable.
+    pub async fn dataframe_with(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+        overrides: &Overrides,
+    ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
         use datafusion::common::plan_err;
         let Some(last) = self.last_query() else {
             return plan_err!("The script has no query");
         };
-        let values = self.bind(&self.statements[..last], ctx).await?;
+        let values = self.bind(&self.statements[..last], ctx, overrides).await?;
         let StatementPlan::Query(plan) = &self.statements[last].plan else {
             unreachable!("the last query");
         };
@@ -157,15 +171,17 @@ impl Analysis {
     /// The variables of the script and their values as its last query reads them: each variable
     /// of a `DECLARE` before the last query, by its name, with the value of its last `SET`
     /// before the query, or of its `DECLARE`, evaluated in `ctx` as [`Analysis::dataframe`]
-    /// evaluates them, in the order of their `DECLARE`s. A script without a query has its
-    /// variables after all its statements.
+    /// evaluates them, in the order of their `DECLARE`s, or the value of `overrides` for a
+    /// variable that it names, as [`Analysis::dataframe_with`] binds it. A script without a query
+    /// has its variables after all its statements.
     pub async fn variables(
         &self,
         ctx: &datafusion::prelude::SessionContext,
+        overrides: &Overrides,
     ) -> datafusion::common::Result<Vec<(String, datafusion::scalar::ScalarValue)>> {
         let last = self.last_query().unwrap_or(self.statements.len());
         let statements = &self.statements[..last];
-        let values = self.bind(statements, ctx).await?;
+        let values = self.bind(statements, ctx, overrides).await?;
         let mut variables: Vec<(String, datafusion::scalar::ScalarValue)> = Vec::new();
         for statement in statements {
             if let StatementPlan::Variable { name, id, .. } = &statement.plan {
@@ -187,18 +203,24 @@ impl Analysis {
     }
 
     /// The values of the variables of `statements`, each evaluated in `ctx` in order with the
-    /// values before it bound, by the id of its placeholder.
+    /// values before it bound, by the id of its placeholder, or the value of `overrides` for a
+    /// variable that it names.
     async fn bind(
         &self,
         statements: &[Statement],
         ctx: &datafusion::prelude::SessionContext,
+        overrides: &Overrides,
     ) -> datafusion::common::Result<
         std::collections::HashMap<String, datafusion::scalar::ScalarValue>,
     > {
         use datafusion::scalar::ScalarValue;
         let mut values: std::collections::HashMap<String, ScalarValue> = Default::default();
         for statement in statements {
-            if let StatementPlan::Variable { id, plan, .. } = &statement.plan {
+            if let StatementPlan::Variable { name, id, plan } = &statement.plan {
+                if let Some(value) = overrides.get(name) {
+                    values.insert(id.clone(), value.clone());
+                    continue;
+                }
                 let batches = ctx
                     .execute_logical_plan(bound(plan, &values)?)
                     .await?

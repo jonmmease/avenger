@@ -27,6 +27,8 @@ use datafusion::{
     prelude::SessionContext,
 };
 
+use avenger_sql::analysis::Overrides;
+
 use crate::project::{ProjectError, ProjectFiles};
 
 /// A project loaded into a DataFusion session: the tables that its data scripts register, the
@@ -378,7 +380,19 @@ impl LoadedProject {
     /// error of the run. A read of a name of a pipe `WITH` reads the `WITH` query, and is not
     /// such a read.
     pub async fn run_chart(&self, path: &str, text: &str) -> Result<DataFrame, ChartError> {
-        let error = match self.chart_frame(path, text).await {
+        self.run_chart_with(path, text, &Overrides::new()).await
+    }
+
+    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart`] runs it, with the
+    /// values of `overrides` in place of the values of the variables that they name, as
+    /// [`avenger_sql::analysis::Analysis::dataframe_with`] binds them.
+    pub async fn run_chart_with(
+        &self,
+        path: &str,
+        text: &str,
+        overrides: &Overrides,
+    ) -> Result<DataFrame, ChartError> {
+        let error = match self.chart_frame(path, text, overrides).await {
             Ok(frame) => return Ok(frame),
             Err(error) => error,
         };
@@ -413,12 +427,15 @@ impl LoadedProject {
         Ok(analysis.lift(text).expect("a script without errors lifts"))
     }
 
-    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart`] runs it.
-    async fn chart_frame(&self, path: &str, text: &str) -> Result<DataFrame, DataFusionError> {
-        self.ready_chart(path, text)
-            .await?
-            .dataframe(&self.ctx)
-            .await
+    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart_with`] runs it.
+    async fn chart_frame(
+        &self,
+        path: &str,
+        text: &str,
+        overrides: &Overrides,
+    ) -> Result<DataFrame, DataFusionError> {
+        let analysis = self.ready_chart(path, text).await?;
+        analysis.dataframe_with(&self.ctx, overrides).await
     }
 
     /// The variables of the chart script at `path`, whose text is `text`, and their values as its
@@ -428,11 +445,10 @@ impl LoadedProject {
         &self,
         path: &str,
         text: &str,
+        overrides: &Overrides,
     ) -> Result<Vec<(String, ScalarValue)>, DataFusionError> {
-        self.ready_chart(path, text)
-            .await?
-            .variables(&self.ctx)
-            .await
+        let analysis = self.ready_chart(path, text).await?;
+        analysis.variables(&self.ctx, overrides).await
     }
 
     /// The analysis of the chart script at `path`, whose text is `text`, ready to run: with the

@@ -74,6 +74,15 @@ impl Session {
         }
     }
 
+    /// The chart's target: its project, its text, and its file.
+    pub(crate) fn target(&self) -> &Target {
+        &self.target
+    }
+
+    pub(crate) fn target_mut(&mut self) -> &mut Target {
+        &mut self.target
+    }
+
     /// The stylesheet of the project, as it loaded.
     pub fn stylesheet(&self) -> &ProjectStylesheet {
         &self.target.stylesheet

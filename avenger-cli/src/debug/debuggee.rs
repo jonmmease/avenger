@@ -1,32 +1,39 @@
 //! The script of a debugging session and its runs, apart from the protocol and the window: the
-//! target's project, loaded as `view` loads it, its script's text, its stops, and the run of a
-//! stop, which plans the stop's text as a chart script of its own, at the same offsets as the
+//! target's project, kept by a `view` session so it follows the project's files as `view` does,
+//! its script's text, its stops, the values that the debugger gives its variables, and the run of
+//! a stop, which plans the stop's text as a chart script of its own, at the same offsets as the
 //! script, so its errors have their places in the file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use avenger_sql::analysis::Overrides;
+use avenger_sql::types::googlesql_name;
 use avenger_sql_project::ProjectStylesheet;
 use datafusion::{
-    arrow::{array::RecordBatch, datatypes::SchemaRef},
+    arrow::{array::RecordBatch, datatypes::DataType, datatypes::SchemaRef},
     common::ScalarValue,
     dataframe::DataFrame,
     physical_plan::SendableRecordBatchStream,
 };
 use futures::StreamExt;
 
-use super::stops::Stops;
-use crate::render::{load, plan_text, text_variables, Failure, Target};
-use crate::statement::Script;
-use crate::view::{canonical, lines, outcome, Outcome};
+use super::stops::{Place, Stops};
+use crate::render::{plan_text, text_variables, Failure, Target};
+use crate::statement::{Script, Shows};
+use crate::view::{canonical, lines, outcome, Outcome, Session};
 
 /// The target of a session and its stops.
 pub(crate) struct Debuggee {
-    target: Target,
+    /// The target as the session launched it, which `restart` opens again.
+    name: String,
+    session: Session,
     /// The text of the target's script, or of its cell.
     text: String,
     /// The lines of the file before the text: those of a cell's document before the cell.
     before: usize,
     stops: Stops,
+    /// The values that the debugger gives the script's variables, by name.
+    overrides: Overrides,
 }
 
 /// A stop's run: its rows and its variables, which the debugger's panes show.
@@ -35,31 +42,62 @@ pub(crate) struct Ran {
     pub(crate) variables: Result<Vec<(String, ScalarValue)>, Vec<String>>,
 }
 
+/// The text of `target`'s script, the lines of its file before the text, and its stops.
+fn stops_of(target: &Target, name: &str) -> Result<(String, usize, Stops), String> {
+    let text = target.script_text();
+    let statement = target.statement.as_ref().map(|statement| statement.start);
+    let stops = Stops::new(&text, Script::Chart, statement)
+        .ok_or_else(|| format!("{name}: the script has no query, so no stage to stop at"))?;
+    Ok((text, target.lines_before(), stops))
+}
+
 impl Debuggee {
     /// Loads the project of `target`, as `view` takes it: a chart script, a cell `doc.qmd#NAME`,
     /// or the statement at a line of either, `FILE:LINE`. A data script's target takes no session
     /// yet.
     pub(crate) async fn open(target: &str) -> Result<Debuggee, String> {
-        let loaded = load(target).await.map_err(|failure| match failure {
-            Failure::Usage(error) => error,
-            Failure::Reports(reports) => lines(&reports).join("\n"),
-        })?;
-        if loaded.data {
+        let (session, _) = Session::open(target).await?;
+        if session.target().data {
             return Err(format!(
                 "{target}: a data script's statements take no debugging session yet; debug a chart \
                  script, a cell, or a statement of either"
             ));
         }
-        let text = loaded.script_text();
-        let statement = loaded.statement.as_ref().map(|statement| statement.start);
-        let stops = Stops::new(&text, Script::Chart, statement)
-            .ok_or_else(|| format!("{target}: the script has no query, so no stage to stop at"))?;
+        let (text, before, stops) = stops_of(session.target(), target)?;
         Ok(Debuggee {
-            before: loaded.lines_before(),
-            target: loaded,
+            name: target.to_string(),
+            session,
             text,
+            before,
             stops,
+            overrides: Overrides::new(),
         })
+    }
+
+    /// Opens the target's project again, as at launch, keeping the values of the variables.
+    pub(crate) async fn reopen(&mut self) -> Result<(), String> {
+        let overrides = std::mem::take(&mut self.overrides);
+        *self = Debuggee::open(&self.name).await?;
+        self.overrides = overrides;
+        Ok(())
+    }
+
+    /// What the changes of the files at `paths`, canonical paths on disk, do, as they do to a
+    /// `view` window: the outcomes of the target's own run, after which the script's text and its
+    /// stops are read again.
+    pub(crate) async fn changed(&mut self, paths: &[PathBuf]) -> Result<Vec<Outcome>, String> {
+        let outcomes = self.session.changed(paths).await;
+        (self.text, self.before, self.stops) = stops_of(self.session.target(), &self.name)?;
+        Ok(outcomes)
+    }
+
+    fn target(&self) -> &Target {
+        self.session.target()
+    }
+
+    /// The directory of the project's files, which the session watches.
+    pub(crate) fn watched_directory(&self) -> PathBuf {
+        self.session.watched_directory()
     }
 
     pub(crate) fn stops(&self) -> &Stops {
@@ -68,16 +106,16 @@ impl Debuggee {
 
     /// The file on disk of the target.
     pub(crate) fn file(&self) -> &Path {
-        &self.target.file
+        &self.target().file
     }
 
     /// The name of the target's file, as the debugger's frames name it.
     pub(crate) fn display_name(&self) -> String {
-        self.target.display_name()
+        self.target().display_name()
     }
 
     pub(crate) fn stylesheet(&self) -> &ProjectStylesheet {
-        &self.target.stylesheet
+        &self.target().stylesheet
     }
 
     /// The window's title at the stop at `index`: the target's file, and the stop's name and line.
@@ -106,7 +144,12 @@ impl Debuggee {
 
     /// Whether `path`, a file of a breakpoint, is the target's file.
     pub(crate) fn is_file(&self, path: &Path) -> bool {
-        canonical(path) == canonical(&self.target.file)
+        canonical(path) == canonical(&self.target().file)
+    }
+
+    /// Plans `text`, a part of the script, with the debugger's values of its variables.
+    async fn plan(&mut self, text: &str) -> Result<DataFrame, Failure> {
+        plan_text(self.session.target_mut(), text, &self.overrides).await
     }
 
     /// Runs the stop at `index`: plans its text and gives what the window shows, and its rows,
@@ -117,7 +160,7 @@ impl Debuggee {
             Failure::Usage(error) => vec![error],
             Failure::Reports(reports) => lines(&reports),
         };
-        let frame = match plan_text(&mut self.target, &text).await {
+        let frame = match self.plan(&text).await {
             Ok(frame) => frame,
             Err(failure) => {
                 let errors = failed(failure);
@@ -128,9 +171,86 @@ impl Debuggee {
                 return (Outcome::Failed(errors), ran);
             }
         };
-        let variables = text_variables(&self.target, &text).await.map_err(failed);
+        let variables = text_variables(self.target(), &text, &self.overrides).await;
+        let variables = variables.map_err(failed);
         let rows = Ok(Rows::new(frame.clone()));
-        (outcome(&self.target, frame).await, Ran { rows, variables })
+        (outcome(self.target(), frame).await, Ran { rows, variables })
+    }
+
+    /// What the window shows of `frame`, the frame of a part of the script.
+    pub(crate) async fn outcome(&self, frame: DataFrame) -> Outcome {
+        outcome(self.target(), frame).await
+    }
+
+    /// Gives the variable `name`, of the type `ty`, the value that `value` writes, as a `SET`
+    /// would, from the next run on: a number, a quoted or a bare string, `TRUE`, a date, or `NULL`.
+    /// A value that isn't of the type is an error that names it.
+    pub(crate) fn set_variable(
+        &mut self,
+        name: &str,
+        value: &str,
+        ty: &DataType,
+    ) -> Result<ScalarValue, String> {
+        let text = value.trim();
+        let wrong = || format!("`{name}` takes a value of type {}", googlesql_name(ty));
+        let scalar = match text.eq_ignore_ascii_case("NULL") {
+            true => ScalarValue::try_from(ty).map_err(|_| wrong())?,
+            false => {
+                let unquoted = (text.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')))
+                    .or_else(|| text.strip_prefix('"').and_then(|t| t.strip_suffix('"')))
+                    .unwrap_or(text);
+                let scalar = ScalarValue::try_from_string(unquoted.to_string(), ty);
+                scalar
+                    .ok()
+                    .filter(|scalar| !scalar.is_null())
+                    .ok_or_else(wrong)?
+            }
+        };
+        self.overrides.insert(name.to_string(), scalar.clone());
+        Ok(scalar)
+    }
+
+    /// The rows of `expression`, which the debug console runs at the stop at `index`: pipe
+    /// operators, as `|> WHERE amount > 100`, after the stop's rows, or a query that starts with
+    /// `FROM`, after the statements before the stop. The errors are their messages.
+    pub(crate) async fn evaluate(
+        &mut self,
+        index: usize,
+        expression: &str,
+    ) -> Result<DataFrame, String> {
+        let expression = expression.trim();
+        let at = self.stops.staged(index).clone();
+        let place = self.stops.get(index).place;
+        let text = if expression.starts_with("|>") {
+            let rows = match (place, &at.statement.shows) {
+                (Place::Stage(stage), _) => at.stage_text(&self.text, &at.operators[stage]),
+                (Place::Result, Shows::Table(path)) => {
+                    format!("{};\nFROM {path}", &self.text[..at.statement.end])
+                }
+                (Place::Result, _) => self.text[..at.statement.end].to_string(),
+            };
+            format!("{rows}\n{expression}")
+        } else if (expression.get(..4)).is_some_and(|word| word.eq_ignore_ascii_case("FROM")) {
+            match place {
+                Place::Stage(_) => format!("{}{expression}", &self.text[..at.statement.start]),
+                Place::Result => format!("{};\n{expression}", &self.text[..at.statement.end]),
+            }
+        } else {
+            return Err(
+                "the console takes pipe operators, as `|> WHERE x > 0`, which run after the stop's \
+                 rows, or a query that starts with FROM"
+                    .into(),
+            );
+        };
+        match self.plan(&text).await {
+            Ok(frame) => Ok(frame),
+            Err(Failure::Reports(reports)) => {
+                let messages: Vec<String> =
+                    reports.into_iter().map(|report| report.message).collect();
+                Err(messages.join("\n"))
+            }
+            Err(Failure::Usage(error)) => Err(error),
+        }
     }
 }
 
@@ -146,7 +266,7 @@ pub(crate) struct Rows {
 }
 
 impl Rows {
-    fn new(frame: DataFrame) -> Rows {
+    pub(crate) fn new(frame: DataFrame) -> Rows {
         Rows {
             frame,
             stream: None,
