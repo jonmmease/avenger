@@ -180,7 +180,7 @@ enum Command {
         #[arg(long)]
         color_scheme: Option<String>,
     },
-    /// Debug the stages of a chart script's query over the Debug Adapter Protocol, on standard
+    /// Debug the stages of a script's queries over the Debug Adapter Protocol, on standard
     /// input and output, with a window that shows the rows of each stop. A `launch` request names
     /// the target as `view` takes it, in its `target`.
     Dap {

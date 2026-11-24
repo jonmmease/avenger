@@ -356,10 +356,20 @@ pub(crate) struct Staged {
     pub(crate) statement: Statement,
     pub(crate) last: usize,
     pub(crate) query: usize,
+    /// The parentheses around the query in its statement, as `CREATE TABLE t AS (...)` has one.
+    pub(crate) parens: usize,
     pub(crate) operators: Vec<Operator>,
 }
 
 impl Staged {
+    /// The text of a data script that makes the statement's table from the rows that enter the
+    /// operator `operator` of its query: the script's text through the statement, with the query
+    /// cut before the operator's `|>` and its parentheses closed, so the statement makes its table
+    /// of those rows, as the loader's step builds it. The offsets before the cut stay.
+    pub(crate) fn data_stage_text(&self, text: &str, operator: &Operator) -> String {
+        format!("{}{};", &text[..operator.cut], ")".repeat(self.parens))
+    }
+
     /// The text of a chart script that runs the stage of the operator `operator` of the script
     /// `text`: the rows that enter the operator. It is the text through the statement, cut before
     /// the operator's `|>`. For a statement around its query, as `CREATE TEMP TABLE t AS (...)`,
@@ -385,7 +395,8 @@ impl Staged {
 /// The query of a statement whose operators are its stages: a query's own, or the query of a
 /// `CREATE TABLE` or a `CREATE VIEW`, inside its parentheses when the query is only a query in
 /// parentheses.
-fn staged_query(stmt: &ast::Stmt) -> Option<ast::Query> {
+fn staged_query(stmt: &ast::Stmt) -> Option<(ast::Query, usize)> {
+    let mut parens = 0;
     let mut query = match stmt {
         ast::Stmt::Query(query) => query.clone(),
         ast::Stmt::CreateTableStmt(create) => create.query()?,
@@ -398,9 +409,10 @@ fn staged_query(stmt: &ast::Stmt) -> Option<ast::Query> {
                 break;
             };
             query = inner;
+            parens += 1;
         }
     }
-    Some(query)
+    Some((query, parens))
 }
 
 /// The top-level operators of `query`, in the script `text`.
@@ -444,10 +456,11 @@ pub(crate) fn staged(text: &str, script: Script) -> Vec<Staged> {
             Some(Staged {
                 statement,
                 last: at.last,
-                query: query.as_ref().map_or(at.start, |query| {
+                query: query.as_ref().map_or(at.start, |(query, _)| {
                     token_range(query.syntax()).map_or(at.start, |(start, _)| start)
                 }),
-                operators: query.map_or_else(Vec::new, |query| operators(text, &query)),
+                parens: query.as_ref().map_or(0, |(_, parens)| *parens),
+                operators: query.map_or_else(Vec::new, |(query, _)| operators(text, &query)),
             })
         })
         .collect()
