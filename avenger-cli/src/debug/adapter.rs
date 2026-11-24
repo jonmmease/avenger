@@ -7,25 +7,27 @@
 //! once the target's project loads, so the breakpoints that follow bind to its stops. After
 //! `configurationDone`, the session stops at its first stop, and each step stops again.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
-use avenger_chart::results::is_chart_field;
+use avenger_chart::proto::encoding::Kind;
+use avenger_chart::results::{is_chart_field, QueryResult};
 use avenger_sql::types::googlesql_name;
 use datafusion::arrow::{
     array::RecordBatch,
     datatypes::SchemaRef,
     util::display::{ArrayFormatter, FormatOptions},
 };
+use datafusion::prelude::SessionContext;
 use serde_json::{json, Value};
 
 use super::debuggee::{Debuggee, Ran, Rows};
 use super::protocol::{Output, Request};
 use super::stops::{Move, Place, Reason, StopKey};
-use avenger_results_egui::ChartState;
+use avenger_results_egui::{channel_name, plot_name, ChartState};
 
 use avenger_sql_project::watch::{Burst, Watch};
 
@@ -58,6 +60,8 @@ enum Var {
     Chunk(Source, usize, usize),
     /// A row's fields.
     Row(Source, usize),
+    /// The layers of the chart in a row's column, by the row and the column's index.
+    Chart(Source, usize, usize),
     /// The script's variables.
     Script,
     /// The state of the chart at a result stop: its selections, widgets, scales, and modes.
@@ -67,17 +71,25 @@ enum Var {
     Modes,
 }
 
-/// Whose rows a variable holds: the stop's, or a result of the console's, by its order.
+/// Whose rows a variable holds: the stop's, or rows that the stop keeps, by their order: a result
+/// of the console's, or the table of a chart's layer.
 #[derive(Clone, Copy, Debug)]
 enum Source {
     Stop,
-    Console(usize),
+    Kept(usize),
 }
 
-/// The rows of `source`: the stop's, of `ran`, or a result of the console's, of `results`.
+/// Rows that a stop keeps: a result of the console's, or the table of a chart's layer, with the
+/// channels that encode each of the layer's columns, by the column's name, as `x, color`.
+struct Kept {
+    rows: Rows,
+    channels: HashMap<String, String>,
+}
+
+/// The rows of `source`: the stop's, of `ran`, or rows that the stop keeps, of `kept`.
 fn rows_of<'a>(
     ran: &'a mut Option<Ran>,
-    results: &'a mut [Rows],
+    kept: &'a mut [Kept],
     source: Source,
 ) -> Result<&'a mut Rows, String> {
     match source {
@@ -85,8 +97,8 @@ fn rows_of<'a>(
             let ran = ran.as_mut().ok_or("the session is not stopped")?;
             ran.rows.as_mut().map_err(|errors| errors.join("\n"))
         }
-        Source::Console(index) => results
-            .get_mut(index)
+        Source::Kept(index) => (kept.get_mut(index))
+            .map(|kept| &mut kept.rows)
             .ok_or_else(|| "no such result".into()),
     }
 }
@@ -125,8 +137,9 @@ pub(crate) struct Adapter<W: Write> {
     stop: Option<usize>,
     /// The state of the chart that fills the window, as it last reported it.
     chart: Option<ChartState>,
-    /// The rows of the console's results at the current stop.
-    results: Vec<Rows>,
+    /// The rows that the current stop keeps: the console's results, and the tables of the layers
+    /// of the charts that the reader opened.
+    kept: Vec<Kept>,
     /// The watch of the project's files, which the session follows as `view` does.
     watch: Option<Watch>,
     /// Whether the client refreshes its panes on an `invalidated` event.
@@ -156,7 +169,7 @@ impl<W: Write> Adapter<W> {
             stop: None,
             chart: None,
             invalidated: false,
-            results: Vec::new(),
+            kept: Vec::new(),
             watch: None,
             ran: None,
             vars: Vec::new(),
@@ -592,8 +605,11 @@ impl<W: Write> Adapter<W> {
         // that the variables' tree does not.
         let first = self.runtime.block_on(rows.rows(0, GRID_ROWS));
         let grid = first.and_then(|batches| grid(&rows.schema(), &batches));
-        self.results.push(rows);
-        let reference = self.reference(Var::AllRows(Source::Console(self.results.len() - 1)));
+        self.kept.push(Kept {
+            rows,
+            channels: HashMap::new(),
+        });
+        let reference = self.reference(Var::AllRows(Source::Kept(self.kept.len() - 1)));
         self.out.respond(
             request,
             json!({"result": summary, "variablesReference": reference}),
@@ -686,7 +702,7 @@ impl<W: Write> Adapter<W> {
     /// again, whose references start afresh.
     fn stopped(&mut self, reason: Reason) {
         self.vars.clear();
-        self.results.clear();
+        self.kept.clear();
         let debuggee = self.debuggee.as_ref().expect("a loaded target");
         let stop = debuggee.stops().get(self.stop.expect("a stop"));
         let line = debuggee.file_line(stop.line);
@@ -838,7 +854,7 @@ impl<W: Write> Adapter<W> {
                     .collect())
             }
             Var::Rows(source) => {
-                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
+                let rows = rows_of(&mut self.ran, &mut self.kept, source)?;
                 let columns = rows.schema().fields().len();
                 let count = match self.runtime.block_on(rows.count()) {
                     Ok(count) => format!("{count} rows"),
@@ -852,16 +868,26 @@ impl<W: Write> Adapter<W> {
                 ])
             }
             Var::Columns(source) => {
-                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
+                let channels = match source {
+                    Source::Kept(index) => self.kept.get(index).map(|kept| kept.channels.clone()),
+                    Source::Stop => None,
+                };
+                let channels = channels.unwrap_or_default();
+                let rows = rows_of(&mut self.ran, &mut self.kept, source)?;
                 Ok((rows.schema().fields().iter())
                     .map(|field| {
                         let ty = column_type(field);
-                        leaf(field.name(), &ty, Some(&ty))
+                        // A column of a layer's table names the channels that encode it.
+                        let name = match channels.get(field.name()) {
+                            Some(channels) => format!("{channels}: {}", field.name()),
+                            None => field.name().clone(),
+                        };
+                        leaf(&name, &ty, Some(&ty))
                     })
                     .collect())
             }
             Var::AllRows(source) => {
-                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
+                let rows = rows_of(&mut self.ran, &mut self.kept, source)?;
                 let count = self.runtime.block_on(rows.count())?;
                 if count <= CHUNK {
                     return self.row_variables(source, 0, count);
@@ -876,15 +902,45 @@ impl<W: Write> Adapter<W> {
             }
             Var::Chunk(source, start, end) => self.row_variables(source, start, end),
             Var::Row(source, row) => {
-                let rows = rows_of(&mut self.ran, &mut self.results, source)?;
+                let rows = rows_of(&mut self.ran, &mut self.kept, source)?;
                 let batches = self.runtime.block_on(rows.rows(row, row + 1))?;
                 let Some(batch) = batches.first() else {
                     return Ok(Vec::new());
                 };
-                Ok(fields(batch, 0)?
-                    .into_iter()
-                    .map(|(name, value, ty)| leaf(&name, &value, Some(&ty)))
+                let charts: Vec<bool> = (batch.schema().fields().iter())
+                    .map(|field| is_chart_field(field))
+                    .collect();
+                let fields = fields(batch, 0)?.into_iter().enumerate();
+                Ok(fields
+                    .map(|(column, (name, value, ty))| {
+                        // A chart opens into its layers.
+                        if charts[column] && !batch.column(column).is_null(0) {
+                            let reference = self.reference(Var::Chart(source, row, column));
+                            let mut variable = parent(&name, &value, reference);
+                            variable["type"] = json!(ty);
+                            return variable;
+                        }
+                        leaf(&name, &value, Some(&ty))
+                    })
                     .collect())
+            }
+            Var::Chart(source, row, column) => {
+                let rows = rows_of(&mut self.ran, &mut self.kept, source)?;
+                let batches = self.runtime.block_on(rows.rows(row, row + 1))?;
+                let batch = batches.into_iter().next().ok_or("the row is gone")?;
+                let mut variables = Vec::new();
+                for (name, table, channels) in chart_layers(&batch, column)? {
+                    let count = table.num_rows();
+                    let frame = (SessionContext::new().read_batch(table))
+                        .map_err(|error| error.to_string())?;
+                    self.kept.push(Kept {
+                        rows: Rows::new(frame),
+                        channels,
+                    });
+                    let reference = self.reference(Var::Rows(Source::Kept(self.kept.len() - 1)));
+                    variables.push(parent(&name, &format!("{count} rows"), reference));
+                }
+                Ok(variables)
             }
         }
     }
@@ -896,7 +952,7 @@ impl<W: Write> Adapter<W> {
         start: usize,
         end: usize,
     ) -> Result<Vec<Value>, String> {
-        let rows = rows_of(&mut self.ran, &mut self.results, source)?;
+        let rows = rows_of(&mut self.ran, &mut self.kept, source)?;
         let batches = self.runtime.block_on(rows.rows(start, end))?;
         let mut variables = Vec::new();
         let mut row = start;
@@ -969,6 +1025,50 @@ fn fields(batch: &RecordBatch, row: usize) -> Result<Vec<(String, String, String
             Ok((field.name().clone(), value, column_type(field)))
         })
         .collect()
+}
+
+/// A layer of a chart: its name, its table, the rows that its mark draws, and the channels that
+/// encode each column of the table, by the column's name, as `x, color`.
+type ChartLayer = (String, RecordBatch, HashMap<String, String>);
+
+/// The layers of the chart in the column `column` of the one row of `batch`. A layer is named by
+/// its id, or by its place among its plot's layers, with its mark, as `layer 1 (bar)`, and after
+/// its plot's name when the chart has several plots, as `plot 2 › layer 1 (bar)` or
+/// `plot 2 (Origin = Europe) › layer 1 (bar)` for a facet's cell.
+fn chart_layers(batch: &RecordBatch, column: usize) -> Result<Vec<ChartLayer>, String> {
+    let result =
+        QueryResult::new(batch.schema(), vec![batch.clone()]).map_err(|error| error.to_string())?;
+    let chart = result.chart(0, column).ok_or("the cell holds no chart")?;
+    let resolved = chart.resolve();
+    let tree = &resolved.tree;
+    Ok((tree.layers.iter())
+        .map(|layer| {
+            let mark = layer.mark.name();
+            let name = match layer.identity.given_id() {
+                Some(id) => format!("{id} ({mark})"),
+                None => format!("layer {} ({mark})", layer.position + 1),
+            };
+            // A plot is named as the chart's state names it: by its id, or by its place among the
+            // chart's plots, with its facet values, as `plot 2 (Origin = Europe)`.
+            let plot = plot_name(layer.plot, &tree.plots[layer.plot].identity);
+            let name = match tree.plots.len() > 1 {
+                true => format!("{plot} › {name}"),
+                false => name,
+            };
+            let mut channels: HashMap<String, Vec<String>> = HashMap::new();
+            for channel in layer.mark.channels() {
+                let field = match layer.mark.encoding(*channel).and_then(|e| e.kind.as_ref()) {
+                    Some(Kind::ScaledField(field) | Kind::DirectField(field)) => field,
+                    _ => continue,
+                };
+                (channels.entry(field.clone()).or_default()).push(channel_name(*channel));
+            }
+            let channels = (channels.into_iter())
+                .map(|(field, channels)| (field, channels.join(", ")))
+                .collect();
+            (name, layer.table.clone(), channels)
+        })
+        .collect())
 }
 
 /// The rows `batches`, of the schema `schema`, as a grid of text: a header of the columns' names,

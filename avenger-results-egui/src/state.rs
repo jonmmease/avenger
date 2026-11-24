@@ -147,14 +147,17 @@ pub fn plot_name(index: usize, identity: &Identity) -> String {
     format!("{name} ({})", values.join(", "))
 }
 
+/// The name of `channel` as a chart's text names it, as `x` or `stroke_width`.
+pub fn channel_name(channel: Channel) -> String {
+    (channel.as_str_name().trim_start_matches("CHANNEL_")).to_lowercase()
+}
+
 /// The name of a scale: its channel and its plots, `plots` by their indices in `names`, the
 /// chart's plots' names, as `x of cars`, or `x of plots 1–3` for a scale of several plots, or its
 /// family. A scale whose plots are unknown takes the id or the path of its plot.
 fn scale_name(identity: &ScaleIdentity, plots: &[usize], names: &[String]) -> String {
-    let channel =
-        |channel: &Channel| (channel.as_str_name().trim_start_matches("CHANNEL_")).to_lowercase();
     match identity {
-        ScaleIdentity::Family { family, channel: c } => format!("{} of {family}", channel(c)),
+        ScaleIdentity::Family { family, channel: c } => format!("{} of {family}", channel_name(*c)),
         ScaleIdentity::Plot {
             plot,
             channel: c,
@@ -175,7 +178,7 @@ fn scale_name(identity: &ScaleIdentity, plots: &[usize], names: &[String]) -> St
                 },
             };
             let second = if *index > 0 { " (second)" } else { "" };
-            format!("{} of {of}{second}", channel(c))
+            format!("{} of {of}{second}", channel_name(*c))
         }
     }
 }

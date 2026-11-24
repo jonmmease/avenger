@@ -386,6 +386,76 @@ fn a_cell_s_stops_and_breakpoints_have_the_lines_of_its_document() {
     assert!(client.child.wait().unwrap().success());
 }
 
+/// The layers of the chart of the first row of the result at the client's stop, each by its name
+/// and its value, the count of its rows.
+fn layers_at_result(client: &mut Client) -> Vec<(String, String)> {
+    let scope = client.scopes()[0].1.clone();
+    let result = client.variables(&scope);
+    let rows = client.variables(&named(&result, "rows")["variablesReference"]);
+    let fields = client.variables(&rows[0]["variablesReference"]);
+    let layers = client.variables(&named(&fields, "chart")["variablesReference"]);
+    (layers.iter())
+        .map(|layer| {
+            let text = |key: &str| layer[key].as_str().unwrap().to_string();
+            (text("name"), text("value"))
+        })
+        .collect()
+}
+
+#[test]
+fn the_layers_of_a_chart_of_several_plots_name_their_plots_and_draw_their_own_rows() {
+    let (_directory, root) = project();
+    let text = "FROM vega_datasets.cars
+|> WHERE Horsepower IS NOT NULL
+|> AGGREGATE hconcat(
+    layer(
+        mark_symbol(x => Horsepower, y => Miles_per_Gallon, id => 'cars'),
+        mark_symbol(x => avg(Horsepower), y => avg(Miles_per_Gallon), color => Origin),
+    ),
+    mark_bar(x => Origin, y => count(*), color => Origin),
+   ) AS chart
+";
+    std::fs::write(root.join("charts/layers.av.sql"), text).unwrap();
+    let path = "charts/layers.av.sql";
+    let (mut client, _) = launched(&root, path, path, &[1]);
+    assert_eq!(client.frame(), ("result".to_string(), 1));
+    let layers = layers_at_result(&mut client);
+    let layers: Vec<(&str, &str)> = (layers.iter())
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    assert_eq!(layers.len(), 3, "{layers:?}");
+    assert_eq!(layers[0].0, "plot 1 › cars (symbol)");
+    assert_eq!(layers[1], ("plot 1 › layer 2 (symbol)", "3 rows"));
+    assert_eq!(layers[2], ("plot 2 › layer 1 (bar)", "3 rows"));
+    assert_ne!(layers[0].1, "3 rows");
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+#[test]
+fn the_layers_of_a_facet_name_their_cells_by_their_facet_values() {
+    let (_directory, root) = project();
+    let text = "FROM vega_datasets.cars
+|> AGGREGATE mark_symbol(x => Horsepower, y => Miles_per_Gallon) AS chart GROUP BY Origin
+|> AGGREGATE facet_column(chart, Origin) AS chart
+";
+    std::fs::write(root.join("charts/faceted.av.sql"), text).unwrap();
+    let path = "charts/faceted.av.sql";
+    let (mut client, _) = launched(&root, path, path, &[1]);
+    let layers = layers_at_result(&mut client);
+    let mut names: Vec<&str> = layers.iter().map(|(name, _)| name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names.len(), 3, "{names:?}");
+    for (name, origin) in names.iter().zip(["Europe", "Japan", "USA"]) {
+        assert!(
+            name.contains(&format!("(Origin = {origin}) › layer 1 (symbol)")),
+            "{names:?}"
+        );
+    }
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
 #[test]
 fn a_stage_after_a_mark_holds_its_charts() {
     let (_directory, root) = project();
@@ -402,6 +472,27 @@ fn a_stage_after_a_mark_holds_its_charts() {
     let rows = client.variables(&named(&stage, "rows")["variablesReference"]);
     let fields = client.variables(&rows[0]["variablesReference"]);
     assert_eq!(named(&fields, "chart")["value"], "<chart>");
+    // A chart opens into its layers, and a layer into the columns and the rows of its table.
+    let chart = named(&fields, "chart");
+    assert_eq!(chart["type"], "CHART");
+    let layers = client.variables(&chart["variablesReference"]);
+    assert_eq!(layers.len(), 1, "{layers:?}");
+    assert_eq!(layers[0]["name"], "layer 1 (bar)");
+    let value = layers[0]["value"].as_str().unwrap();
+    assert!(value.ends_with(" rows") && value != "0 rows", "{value}");
+    let table = client.variables(&layers[0]["variablesReference"]);
+    let columns = client.variables(&named(&table, "columns")["variablesReference"]);
+    // Each column names the channels that encode it.
+    let names: Vec<&str> = (columns.iter())
+        .map(|column| column["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"x: Origin"), "{names:?}");
+    assert!(
+        names.iter().any(|name| name.starts_with("y: ")),
+        "{names:?}"
+    );
+    let rows = client.variables(&named(&table, "rows")["variablesReference"]);
+    assert_eq!(rows.len().to_string() + " rows", value);
     client.request("disconnect", json!({}));
     assert!(client.child.wait().unwrap().success());
 }
