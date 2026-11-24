@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cd _extensions/avenger && q2 call build-ts-extension",
+    "test": "node --test tests/*.test.ts"
+  }
+}

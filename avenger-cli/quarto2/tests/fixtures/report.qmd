@@ -1,0 +1,23 @@
+---
+title: Report
+---
+
+```{avenger-sql}
+CREATE TEMP TABLE weights AS (
+  FROM UNNEST([STRUCT('Europe' AS origin, 3 AS cars), STRUCT('Japan', 5), STRUCT('USA', 8)])
+)
+```
+
+```{avenger-sql}
+#| label: fig-cars
+#| fig-cap: Cars by origin
+FROM weights |> AGGREGATE mark_bar(x => origin, y => cars) AS chart
+```
+
+The cars by origin are in @fig-cars.
+
+```{avenger-sql}
+#| echo: false
+#| error: true
+FROM weights |> SELECT nope
+```
