@@ -188,6 +188,16 @@ impl Loader {
         self.project.read().await.run_chart(path, text).await
     }
 
+    /// The variables of the chart script at `path`, whose text is `text`, and their values as
+    /// its last query reads them, as [`LoadedProject::chart_variables`] gives them.
+    pub async fn chart_variables(
+        &self,
+        path: &str,
+        text: &str,
+    ) -> Result<Vec<(String, datafusion::common::ScalarValue)>, DataFusionError> {
+        self.project.read().await.chart_variables(path, text).await
+    }
+
     /// The table of the data script at `path` after its statement at the offset `at` of its
     /// text, as [`LoadedProject::step`] builds it.
     pub async fn step(&self, path: &str, at: usize) -> Result<DataFrame, Vec<ProjectDiagnostic>> {

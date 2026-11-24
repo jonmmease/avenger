@@ -25,10 +25,11 @@ use avenger_style::{Cascade, ColorScheme, Preferences, Sheet};
 use avenger_typst_label::LabelEngine;
 use eframe::egui;
 
+pub(crate) use session::{lines, outcome};
 pub use session::{Outcome, Session};
 
 /// What the session's thread sends the window.
-enum Message {
+pub(crate) enum Message {
     /// The project opened, with its stylesheet, or not.
     Opened(Result<Option<Sheet>, String>),
     Outcome(Outcome),
@@ -41,6 +42,43 @@ enum Message {
 /// the color scheme `scheme`, or the system's, until the window closes.
 pub fn run(chart: String, scheme: Option<ColorScheme>) -> Result<(), String> {
     let title = format!("avenger view {chart}");
+    window(title, scheme, move |sink| follow(chart, sink))
+}
+
+/// What the thread that drives a window sends it through: the window's messages, each of which
+/// wakes it, and whether the window closed.
+pub(crate) struct Sink {
+    sender: Sender<Message>,
+    ctx: egui::Context,
+    closed: Arc<AtomicBool>,
+}
+
+impl Sink {
+    /// Sends `message` to the window and wakes it, or `false` when the window closed.
+    pub(crate) fn send(&self, message: Message) -> bool {
+        let sent = self.sender.send(message).is_ok();
+        self.ctx.request_repaint();
+        sent
+    }
+
+    /// Whether the window closed.
+    pub(crate) fn closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Closes the window.
+    pub(crate) fn close(&self) {
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+}
+
+/// Opens a window titled `title`, in the color scheme `scheme`, or the system's, and runs `drive`
+/// on a thread of its own with the window's [`Sink`], until the window closes.
+pub(crate) fn window(
+    title: String,
+    scheme: Option<ColorScheme>,
+    drive: impl FnOnce(Sink) + Send + 'static,
+) -> Result<(), String> {
     let options = eframe::NativeOptions {
         // The window opens in front, with focus, though a terminal starts it.
         viewport: egui::ViewportBuilder::default()
@@ -54,7 +92,7 @@ pub fn run(chart: String, scheme: Option<ColorScheme>) -> Result<(), String> {
         &title,
         options,
         Box::new(move |cc| {
-            let window = Window::new(cc, chart, scheme).map_err(|error| error.to_string())?;
+            let window = Window::new(cc, drive, scheme).map_err(|error| error.to_string())?;
             Ok(Box::new(window))
         }),
     )
@@ -86,7 +124,7 @@ struct Window {
 impl Window {
     fn new(
         cc: &eframe::CreationContext<'_>,
-        chart: String,
+        drive: impl FnOnce(Sink) + Send + 'static,
         scheme: Option<ColorScheme>,
     ) -> Result<Self, String> {
         match scheme {
@@ -98,10 +136,14 @@ impl Window {
         let (sender, messages) = channel();
         let closed = Arc::new(AtomicBool::new(false));
         {
-            let (ctx, closed) = (cc.egui_ctx.clone(), closed.clone());
+            let sink = Sink {
+                sender,
+                ctx: cc.egui_ctx.clone(),
+                closed: closed.clone(),
+            };
             std::thread::Builder::new()
                 .name("avenger-view".into())
-                .spawn(move || follow(chart, sender, ctx, closed))
+                .spawn(move || drive(sink))
                 .map_err(|error| error.to_string())?;
         }
         let surface = Surface::of(&cc.egui_ctx.style().visuals);
@@ -280,12 +322,8 @@ impl Drop for Window {
 
 /// The session's thread: opens the project of `chart`, runs the chart, and follows the changes of
 /// its files, sending each outcome to the window and waking it, until the window closes.
-fn follow(chart: String, sender: Sender<Message>, ctx: egui::Context, closed: Arc<AtomicBool>) {
-    let send = |message: Message| {
-        let sent = sender.send(message).is_ok();
-        ctx.request_repaint();
-        sent
-    };
+fn follow(chart: String, sink: Sink) {
+    let send = |message: Message| sink.send(message);
     // A loaded project's futures are not `Send`, so they run on this thread.
     let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
         send(Message::Opened(Err(
@@ -318,7 +356,7 @@ fn follow(chart: String, sender: Sender<Message>, ctx: egui::Context, closed: Ar
         )])));
         return;
     };
-    while !closed.load(Ordering::SeqCst) {
+    while !sink.closed() {
         let wait = match watch.changed() {
             Burst::Ended(paths) => {
                 let paths: Vec<PathBuf> = (paths.iter()).map(|path| canonical(path)).collect();
@@ -344,7 +382,7 @@ fn follow(chart: String, sender: Sender<Message>, ctx: egui::Context, closed: Ar
 }
 
 /// The canonical path of `path`, or for a file that went away, its directory's with its name.
-fn canonical(path: &std::path::Path) -> PathBuf {
+pub(crate) fn canonical(path: &std::path::Path) -> PathBuf {
     match std::fs::canonicalize(path) {
         Ok(path) => path,
         Err(_) => match (

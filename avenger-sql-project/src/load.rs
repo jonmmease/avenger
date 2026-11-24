@@ -22,7 +22,7 @@ use avenger_sql::{
 };
 use avenger_sql_syntax::{Offset, TextRange};
 use datafusion::{
-    common::{DataFusionError, TableReference},
+    common::{DataFusionError, ScalarValue, TableReference},
     dataframe::DataFrame,
     prelude::SessionContext,
 };
@@ -415,9 +415,36 @@ impl LoadedProject {
 
     /// The rows of the chart script at `path`, as [`LoadedProject::run_chart`] runs it.
     async fn chart_frame(&self, path: &str, text: &str) -> Result<DataFrame, DataFusionError> {
+        self.ready_chart(path, text)
+            .await?
+            .dataframe(&self.ctx)
+            .await
+    }
+
+    /// The variables of the chart script at `path`, whose text is `text`, and their values as its
+    /// last query reads them, as [`avenger_sql::analysis::Analysis::variables`] evaluates them,
+    /// with the tables that [`LoadedProject::run_chart`] gives the script.
+    pub async fn chart_variables(
+        &self,
+        path: &str,
+        text: &str,
+    ) -> Result<Vec<(String, ScalarValue)>, DataFusionError> {
+        self.ready_chart(path, text)
+            .await?
+            .variables(&self.ctx)
+            .await
+    }
+
+    /// The analysis of the chart script at `path`, whose text is `text`, ready to run: with the
+    /// tables of its statements of files, built again only when those statements change.
+    async fn ready_chart(
+        &self,
+        path: &str,
+        text: &str,
+    ) -> Result<avenger_sql::analysis::Analysis, DataFusionError> {
         let (analysis, catalog) = self.chart_analysis(path, text).await?;
         if analysis.file_tables.is_empty() {
-            return analysis.dataframe(&self.ctx).await;
+            return Ok(analysis);
         }
         let statements: Vec<String> = (analysis.file_tables.iter())
             .map(|definition| text[definition.range].to_string())
@@ -452,7 +479,7 @@ impl LoadedProject {
                 tables
             }
         };
-        analysis.with_tables(&tables)?.dataframe(&self.ctx).await
+        analysis.with_tables(&tables)
     }
 
     /// The analysis of the chart script at `path`, whose text is `text`, without errors, and its

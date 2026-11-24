@@ -337,3 +337,126 @@ pub(crate) fn cell_at_line(document: &Qmd, line: usize) -> Result<(usize, &Cell)
     };
     Err(format!("the line is in no `{{avenger-sql}}` cell; {cells}"))
 }
+
+/// A top-level pipe operator of a statement's query: its name, as `|> WHERE`, the line of its
+/// `|>`, from 1, and the end of the text before it, without the spaces and the comments before
+/// the `|>`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Operator {
+    pub(crate) name: String,
+    pub(crate) line: usize,
+    pub(crate) cut: usize,
+}
+
+/// A statement with rows and the stages of its query: the statement, the line of its last token,
+/// from 1, the start of the query whose operators are its stages, and the query's top-level
+/// operators in order. A statement without a query, such as `LOAD DATA`, has no operators.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Staged {
+    pub(crate) statement: Statement,
+    pub(crate) last: usize,
+    pub(crate) query: usize,
+    pub(crate) operators: Vec<Operator>,
+}
+
+impl Staged {
+    /// The text of a chart script that runs the stage of the operator `operator` of the script
+    /// `text`: the rows that enter the operator. It is the text through the statement, cut before
+    /// the operator's `|>`. For a statement around its query, as `CREATE TEMP TABLE t AS (...)`,
+    /// the text from the statement's start to its query's start becomes spaces, so the query cut
+    /// short is the text's last statement. Every offset of the text stays, so the errors of a
+    /// stage's run have their places in the file.
+    pub(crate) fn stage_text(&self, text: &str, operator: &Operator) -> String {
+        let start = self.statement.start;
+        let blank: String = (text[start..self.query].chars())
+            .map(|c| match c {
+                '\n' | '\r' => c.to_string(),
+                c => " ".repeat(c.len_utf8()),
+            })
+            .collect();
+        format!(
+            "{}{blank}{}",
+            &text[..start],
+            &text[self.query..operator.cut]
+        )
+    }
+}
+
+/// The query of a statement whose operators are its stages: a query's own, or the query of a
+/// `CREATE TABLE` or a `CREATE VIEW`, inside its parentheses when the query is only a query in
+/// parentheses.
+fn staged_query(stmt: &ast::Stmt) -> Option<ast::Query> {
+    let mut query = match stmt {
+        ast::Stmt::Query(query) => query.clone(),
+        ast::Stmt::CreateTableStmt(create) => create.query()?,
+        ast::Stmt::CreateViewStmt(create) => create.query()?,
+        _ => return None,
+    };
+    if !matches!(stmt, ast::Stmt::Query(_)) {
+        while query.pipe_operators().next().is_none() && query.alias().is_none() {
+            let Some(inner) = query.paren_query().and_then(|paren| paren.query()) else {
+                break;
+            };
+            query = inner;
+        }
+    }
+    Some(query)
+}
+
+/// The top-level operators of `query`, in the script `text`.
+fn operators(text: &str, query: &ast::Query) -> Vec<Operator> {
+    (query.pipe_operators())
+        .filter_map(|operator| {
+            let mut tokens = (operator.syntax().descendants_with_tokens())
+                .filter_map(|element| element.into_token())
+                .filter(|token| !token.kind().is_trivia());
+            let pipe = tokens.next()?;
+            let keywords: Vec<String> = tokens
+                .take_while(|token| token.kind().is_keyword())
+                .map(|token| token.text().to_uppercase())
+                .collect();
+            let start = usize::from(pipe.text_range().start());
+            // The end of the token before the `|>`, past the spaces and comments before it.
+            let mut before = pipe.prev_token();
+            while let Some(token) = before.as_ref().filter(|token| token.kind().is_trivia()) {
+                before = token.prev_token();
+            }
+            let cut = before.map_or(start, |token| usize::from(token.text_range().end()));
+            Some(Operator {
+                name: format!("|> {}", keywords.join(" ")),
+                line: line_of(text, start),
+                cut,
+            })
+        })
+        .collect()
+}
+
+/// The statements with rows of the script `text`, of the kind `script`, in order, each with the
+/// stages of its query. The statements without rows, such as `DECLARE`, have none. Their lines
+/// count from the text's first line.
+pub(crate) fn staged(text: &str, script: Script) -> Vec<Staged> {
+    let statements = statements(text, script);
+    (0..statements.len())
+        .filter_map(|index| {
+            let statement = describe(&statements, index, 0, script).ok()?;
+            let at = &statements[index];
+            let query = staged_query(&at.stmt);
+            Some(Staged {
+                statement,
+                last: at.last,
+                query: query.as_ref().map_or(at.start, |query| {
+                    token_range(query.syntax()).map_or(at.start, |(start, _)| start)
+                }),
+                operators: query.map_or_else(Vec::new, |query| operators(text, &query)),
+            })
+        })
+        .collect()
+}
+
+/// The first and last lines of each top-level statement of the script `text`, of the kind
+/// `script`, from 1.
+pub(crate) fn spans(text: &str, script: Script) -> Vec<(usize, usize)> {
+    (statements(text, script).iter())
+        .map(|at| (at.first, at.last))
+        .collect()
+}
