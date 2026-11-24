@@ -1,0 +1,185 @@
+//! `avenger quarto2-init` with a fake `q2` on `PATH`, a script that records its arguments: the
+//! files of a new project, an existing `_quarto.yml`, `--force`, an installed extension newer than
+//! avenger's, `--dry-run`, `--example`, a second run, and a missing `q2`.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// A folder with a fake `q2`, which appends its arguments to `q2.log` beside it.
+fn fake_q2() -> tempfile::TempDir {
+    let bin = tempfile::tempdir().unwrap();
+    let log = bin.path().join("q2.log");
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" >> '{}'\ncase \"$1\" in\n  --version) echo 'q2 (quarto 2) 0.48.0-test' ;;\n  add) echo 'Extension installation complete.' ;;\nesac\n",
+        log.display()
+    );
+    let q2 = bin.path().join("q2");
+    std::fs::write(&q2, script).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&q2, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    bin
+}
+
+/// The exit status and the standard output of `avenger quarto2-init` with `args` in `dir`, with
+/// `bin` and the system's folders on `PATH`.
+fn init(dir: &Path, bin: &Path, args: &[&str]) -> (i32, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_avenger"))
+        .arg("quarto2-init")
+        .args(args)
+        .current_dir(dir)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env_remove("QUARTO_NODE")
+        .output()
+        .unwrap();
+    (
+        output.status.code().unwrap(),
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    )
+}
+
+/// The lines that the fake `q2` in `bin` recorded.
+fn calls(bin: &Path) -> Vec<String> {
+    let log = std::fs::read_to_string(bin.join("q2.log")).unwrap_or_default();
+    log.lines().map(str::to_string).collect()
+}
+
+fn read(path: PathBuf) -> String {
+    std::fs::read_to_string(path).unwrap()
+}
+
+#[test]
+fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
+    let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
+    let dir = project.path();
+    let (status, stdout, stderr) = init(dir, bin.path(), &[]);
+    assert_eq!(status, 0, "{stdout}{stderr}");
+    assert!(stdout.contains("extension: installed"), "{stdout}");
+    assert_eq!(
+        calls(bin.path()),
+        ["--version", "add .quarto/avenger-extension --no-prompt"]
+    );
+    // The embedded extension, with avenger's version.
+    let source = dir.join(".quarto/avenger-extension/_extensions/avenger");
+    let manifest = read(source.join("_extension.yml"));
+    let version = format!("version: {}\n", env!("CARGO_PKG_VERSION"));
+    assert!(manifest.contains(&version), "{manifest}");
+    assert!(manifest.contains("avenger-sql:"), "{manifest}");
+    let bundle = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("quarto2/_extensions/avenger/dist/avenger-engine.js");
+    assert_eq!(read(source.join("dist/avenger-engine.js")), read(bundle));
+    // A Quarto 2 project, whose preview runs the engine on every edit, and q2's working folder
+    // ignored.
+    let quarto_yml = read(dir.join("_quarto.yml"));
+    assert!(
+        quarto_yml.starts_with("quarto-required: \"^2\"\n"),
+        "{quarto_yml}"
+    );
+    assert!(
+        quarto_yml.contains("preview:\n  engine: auto\n"),
+        "{quarto_yml}"
+    );
+    assert_eq!(read(dir.join(".gitignore")), "/.quarto/\n");
+    // A second run changes no file of the project.
+    std::fs::write(dir.join(".gitignore"), "target\n/.quarto/\n").unwrap();
+    let (status, stdout, _) = init(dir, bin.path(), &[]);
+    assert_eq!(status, 0);
+    assert!(
+        stdout.contains(".gitignore: ignores `/.quarto/` already"),
+        "{stdout}"
+    );
+    assert_eq!(read(dir.join(".gitignore")), "target\n/.quarto/\n");
+}
+
+#[test]
+fn an_existing_quarto_yml_stays_and_the_lines_to_add_print() {
+    let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
+    let dir = project.path();
+    std::fs::write(dir.join("_quarto.yml"), "project:\n  type: website\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), "target").unwrap();
+    let (status, stdout, _) = init(dir, bin.path(), &["--force"]);
+    assert_eq!(status, 0, "{stdout}");
+    assert_eq!(read(dir.join("_quarto.yml")), "project:\n  type: website\n");
+    assert!(
+        stdout.contains("add\n  preview:\n    engine: auto"),
+        "{stdout}"
+    );
+    assert_eq!(read(dir.join(".gitignore")), "target\n/.quarto/\n");
+    assert_eq!(
+        calls(bin.path()),
+        [
+            "--version",
+            "add .quarto/avenger-extension --no-prompt --force"
+        ]
+    );
+}
+
+#[test]
+fn an_extension_newer_than_avenger_s_stays_unless_forced() {
+    let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
+    let dir = project.path();
+    std::fs::create_dir_all(dir.join("_extensions/avenger")).unwrap();
+    std::fs::write(
+        dir.join("_extensions/avenger/_extension.yml"),
+        "title: Avenger\nversion: 99.0.0\n",
+    )
+    .unwrap();
+    let (status, stdout, _) = init(dir, bin.path(), &[]);
+    assert_eq!(status, 0, "{stdout}");
+    assert!(
+        stdout.contains("newer than this avenger's") && stdout.contains("upgrade avenger"),
+        "{stdout}"
+    );
+    assert_eq!(calls(bin.path()), ["--version"]);
+    let (_, stdout, _) = init(dir, bin.path(), &["--force"]);
+    assert!(stdout.contains("extension: installed"), "{stdout}");
+    assert!(calls(bin.path())
+        .contains(&"add .quarto/avenger-extension --no-prompt --force".to_string()));
+}
+
+#[test]
+fn a_dry_run_writes_nothing_and_runs_no_q2_add() {
+    let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
+    let dir = project.path();
+    let (status, stdout, _) = init(dir, bin.path(), &["--dry-run", "--example"]);
+    assert_eq!(status, 0, "{stdout}");
+    assert!(
+        stdout.contains("would write .quarto/avenger-extension/"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("would: index.av.qmd: written"), "{stdout}");
+    assert_eq!(calls(bin.path()), ["--version"]);
+    assert_eq!(std::fs::read_dir(dir).unwrap().count(), 0);
+}
+
+#[test]
+fn an_example_is_written_once() {
+    let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
+    let dir = project.path();
+    let (status, stdout, _) = init(dir, bin.path(), &["--example"]);
+    assert_eq!(status, 0, "{stdout}");
+    let example = read(dir.join("index.av.qmd"));
+    assert!(example.contains("#| label: fig-cars"), "{example}");
+    assert!(
+        stdout.ends_with("preview: q2 preview index.av.qmd\n"),
+        "{stdout}"
+    );
+    std::fs::write(dir.join("index.av.qmd"), "# Mine\n").unwrap();
+    let (_, stdout, _) = init(dir, bin.path(), &["--example"]);
+    assert!(stdout.contains("index.av.qmd: kept"), "{stdout}");
+    assert_eq!(read(dir.join("index.av.qmd")), "# Mine\n");
+}
+
+#[test]
+fn a_missing_q2_fails_with_how_to_install_it() {
+    let (bin, project) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (status, _, stderr) = init(project.path(), bin.path(), &[]);
+    assert_eq!(status, 2);
+    assert!(
+        stderr.contains("q2 is not on PATH: install Quarto 2"),
+        "{stderr}"
+    );
+}

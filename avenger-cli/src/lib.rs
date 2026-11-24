@@ -25,6 +25,7 @@ mod fmt;
 pub mod lsp;
 mod project;
 mod quarto2_engine;
+mod quarto2_init;
 mod query;
 mod render;
 mod report;
@@ -194,6 +195,23 @@ enum Command {
     /// standard input, one response on standard output, both JSON.
     #[command(hide = true)]
     Quarto2Engine,
+    /// Set up a project for Quarto 2: install the avenger engine extension of this avenger with
+    /// `q2 add`, write `_quarto.yml` when the project has none, and add `/.quarto/` to
+    /// `.gitignore`. Run it again after upgrading avenger, to move the extension with it.
+    #[command(name = "quarto2-init")]
+    Quarto2Init {
+        /// The project's folder, or the current folder.
+        dir: Option<PathBuf>,
+        /// Write `index.av.qmd`, a document with a chart.
+        #[arg(long)]
+        example: bool,
+        /// Print the steps without running `q2 add` or writing a file.
+        #[arg(long)]
+        dry_run: bool,
+        /// Replace an extension with local changes, or one newer than this avenger's.
+        #[arg(long)]
+        force: bool,
+    },
     /// Render the chart of a chart script, or of a cell of a Quarto document, to PNG, SVG, or PDF
     /// by the extension of `-o`, as `avenger view` draws it. A result of several charts renders as
     /// a table.
@@ -437,6 +455,17 @@ pub fn main() -> ExitCode {
             runtime.block_on(query::run(source, &options, &output))
         }
         Command::Charts { project } => runtime.block_on(charts::run(project.as_deref(), &output)),
+        Command::Quarto2Init {
+            dir,
+            example,
+            dry_run,
+            force,
+        } => quarto2_init::run(&quarto2_init::Options {
+            dir,
+            example,
+            dry_run,
+            force,
+        }),
         Command::Lsp | Command::View { .. } | Command::Dap { .. } | Command::Quarto2Engine => {
             unreachable!("these run above")
         }

@@ -54,3 +54,24 @@ jobs:
         env:
           AVENGER: ${{ github.workspace }}/target/release/avenger
         run: node tests/e2e.mjs
+      - name: Set up a project with avenger quarto2-init
+        run: |
+          avenger="$GITHUB_WORKSPACE/target/release/avenger"
+          project="$RUNNER_TEMP/init"
+          mkdir -p "$project" && cd "$project"
+          "$avenger" quarto2-init --example
+          test -f _extensions/avenger/.quarto-source.yml
+          # A second run changes nothing.
+          # The output is read whole, since `grep -q` closes the pipe at its first match.
+          output=$("$avenger" quarto2-init)
+          grep -q "extension: already at avenger" <<< "$output"
+          # A local edit stops a replacement. q2 replaces only another version, so the edit makes
+          # the installed extension an older avenger's too.
+          echo "// a local edit" >> _extensions/avenger/dist/avenger-engine.js
+          sed -i 's/^version: .*/version: 0.0.1/' _extensions/avenger/_extension.yml
+          if "$avenger" quarto2-init; then exit 1; fi
+          output=$("$avenger" quarto2-init --force)
+          grep -q "extension: installed" <<< "$output"
+          # The example renders its chart.
+          PATH="$GITHUB_WORKSPACE/target/release:$PATH" q2 render index.av.qmd
+          ls index.av_files/figure-html/*.svg
