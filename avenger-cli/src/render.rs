@@ -28,7 +28,7 @@ use avenger_scenegraph::{
 };
 use avenger_sql_language::FileRole;
 use avenger_sql_project::{
-    charts::{background, label_engine, preferences},
+    charts::{background, cascade, label_engine, preferences},
     find_root,
     qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
@@ -63,7 +63,8 @@ pub struct Options {
     pub scale: f32,
     /// The reader's color scheme, light or dark, with its background.
     pub color_scheme: ColorScheme,
-    /// Draw on a transparent background, which the surface around the image shows through. The
+    /// Draw on a transparent background, which the surface around the image shows through: a
+    /// chart's own background is transparent unless the project's stylesheets set it, and the
     /// color scheme's background stays the stylesheets' `env(background)`.
     pub transparent: bool,
     /// A stylesheet after the project's.
@@ -206,6 +207,9 @@ pub async fn run_all(
 /// runtime that the chart apps prepare their charts on.
 pub(crate) struct Renderer {
     engine: LabelEngine,
+    /// The sheet of a transparent background, between the base stylesheet and the project's, when
+    /// the options draw on one.
+    transparent: Option<Sheet>,
     extra: Option<Sheet>,
     images: ImageCache,
     runtime: tokio::runtime::Handle,
@@ -219,11 +223,27 @@ impl Renderer {
         };
         Ok(Renderer {
             engine: label_engine(),
+            transparent: options.transparent.then(transparent_sheet),
             extra,
             images: ImageCache::with_options(image_options()?),
             runtime: options.runtime.clone(),
         })
     }
+}
+
+/// The sheet that leaves a chart's background to the surface around it, which the base stylesheet
+/// sets to `env(background)`.
+fn transparent_sheet() -> Sheet {
+    let mut no_files = |url: &str, _: Option<&str>| Err(format!("no file `{url}`"));
+    let (sheet, diagnostics) = Sheet::load(
+        "chart { background: transparent; }",
+        None,
+        SourceId(u32::MAX - 2),
+        ParseOptions::default(),
+        &mut no_files,
+    );
+    debug_assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    sheet
 }
 
 /// The stylesheet at `path`, alone, without imports of other files.
@@ -706,9 +726,10 @@ pub(crate) async fn result_image(
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Image, Failure> {
-    let cascade = target
-        .stylesheet
-        .cascade(background(options.color_scheme), renderer.extra.as_ref());
+    let sheets = (renderer.transparent.iter())
+        .chain(&target.stylesheet.sheet)
+        .chain(&renderer.extra);
+    let cascade = cascade(background(options.color_scheme), sheets);
     let single = (result.shape() == Shape::Chart)
         .then(|| result.chart(0, 0))
         .flatten();

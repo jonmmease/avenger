@@ -195,13 +195,12 @@ fn a_document_of_two_color_schemes_draws_each_chart_in_both() {
         classes,
         [&json!(["dark-content"]), &json!(["light-content"])]
     );
-    // The dark image differs from the light one, and neither fills its background, which the
-    // page shows through.
+    // The dark image differs from the light one, and neither fills its background, the scheme's
+    // `env(background)`, which the page shows through.
     let (dark, light) = (svg_of(&response, 0, 0), svg_of(&response, 0, 1));
     assert_ne!(dark, light);
-    for svg in [dark, light] {
-        assert!(!svg.contains(r#"<rect x="0" y="0""#), "{}", &svg[..400]);
-    }
+    assert!(!dark.contains(r##"fill="#1e1e1e""##), "{dark}");
+    assert!(!light.contains(r##"fill="#ffffff""##), "{light}");
     // An error is one output, of no scheme.
     assert_eq!(kinds(&response)[1].2, ["error"]);
     // One scheme draws one image, untagged, on the scheme's background.
@@ -209,7 +208,7 @@ fn a_document_of_two_color_schemes_draws_each_chart_in_both() {
     let outputs = response["cells"][0]["outputs"].as_array().unwrap();
     assert_eq!(outputs.len(), 1);
     assert!(outputs[0]["metadata"].get("quarto_attrs").is_none());
-    assert!(svg_of(&response, 0, 0).contains(r#"<rect x="0" y="0""#));
+    assert!(svg_of(&response, 0, 0).contains(r##"fill="#ffffff""##));
     // A request names light, dark, or both, each once.
     for (schemes, message) in [
         (json!([]), "`colorSchemes` is empty: light, dark, or both"),
