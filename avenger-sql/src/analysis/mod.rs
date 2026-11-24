@@ -143,24 +143,61 @@ impl Analysis {
         &self,
         ctx: &datafusion::prelude::SessionContext,
     ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
-        use datafusion::{
-            common::{plan_err, ParamValues},
-            scalar::ScalarValue,
-        };
-        let Some(last) = (self.statements.iter())
-            .rposition(|statement| matches!(statement.plan, StatementPlan::Query(_)))
-        else {
+        use datafusion::common::plan_err;
+        let Some(last) = self.last_query() else {
             return plan_err!("The script has no query");
         };
-        let mut values: std::collections::HashMap<String, ScalarValue> = Default::default();
-        let bound = |plan: &LogicalPlan,
-                     values: &std::collections::HashMap<String, ScalarValue>| {
-            let map: std::collections::HashMap<String, _> = (values.iter())
-                .map(|(id, value)| (id.trim_start_matches('$').to_string(), value.clone().into()))
-                .collect();
-            plan.clone().with_param_values(ParamValues::Map(map))
+        let values = self.bind(&self.statements[..last], ctx).await?;
+        let StatementPlan::Query(plan) = &self.statements[last].plan else {
+            unreachable!("the last query");
         };
-        for statement in &self.statements[..last] {
+        ctx.execute_logical_plan(bound(plan, &values)?).await
+    }
+
+    /// The variables of the script and their values as its last query reads them: each variable
+    /// of a `DECLARE` before the last query, by its name, with the value of its last `SET`
+    /// before the query, or of its `DECLARE`, evaluated in `ctx` as [`Analysis::dataframe`]
+    /// evaluates them, in the order of their `DECLARE`s. A script without a query has its
+    /// variables after all its statements.
+    pub async fn variables(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> datafusion::common::Result<Vec<(String, datafusion::scalar::ScalarValue)>> {
+        let last = self.last_query().unwrap_or(self.statements.len());
+        let statements = &self.statements[..last];
+        let values = self.bind(statements, ctx).await?;
+        let mut variables: Vec<(String, datafusion::scalar::ScalarValue)> = Vec::new();
+        for statement in statements {
+            if let StatementPlan::Variable { name, id, .. } = &statement.plan {
+                // A `SET` gives the variable of its `DECLARE` a new value, in its place.
+                let value = values[id].clone();
+                match variables.iter_mut().find(|(other, _)| other == name) {
+                    Some((_, current)) => *current = value,
+                    None => variables.push((name.clone(), value)),
+                }
+            }
+        }
+        Ok(variables)
+    }
+
+    /// The index of the script's last query among its statements.
+    fn last_query(&self) -> Option<usize> {
+        (self.statements.iter())
+            .rposition(|statement| matches!(statement.plan, StatementPlan::Query(_)))
+    }
+
+    /// The values of the variables of `statements`, each evaluated in `ctx` in order with the
+    /// values before it bound, by the id of its placeholder.
+    async fn bind(
+        &self,
+        statements: &[Statement],
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> datafusion::common::Result<
+        std::collections::HashMap<String, datafusion::scalar::ScalarValue>,
+    > {
+        use datafusion::scalar::ScalarValue;
+        let mut values: std::collections::HashMap<String, ScalarValue> = Default::default();
+        for statement in statements {
             if let StatementPlan::Variable { id, plan, .. } = &statement.plan {
                 let batches = ctx
                     .execute_logical_plan(bound(plan, &values)?)
@@ -174,10 +211,7 @@ impl Analysis {
                 values.insert(id.clone(), value);
             }
         }
-        let StatementPlan::Query(plan) = &self.statements[last].plan else {
-            unreachable!("the last query");
-        };
-        ctx.execute_logical_plan(bound(plan, &values)?).await
+        Ok(values)
     }
 
     /// The rows of the last query of the script, as [`Analysis::dataframe`] plans them, or no
@@ -193,6 +227,19 @@ impl Analysis {
             false => Ok(Vec::new()),
         }
     }
+}
+
+/// `plan` with the values `values` of the variables before it bound to their placeholders, by
+/// their ids.
+fn bound(
+    plan: &LogicalPlan,
+    values: &std::collections::HashMap<String, datafusion::scalar::ScalarValue>,
+) -> datafusion::common::Result<LogicalPlan> {
+    let map: std::collections::HashMap<String, _> = (values.iter())
+        .map(|(id, value)| (id.trim_start_matches('$').to_string(), value.clone().into()))
+        .collect();
+    plan.clone()
+        .with_param_values(datafusion::common::ParamValues::Map(map))
 }
 
 /// Plans each query of the script `root`, a [`avenger_sql_syntax::SyntaxKind::SCRIPT`] node, and

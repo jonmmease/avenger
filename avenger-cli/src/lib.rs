@@ -17,6 +17,7 @@ mod at;
 mod charts;
 mod check;
 mod data;
+mod debug;
 mod docs;
 mod files;
 mod fmt;
@@ -179,6 +180,14 @@ enum Command {
         #[arg(long)]
         color_scheme: Option<String>,
     },
+    /// Debug the stages of a chart script's query over the Debug Adapter Protocol, on standard
+    /// input and output, with a window that shows the rows of each stop. A `launch` request names
+    /// the target as `view` takes it, in its `target`.
+    Dap {
+        /// Answer the protocol without a window, so the stops show only in the debugger's panes.
+        #[arg(long)]
+        headless: bool,
+    },
     /// Render the chart of a chart script, or of a cell of a Quarto document, to PNG, SVG, or PDF
     /// by the extension of `-o`, as `avenger view` draws it. A result of several charts renders as
     /// a table.
@@ -264,6 +273,15 @@ pub fn main() -> ExitCode {
             Err(error) => {
                 eprintln!("error: {error}");
                 ExitCode::from(1)
+            }
+        };
+    }
+    if let Command::Dap { headless } = cli.command {
+        return match debug::run(headless) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("error: {error}");
+                ExitCode::from(2)
             }
         };
     }
@@ -410,7 +428,9 @@ pub fn main() -> ExitCode {
             runtime.block_on(query::run(source, &options, &output))
         }
         Command::Charts { project } => runtime.block_on(charts::run(project.as_deref(), &output)),
-        Command::Lsp | Command::View { .. } => unreachable!("these run above"),
+        Command::Lsp | Command::View { .. } | Command::Dap { .. } => {
+            unreachable!("these run above")
+        }
     };
     match result {
         Ok(Status::Ok) => ExitCode::SUCCESS,

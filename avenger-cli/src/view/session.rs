@@ -97,16 +97,8 @@ impl Session {
             Failure::Reports(reports) => Outcome::Failed(lines(&reports)),
             Failure::Usage(error) => Outcome::Failed(vec![error]),
         };
-        let frame = match plan_target(&self.target).await {
-            Ok(frame) => frame,
-            Err(failure) => return failed(failure),
-        };
-        let charts = (frame.schema().fields().iter()).any(|field| is_chart_field(field));
-        if !charts {
-            return Outcome::Rows(Arc::new(FrameRows { frame }));
-        }
-        match collect_target(&self.target, frame).await {
-            Ok(result) => Outcome::Ran(Arc::new(result)),
+        match plan_target(&self.target).await {
+            Ok(frame) => outcome(&self.target, frame).await,
             Err(failure) => failed(failure),
         }
     }
@@ -270,9 +262,24 @@ impl Session {
     }
 }
 
+/// What the window shows of `frame`, a frame of `target`'s text, unrun: a result with charts
+/// collects, and a table without charts reads its rows as the window scrolls, so a large table
+/// never collects.
+pub(crate) async fn outcome(target: &Target, frame: DataFrame) -> Outcome {
+    let charts = (frame.schema().fields().iter()).any(|field| is_chart_field(field));
+    if !charts {
+        return Outcome::Rows(Arc::new(FrameRows { frame }));
+    }
+    match collect_target(target, frame).await {
+        Ok(result) => Outcome::Ran(Arc::new(result)),
+        Err(Failure::Reports(reports)) => Outcome::Failed(lines(&reports)),
+        Err(Failure::Usage(error)) => Outcome::Failed(vec![error]),
+    }
+}
+
 /// The lines of `reports`, as `check` prints the first line of each: `path:line:column:
 /// severity: message`, with the path relative to the current directory under it.
-fn lines(reports: &[Report]) -> Vec<String> {
+pub(crate) fn lines(reports: &[Report]) -> Vec<String> {
     let current = std::env::current_dir()
         .and_then(std::fs::canonicalize)
         .unwrap_or_default();
