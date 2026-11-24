@@ -193,6 +193,10 @@ fn the_server_takes_utf_8_positions_when_the_client_offers_them() {
         .as_ref()
         .unwrap();
     assert_eq!(on_type.first_trigger_character, "\n");
+    assert_eq!(
+        on_type.more_trigger_character.as_deref(),
+        Some(&[")", "]", ">", " "].map(String::from)[..])
+    );
     drop(client);
     let utf8 = ClientCapabilities {
         general: Some(GeneralClientCapabilities {
@@ -959,19 +963,20 @@ fn return_and_a_first_token_indent_their_lines() {
         .canonicalize()
         .unwrap()
         .join("alone.av.sql");
-    let text = "FROM sales\n|> AGGREGATE\n\n";
+    // The editor's own indentation put the cursor at 2.
+    let text = "FROM sales\n|> AGGREGATE\n  \n";
     std::fs::write(&path, text).unwrap();
     let mut client = Client::start(ClientCapabilities::default());
     let alone = Url::from_file_path(&path).unwrap();
     client.open(&alone, text);
     client.until("diagnostics", |c| c.diagnostics.contains_key(&alone));
     let edits = client.request::<OnTypeFormatting>(json!({
-        "textDocument": {"uri": alone}, "position": position(2, 0), "ch": "\n",
+        "textDocument": {"uri": alone}, "position": position(2, 2), "ch": "\n",
         "options": {"tabSize": 2, "insertSpaces": true}
     }));
     assert_eq!(
         edits,
-        json!([{"range": {"start": position(2, 0), "end": position(2, 0)}, "newText": "     "}])
+        json!([{"range": {"start": position(2, 0), "end": position(2, 0)}, "newText": "  "}])
     );
     // A `)` in the middle of a line takes no edit.
     let edits = client.request::<OnTypeFormatting>(json!({
@@ -985,19 +990,35 @@ fn return_and_a_first_token_indent_their_lines() {
 fn a_new_line_of_an_indented_cell_takes_the_fence_s_indent() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().canonicalize().unwrap().join("alone.qmd");
-    let text = "- An item\n\n  ```{avenger-sql}\n  FROM sales\n  |> AGGREGATE\n\n  ```\n";
+    let text = "- An item\n\n  ```{avenger-sql}\n  FROM sales\n  |> AGGREGATE\n    \n  ```\n";
     std::fs::write(&path, text).unwrap();
     let mut client = Client::start(ClientCapabilities::default());
     let alone = Url::from_file_path(&path).unwrap();
     client.open(&alone, text);
     client.until("diagnostics", |c| c.diagnostics.contains_key(&alone));
     let edits = client.request::<OnTypeFormatting>(json!({
-        "textDocument": {"uri": alone}, "position": position(5, 0), "ch": "\n",
+        "textDocument": {"uri": alone}, "position": position(5, 4), "ch": "\n",
         "options": {"tabSize": 2, "insertSpaces": true}
     }));
     assert_eq!(
         edits,
-        json!([{"range": {"start": position(5, 0), "end": position(5, 0)}, "newText": "       "}])
+        json!([{"range": {"start": position(5, 0), "end": position(5, 0)}, "newText": "  "}])
+    );
+    // The space after `GROUP` at the items' depth deletes a space at the start of the line, to
+    // the depth of the fence's indent and the operator's keyword.
+    let path = directory.path().canonicalize().unwrap().join("group.qmd");
+    let text = "- An item\n\n  ```{avenger-sql}\n  FROM sales\n  |> AGGREGATE\n      n,\n      GROUP \n  ```\n";
+    std::fs::write(&path, text).unwrap();
+    let group = Url::from_file_path(&path).unwrap();
+    client.open(&group, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&group));
+    let edits = client.request::<OnTypeFormatting>(json!({
+        "textDocument": {"uri": group}, "position": position(6, 12), "ch": " ",
+        "options": {"tabSize": 4, "insertSpaces": true}
+    }));
+    assert_eq!(
+        edits,
+        json!([{"range": {"start": position(6, 0), "end": position(6, 1)}, "newText": ""}])
     );
 }
 

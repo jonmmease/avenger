@@ -28,7 +28,7 @@ use serde_json::Value;
 
 use super::convert::{self, Encoding, Place};
 use super::{lsp_diagnostic, relative, ProjectState, Server};
-use avenger_sql_project::qmd::{cell_path, split_cell_path};
+use avenger_sql_project::qmd::{cell_path, split_cell_path, Cell};
 
 /// A file of the analysis that a request reads: a script or a module of a project, or a cell of
 /// a document of a project, by its path in the analysis, or a document that is analyzed alone.
@@ -289,30 +289,25 @@ impl Server {
         let Some((part, offset)) = self.at(&params.text_document_position) else {
             return answer(Value::Null);
         };
-        let edits = part.target.document().on_type(offset, ch);
+        let document = part.target.document();
+        let edits = document.on_type(offset, ch);
         if edits.is_empty() {
             return answer(Value::Null);
         }
         let place = &part.place;
         let edits: Vec<lsp_types::TextEdit> = (edits.into_iter())
-            .map(|edit| match place.cell() {
-                None => lsp_types::TextEdit::new(place.range(edit.range), edit.replacement),
-                Some(cell) => {
-                    let line = place.position(usize::from(edit.range.start())).line;
-                    let indent = place.line_indent(line) as u32;
-                    let range = lsp_types::Range::new(
-                        lsp_types::Position::new(line, 0),
-                        lsp_types::Position::new(line, indent),
-                    );
-                    let text = match edit.replacement.is_empty() {
-                        true => String::new(),
-                        false => format!("{}{}", cell.indent, edit.replacement),
-                    };
-                    lsp_types::TextEdit::new(range, text)
-                }
+            .filter_map(|edit| match place.cell() {
+                None => Some(lsp_types::TextEdit::new(
+                    place.range(edit.range),
+                    edit.replacement,
+                )),
+                Some(cell) => cell_indentation(place, cell, document.text(), offset, &edit),
             })
             .collect();
-        answer(edits)
+        match edits.is_empty() {
+            true => answer(Value::Null),
+            false => answer(edits),
+        }
     }
 
     fn signature_help(&self, value: Value) -> Answer {
@@ -686,4 +681,58 @@ fn edits_at(place: &Place, edits: &[TextEdit]) -> Vec<lsp_types::TextEdit> {
             )
         })
         .collect()
+}
+
+/// The edit of the line of a cell that `edit`, an edit of the indentation of a line of the cell's
+/// text `text` with the cursor at `cursor`, makes: the line's new indentation is the fence's
+/// indent then the cell's, and a line of spaces that Return left, before the cursor's line, has
+/// none, since a new line of an indented cell can start with less than the fence's indent. The edit inserts or deletes spaces at the start of the line when the
+/// indentations are spaces, so that the cursor moves with the line's text, and otherwise replaces
+/// the indentation. `None` when the line has its indentation already.
+fn cell_indentation(
+    place: &Place,
+    cell: &Cell,
+    text: &str,
+    cursor: Offset,
+    edit: &TextEdit,
+) -> Option<lsp_types::TextEdit> {
+    let (start, end) = (
+        usize::from(edit.range.start()),
+        usize::from(edit.range.end()),
+    );
+    let line_start = text[..start].rfind('\n').map_or(0, |end| end + 1);
+    let cursor = usize::from(cursor).min(text.len());
+    let cursor_line = text[..cursor].rfind('\n').map_or(0, |end| end + 1);
+    let line_end = text[line_start..]
+        .find('\n')
+        .map_or(text.len(), |end| line_start + end);
+    let edited = format!(
+        "{}{}{}",
+        &text[line_start..start],
+        edit.replacement,
+        &text[end..line_end]
+    );
+    let leading = edited.len() - edited.trim_start_matches([' ', '\t']).len();
+    let wanted = match line_start != cursor_line && edited.trim().is_empty() {
+        true => String::new(),
+        false => format!("{}{}", cell.indent, &edited[..leading]),
+    };
+    let line = place.position(line_start).line;
+    let current = place.line_indent(line);
+    let at = |character: usize| lsp_types::Position::new(line, character as u32);
+    let spaces = |text: &str| text.bytes().all(|b| b == b' ');
+    if current == wanted {
+        return None;
+    }
+    Some(match spaces(current) && spaces(&wanted) {
+        true if wanted.len() > current.len() => lsp_types::TextEdit::new(
+            lsp_types::Range::new(at(0), at(0)),
+            " ".repeat(wanted.len() - current.len()),
+        ),
+        true => lsp_types::TextEdit::new(
+            lsp_types::Range::new(at(0), at(current.len() - wanted.len())),
+            String::new(),
+        ),
+        false => lsp_types::TextEdit::new(lsp_types::Range::new(at(0), at(current.len())), wanted),
+    })
 }

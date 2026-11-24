@@ -4,16 +4,17 @@
 //!
 //! The printer writes the calls that it generates in the layout of nested calls: a call or an
 //! array that fits in 100 characters on its line stays on one line, and one that does not breaks
-//! after its opening, with one argument to a line, two spaces deeper than the depth of its line,
-//! each with a comma, and its closing on a line of its own at that depth. The depth of a line is
-//! the column of its first word, and of a pipe operator's line the column of the operator's
-//! keyword, after `|> `. The calls inside the arguments follow the rule again.
+//! after its opening, with one argument to a line, 4 spaces deeper than its line, or than the `|>`
+//! of a pipe operator's line, each with a comma, and its closing on a line of its own at the depth
+//! of its line. The depth of a line is the column of its first word, and of a pipe operator's line
+//! the column of the operator's keyword, after `|> `. The calls inside the arguments follow the
+//! rule again.
 //!
 //! The pass plans the stages of a lifted call itself, so the printer reads a record that the pass
 //! keeps of each call: the ranges of the text of its channels, its aggregates, and its windows,
 //! the names of their columns, and the keys and measures that its windows partition and order by.
 
-use avenger_sql_syntax::layout::{list, one_line, width, Doc};
+use avenger_sql_syntax::layout::{list, one_line, width, Doc, INDENT, PIPE_STEP};
 use avenger_sql_syntax::{ast, ast::AstNode, Offset as TextSize, SyntaxKind, TextRange};
 
 use super::Analysis;
@@ -562,6 +563,7 @@ impl PrintedCall {
                                 items.iter().map(|item| text(item)).collect(),
                                 vec![],
                                 "]",
+                                INDENT,
                             )
                         };
                         let named = |name: &str, doc: Doc| Doc::concat([text(name), doc]);
@@ -577,7 +579,7 @@ impl PrintedCall {
                         if !others.is_empty() {
                             items.push(named("flag => ", text("'imputed'")));
                         }
-                        let call = list("impute(", items, vec![], ")");
+                        let call = list("impute(", items, vec![], ")", PIPE_STEP);
                         stages.push(operator(indent, "|> CALL ", &call, "", ""));
                         for other in others {
                             stages.push(format!("|> SET {other} = IF(imputed, 0, {other})"));
@@ -639,7 +641,7 @@ impl PrintedCall {
         let call = (root.covering_element(self.range).ancestors())
             .find(|node| node.kind() == SyntaxKind::CALL_EXPR && node.text_range() == self.range);
         let mark = match call {
-            Some(call) => writer.doc(&call),
+            Some(call) => writer.doc(&call, PIPE_STEP),
             None => Doc::text(one_line(&writer.at(self.range))),
         };
         (stages, mark)
@@ -649,8 +651,9 @@ impl PrintedCall {
 impl Writer<'_> {
     /// The text of `node`, an expression of the script, with the replacements so far, as a
     /// [`Doc`]: a call or an array that no replacement covers is a group of its arguments or its
-    /// elements, and any other expression is its text on one line.
-    fn doc(&self, node: &avenger_sql_syntax::SyntaxNode) -> Doc {
+    /// elements, `step` deeper than its line when it breaks, and any other expression is its text
+    /// on one line.
+    fn doc(&self, node: &avenger_sql_syntax::SyntaxNode, step: usize) -> Doc {
         let range = node.text_range();
         let text = || Doc::text(one_line(&self.at(range)));
         if self.replaced.iter().any(|(replaced, _)| *replaced == range) {
@@ -675,7 +678,10 @@ impl Writer<'_> {
                 let Some((before, expr)) = item else {
                     return text();
                 };
-                items.push(Doc::concat([Doc::Text(before), self.doc(expr.syntax())]));
+                items.push(Doc::concat([
+                    Doc::Text(before),
+                    self.doc(expr.syntax(), INDENT),
+                ]));
             }
             let clauses: Vec<Doc> = [
                 list.null_treatment()
@@ -690,7 +696,7 @@ impl Writer<'_> {
             .map(|range| Doc::text(one_line(&self.at(range))))
             .collect();
             let open = format!("{}(", one_line(&self.at(path.syntax().text_range())));
-            return avenger_sql_syntax::layout::list(open, items, clauses, ")");
+            return avenger_sql_syntax::layout::list(open, items, clauses, ")", step);
         }
         if let Some(array) = ast::ArrayExpr::cast(node.clone()) {
             let Some(bracket) = array.l_brack() else {
@@ -698,9 +704,15 @@ impl Writer<'_> {
             };
             let head = TextRange::new(range.start(), bracket.text_range().start());
             let items = (array.exprs())
-                .map(|expr| self.doc(expr.syntax()))
+                .map(|expr| self.doc(expr.syntax(), INDENT))
                 .collect();
-            return list(format!("{}[", one_line(&self.at(head))), items, vec![], "]");
+            return list(
+                format!("{}[", one_line(&self.at(head))),
+                items,
+                vec![],
+                "]",
+                step,
+            );
         }
         text()
     }
@@ -789,10 +801,10 @@ impl LiftedOperator {
             }
         }
         // The other items aggregate as written, and each lifted call is a branch that joins them,
-        // a query in parentheses whose operators are each on a line, two spaces deeper than the
-        // depth of the join's operator.
+        // a query in parentheses whose operators are each on a line, 4 spaces deeper than the
+        // join's `|>`, and whose `)` is at the depth of the join's keyword.
         let input = collapsed(&text[self.input]);
-        let inner = format!("{indent}     ");
+        let inner = format!("{indent}    ");
         let mut writer = Writer {
             text,
             replaced: Vec::new(),

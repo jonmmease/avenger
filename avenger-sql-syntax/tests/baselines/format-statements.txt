@@ -1,26 +1,26 @@
 DECLARE lo, hi INT64 DEFAULT 3;
 DECLARE xs ARRAY<STRUCT<a INT64, b STRING>>;
 SET lo = (
-  FROM t
-  |> AGGREGATE min(x)
+    FROM t
+    |> AGGREGATE min(x)
 );
 CREATE TEMP FUNCTION twice(v INT64) RETURNS INT64 AS (v * 2);
 CREATE TEMP TABLE FUNCTION evens(k INT64) AS (
-  FROM t
-  |> WHERE mod(x, k) = 0
+    FROM t
+    |> WHERE mod(x, k) = 0
 );
 FROM evens(2) AS e
 |> JOIN (
-     FROM u
-     |> WHERE b > 0
+    FROM u
+    |> WHERE b > 0
    ) AS u ON e.x = u.x
 |> CALL impute(x, [g], y, value => 0)
 |> UNION ALL
-     (FROM v),
-     (
-       FROM w
-       |> WHERE c
-     ),;
+    (FROM v),
+    (
+        FROM w
+        |> WHERE c
+    ),;
 FROM t |> WHERE (;
 FROM t
 |> LIMIT 3

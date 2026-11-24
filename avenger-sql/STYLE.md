@@ -1,13 +1,14 @@
 # The style of avenger-sql scripts
 
-This is the layout of avenger-sql scripts. avenger-sql-syntax's formatter, `format::format`, writes it, and avenger-sql-language's `Document::formatting` gives its edits to an editor.
+This is the layout of avenger-sql scripts, which nests by a unit of 4 spaces. avenger-sql-syntax's formatter, `format::format`, writes it, avenger-sql-language's `Document::formatting` gives its edits to an editor, and `Document::on_type` gives the indentation of a line as the user types.
 
 ## Lines and depth
 
 - A line holds at most 100 characters.
 - Indentation is spaces only.
 - The depth of a line is the column of its first word. The depth of a pipe operator's line is the column of the operator's keyword, after `|> `, so the pipe operators of a statement at column 0 have lines of depth 3.
-- A part that breaks onto lines of its own is two spaces deeper than the depth of the line that opens it, and the closer of the part goes back to that depth. Each rule below applies this rule to a kind of part.
+- A part that breaks onto lines of its own is 4 spaces deeper than the line that opens it, and the closer of the part goes back to the depth of that line. Each rule below applies this rule to a kind of part.
+- Under a pipe operator's line, a part that breaks is 4 spaces deeper than the `|>`, which is 1 deeper than the operator's keyword, and its closer goes back to the depth of the keyword. The operator's clauses, such as `GROUP BY`, are at the depth of the keyword too, and a part that breaks under a clause's line is 4 spaces deeper than the `|>` as well.
 
 ## Statements
 
@@ -26,8 +27,8 @@ This is the layout of avenger-sql scripts. avenger-sql-syntax's formatter, `form
   WITH PARTITION COLUMNS (region STRING);
 
   CREATE VIEW finance.recent OPTIONS (description = 'the orders of the last week') AS (
-    FROM finance.orders
-    |> WHERE day > DATE '2025-01-01'
+      FROM finance.orders
+      |> WHERE day > DATE '2025-01-01'
   );
   ```
 
@@ -35,13 +36,13 @@ This is the layout of avenger-sql scripts. avenger-sql-syntax's formatter, `form
 
 - A query without pipe operators stays on one line when it fits. Otherwise, `FROM` or the parenthesized query starts the first line, and each `|>` starts a line of its own at the depth of the query.
 - An operator stays on one line when it fits, its lists have no comma after their last item, and it holds no comment. The lists are the items of `SELECT`, `EXTEND`, `AGGREGATE`, `SET`, `DROP`, `RENAME`, `WITH`, and the set operations, and the lists of their clauses, such as `GROUP BY`.
-- Otherwise, the operator's clauses, such as `GROUP BY`, first go on lines of their own at the depth of the keyword. When the items still do not fit, they go on lines of their own at the depth of the keyword plus 2, each followed by a comma, as the arguments of a call do. A clause's list breaks by the same rule.
+- Otherwise, the operator's clauses, such as `GROUP BY`, first go on lines of their own at the depth of the keyword. When the items still do not fit, they go on lines of their own 4 spaces deeper than the `|>`, each followed by a comma, as the arguments of a call do. A clause's list breaks by the same rule.
 
   ```sql
   |> AGGREGATE
-       avg(body_mass_g) AS mu,
-       stddev(body_mass_g) AS sigma,
-       count(*) AS n,
+      avg(body_mass_g) AS mu,
+      stddev(body_mass_g) AS sigma,
+      count(*) AS n,
      GROUP BY species
   ```
 
@@ -49,45 +50,52 @@ This is the layout of avenger-sql scripts. avenger-sql-syntax's formatter, `form
 
   ```sql
   |> AGGREGATE mark_bar(
-       x => species,
-       y => count(*),
+      x => species,
+      y => count(*),
      ) AS chart
      GROUP BY island
   ```
 
-- A parenthesized query, as in a `JOIN` or a subquery, stays on one line when it fits and has no pipe operators. Otherwise, it breaks after `(`, the query is at the depth of the line plus 2, and the `)` goes on a line of its own at the depth of the line, followed by the rest of the line, such as `AS t ON ...`.
+- A parenthesized query, as in a `JOIN` or a subquery, stays on one line when it fits and has no pipe operators. Otherwise, it breaks after `(`, the query is 4 spaces deeper than the line, or than the `|>` of a pipe operator's line, and the `)` goes on a line of its own at the depth of the line, followed by the rest of the line, such as `AS t ON ...`.
+
+  ```sql
+  |> JOIN (
+      FROM owners
+      |> WHERE active
+     ) AS o ON o.id = penguins.owner
+  ```
 
 ## Calls and lists in brackets
 
 The width and a comma after the last item decide the layout of a call, an array, a struct, and the other lists in brackets:
 
 - A list stays on one line when it fits on its line, has no comma after its last item, and holds no comment.
-- Otherwise, it breaks after its opener. Each item goes on a line of its own at the depth of the line plus 2, followed by a comma, and the closer goes on a line of its own at the depth of the line. The items follow the rules again at their own depth.
+- Otherwise, it breaks after its opener. Each item goes on a line of its own 4 spaces deeper than the line, or than the `|>` of a pipe operator's line, followed by a comma, and the closer goes on a line of its own at the depth of the line. The items follow the rules again at their own depth.
 - So a comma after the last item keeps a list broken, and removing the comma lets a list that fits collapse onto one line. A list that the width breaks takes the comma, so it stays broken when it is formatted again.
 - A clause of a call, such as `ORDER BY` in a mark call, goes on a line of its own after the arguments, without a comma.
 
 ```sql
 |> AGGREGATE mark_bar(x => species, y => count(*))
 |> AGGREGATE mark_bar(
-     x => species,
-     y => count(*),
+    x => species,
+    y => count(*),
    )
 ```
 
-- A window's specification, `OVER (...)`, stays on one line when it fits, and otherwise puts each of its clauses on a line of its own, two spaces deeper.
+- A window's specification, `OVER (...)`, stays on one line when it fits, and otherwise puts each of its clauses on a line of its own, 4 spaces deeper.
 
 ## Expressions
 
 - Spaces inside a line are normalized: one space around binary operators, `=>`, and keywords, and after a comma. No space follows an opener, and none comes before a closer or a comma. A call's name, a path, and a type's angle brackets have no spaces inside.
-- A chain of binary operators, such as `AND`, `||`, or arithmetic, breaks before its operators of the lowest precedence when it does not fit. Each of those operators starts a line at the depth of the chain's line plus 2. An operand that still does not fit breaks by its own operators or by the rule of lists.
+- A chain of binary operators, such as `AND`, `||`, or arithmetic, breaks before its operators of the lowest precedence when it does not fit. Each of those operators starts a line 4 spaces deeper than the chain's line, or than the `|>` of a pipe operator's line. An operand that still does not fit breaks by its own operators or by the rule of lists.
 
   ```sql
   |> WHERE species = chosen
-       AND body_mass_g IS NOT NULL
-       AND flipper_length_mm > 200
+      AND body_mass_g IS NOT NULL
+      AND flipper_length_mm > 200
   ```
 
-- A `CASE` stays on one line when it fits, and otherwise puts each `WHEN` and the `ELSE` on a line of its own, two spaces deeper, and `END` back at the depth of its line.
+- A `CASE` stays on one line when it fits, and otherwise puts each `WHEN` and the `ELSE` on a line of its own, 4 spaces deeper, and `END` back at the depth of its line.
 - A string, a quoted name, or a number stays as written, even when it is longer than the width.
 
 ## Case
@@ -105,10 +113,10 @@ The width and a comma after the last item decide the layout of a call, an array,
 
 ```sql
 |> AGGREGATE mark_bar(
-     -- the x column
-     x => species,
-     -- the aggregation
-     y => count(*),
+    -- the x column
+    x => species,
+    -- the aggregation
+    y => count(*),
    )
 ```
 

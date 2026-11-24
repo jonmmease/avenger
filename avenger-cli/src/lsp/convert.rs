@@ -43,14 +43,14 @@ impl<'a> LineIndex<'a> {
         }
     }
 
-    /// The length of the spaces and tabs at the start of the line `line`, which are one unit each
-    /// in every encoding.
-    pub fn indent(&self, line: u32) -> usize {
+    /// The spaces and tabs at the start of the line `line`, which are one unit each in every
+    /// encoding.
+    pub fn indent(&self, line: u32) -> &'a str {
         let Some(&start) = self.starts.get(line as usize) else {
-            return 0;
+            return "";
         };
         let rest = &self.text[start..];
-        rest.len() - rest.trim_start_matches([' ', '\t']).len()
+        &rest[..rest.len() - rest.trim_start_matches([' ', '\t']).len()]
     }
 
     /// The position of the byte offset `offset`, which is at a character boundary or past the
@@ -140,8 +140,8 @@ impl<'a> Place<'a> {
         )
     }
 
-    /// The length of the spaces and tabs at the start of the line `line` of the client's file.
-    pub fn line_indent(&self, line: u32) -> usize {
+    /// The spaces and tabs at the start of the line `line` of the client's file.
+    pub fn line_indent(&self, line: u32) -> &'a str {
         self.index.indent(line)
     }
 

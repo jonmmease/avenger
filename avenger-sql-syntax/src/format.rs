@@ -17,11 +17,13 @@
 
 use std::collections::HashMap;
 
-use crate::layout::{list_of, Doc, Item, INDENT, PIPE};
+use crate::layout::{list_of, Doc, Item, INDENT, PIPE, PIPE_STEP};
 use crate::parser::binary_level;
 use crate::{
     parse_role, Offset, Role, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
 };
+
+use std::cell::Cell;
 
 use SyntaxKind as K;
 
@@ -34,6 +36,7 @@ pub fn format(text: &str, role: Role) -> String {
     let formatter = Formatter {
         comments: Comments::new(&root),
         errors: parse.diagnostics().iter().map(|d| d.range).collect(),
+        top: Cell::new(false),
     };
     let mut out = formatter.script(&root).render(0);
     if text.ends_with('\n') && !out.is_empty() && !out.ends_with('\n') {
@@ -305,9 +308,31 @@ impl Row {
 struct Formatter {
     comments: Comments,
     errors: Vec<TextRange>,
+    /// Whether the parts in the making are at the top of a pipe operator's body, on the
+    /// operator's line, where a part that breaks goes [`PIPE_STEP`] deeper than the keyword, and
+    /// so [`INDENT`] deeper than the `|>`.
+    top: Cell<bool>,
 }
 
 impl Formatter {
+    /// The columns that a part that breaks goes deeper than its line: [`PIPE_STEP`] at the top of
+    /// a pipe operator's body, and [`INDENT`] elsewhere.
+    fn step(&self) -> usize {
+        match self.top.get() {
+            true => PIPE_STEP,
+            false => INDENT,
+        }
+    }
+
+    /// The doc that `build` makes, with the parts inside a nest, off the top of a pipe operator's
+    /// body.
+    fn nested<T>(&self, build: impl FnOnce() -> T) -> T {
+        let top = self.top.replace(false);
+        let built = build();
+        self.top.set(top);
+        built
+    }
+
     /// The text of `token` in the style: a keyword in upper case, the name of a function in lower
     /// case, and any other token as written.
     fn text(&self, token: &SyntaxToken) -> String {
@@ -574,8 +599,8 @@ impl Formatter {
         Doc::Concat(docs)
     }
 
-    /// A pipe operator: `|>`, then the operator, whose lines that break start at the depth of its
-    /// keyword.
+    /// A pipe operator: `|>`, then the operator, whose clauses and closers start at the depth of
+    /// its keyword, and whose parts that break, [`INDENT`] deeper than the `|>`.
     fn pipe(&self, operator: &SyntaxElement) -> Doc {
         let SyntaxElement::Node(node) = operator else {
             return self.element(operator);
@@ -584,6 +609,7 @@ impl Formatter {
         let Some((pipe, rest)) = children.split_first() else {
             return self.row(&children);
         };
+        let top = self.top.replace(true);
         let body = match node.kind() {
             K::PIPE_SELECT
             | K::PIPE_EXTEND
@@ -595,13 +621,14 @@ impl Formatter {
             | K::PIPE_SET_OPERATION => self.keyword_list(rest),
             _ => self.row(rest),
         };
+        self.top.set(top);
         Doc::concat([self.element(pipe), Doc::text(" "), Doc::nest(PIPE, body)])
     }
 
     /// A keyword and its list of items, then its clauses, such as a pipe `AGGREGATE` and its
     /// `GROUP BY`: on one line when it fits, and otherwise with each clause on a line of its own
     /// at the depth of the keyword, and then, when the items still do not fit, each item on a
-    /// line of its own, two spaces deeper, followed by a comma. A sole item stays on the line of
+    /// line of its own, [`INDENT`] deeper than the `|>`, followed by a comma. A sole item stays on the line of
     /// the keyword and breaks inside itself.
     fn keyword_list(&self, children: &[SyntaxElement]) -> Doc {
         let is_head = |element: &SyntaxElement| match element {
@@ -620,12 +647,19 @@ impl Formatter {
             .position(is_clause)
             .unwrap_or(children.len())
             .max(start);
+        // A sole item stays on the keyword's line, at the top of the operator's body, and the
+        // items of a list go inside its nest.
+        let step = self.step();
         let (items, trailing) = self.items(&children[start..end]);
-        let mut docs = vec![self.row(&children[..start])];
         let sole = items.len() == 1
             && !trailing
             && !self.commented(&children[start])
             && items[0].after_comma.is_none();
+        let (items, trailing) = match sole {
+            true => (items, trailing),
+            false => self.nested(|| self.items(&children[start..end])),
+        };
+        let mut docs = vec![self.row(&children[..start])];
         if sole {
             docs.extend([Doc::text(" "), items.into_iter().next().unwrap().doc]);
         } else if !items.is_empty() {
@@ -643,7 +677,7 @@ impl Formatter {
                 });
                 inner.extend(item.after_comma);
             }
-            let list = Doc::group(Doc::nest(INDENT, Doc::Concat(inner)));
+            let list = Doc::group(Doc::nest(step, Doc::Concat(inner)));
             docs.push(match trailing {
                 true => list.broken(),
                 false => list,
@@ -703,13 +737,15 @@ impl Formatter {
         if close < open {
             return self.row(&children);
         }
-        let (items, trailing) = self.items(&children[open + 1..close]);
+        let step = self.step();
+        let (items, trailing) = self.nested(|| self.items(&children[open + 1..close]));
         let list = self.list(
             &children[open],
             items,
             Vec::new(),
             &children[close],
             trailing,
+            step,
         );
         self.around(
             &children[..open],
@@ -755,6 +791,7 @@ impl Formatter {
         clauses: Vec<Doc>,
         close: &SyntaxElement,
         trailing: bool,
+        step: usize,
     ) -> Doc {
         let (tail, close) = match close {
             SyntaxElement::Token(token) => {
@@ -779,7 +816,7 @@ impl Formatter {
             }
             SyntaxElement::Node(_) => (None, self.element(close)),
         };
-        let list = list_of(self.element(open), items, clauses, tail, close);
+        let list = list_of(self.element(open), items, clauses, tail, close, step);
         match trailing {
             true => list.broken(),
             false => list,
@@ -804,32 +841,39 @@ impl Formatter {
             Some(first) if first.kind() == K::DISTINCT_KW => (Some(first), &inner[1..end]),
             _ => (None, &inner[..end]),
         };
-        let (mut items, trailing) = self.items(arguments);
-        if let (Some(distinct), Some(first)) = (distinct, items.first_mut()) {
-            let doc = std::mem::replace(&mut first.doc, Doc::text(""));
-            first.doc = Doc::concat([self.element(distinct), Doc::text(" "), doc]);
-        }
-        let clauses = inner[end..].iter().map(|c| self.element(c)).collect();
-        self.list(open, items, clauses, close, trailing)
+        let step = self.step();
+        let (items, trailing, clauses) = self.nested(|| {
+            let (mut items, trailing) = self.items(arguments);
+            if let (Some(distinct), Some(first)) = (distinct, items.first_mut()) {
+                let doc = std::mem::replace(&mut first.doc, Doc::text(""));
+                first.doc = Doc::concat([self.element(distinct), Doc::text(" "), doc]);
+            }
+            let clauses: Vec<Doc> = inner[end..].iter().map(|c| self.element(c)).collect();
+            (items, trailing, clauses)
+        });
+        self.list(open, items, clauses, close, trailing, step)
     }
 
     /// A query in parentheses: on one line when it fits and has no pipe operators, and otherwise
-    /// with the query two spaces deeper than the line that opens it.
+    /// with the query [`INDENT`] deeper than the line that opens it, or than the `|>` of a pipe
+    /// operator's line.
     fn parenthesized(&self, node: &SyntaxNode) -> Doc {
         let children = solid_children(node);
         let [open, query, close] = children.as_slice() else {
             return self.row(&children);
         };
+        let step = self.step();
+        let query = self.nested(|| self.element(query));
         Doc::group(Doc::concat([
             self.element(open),
-            Doc::nest(INDENT, Doc::concat([Doc::SoftLine, self.element(query)])),
+            Doc::nest(step, Doc::concat([Doc::SoftLine, query])),
             Doc::SoftLine,
             self.element(close),
         ]))
     }
 
     /// A chain of binary operators of one precedence: on one line when it fits, and otherwise
-    /// with each operator at the start of a line, two spaces deeper than the line of the chain.
+    /// with each operator at the start of a line, [`INDENT`] deeper than the line of the chain.
     fn binary(&self, node: &SyntaxNode) -> Doc {
         let mut operands: Vec<SyntaxElement> = Vec::new();
         let mut operators: Vec<Vec<SyntaxElement>> = Vec::new();
@@ -837,20 +881,23 @@ impl Formatter {
         let Some((first, rest)) = operands.split_first() else {
             return self.row(&solid_children(node));
         };
-        let mut docs = Vec::new();
-        for (operator, operand) in operators.iter().zip(rest) {
-            let operator: Vec<Doc> = operator.iter().map(|op| self.element(op)).collect();
-            docs.extend([
-                Doc::Line,
-                Doc::Concat(operator),
-                Doc::text(" "),
-                self.element(operand),
-            ]);
-        }
-        Doc::group(Doc::concat([
-            self.element(first),
-            Doc::nest(INDENT, Doc::Concat(docs)),
-        ]))
+        // The first operand stays on the chain's line, and the others go inside its nest.
+        let step = self.step();
+        let first = self.element(first);
+        let docs = self.nested(|| {
+            let mut docs = Vec::new();
+            for (operator, operand) in operators.iter().zip(rest) {
+                let operator: Vec<Doc> = operator.iter().map(|op| self.element(op)).collect();
+                docs.extend([
+                    Doc::Line,
+                    Doc::Concat(operator),
+                    Doc::text(" "),
+                    self.element(operand),
+                ]);
+            }
+            docs
+        });
+        Doc::group(Doc::concat([first, Doc::nest(step, Doc::Concat(docs))]))
     }
 
     /// The operands and operators of the chain of `node`, flattened through its left operands of
@@ -890,7 +937,7 @@ impl Formatter {
     }
 
     /// `CASE`: on one line when it fits, and otherwise with each `WHEN` and the `ELSE` on a line
-    /// of its own, two spaces deeper, and `END` back at the depth of the line of `CASE`.
+    /// of its own, [`INDENT`] deeper, and `END` back at the depth of the line of `CASE`.
     fn case(&self, node: &SyntaxNode) -> Doc {
         let children = solid_children(node);
         let start = (children.iter())
@@ -902,20 +949,25 @@ impl Formatter {
         let Some(end) = end else {
             return self.row(&children);
         };
-        let mut inner = Vec::new();
-        for clause in &children[start..end] {
-            inner.extend([Doc::Line, self.element(clause)]);
-        }
+        let step = self.step();
+        let head = self.row(&children[..start]);
+        let inner = self.nested(|| {
+            let mut inner = Vec::new();
+            for clause in &children[start..end] {
+                inner.extend([Doc::Line, self.element(clause)]);
+            }
+            inner
+        });
         Doc::group(Doc::concat([
-            self.row(&children[..start]),
-            Doc::nest(INDENT, Doc::Concat(inner)),
+            head,
+            Doc::nest(step, Doc::Concat(inner)),
             Doc::Line,
             self.row(&children[end..]),
         ]))
     }
 
     /// A window's specification: on one line when it fits, and otherwise with each clause on a
-    /// line of its own, two spaces deeper.
+    /// line of its own, [`INDENT`] deeper.
     fn window(&self, node: &SyntaxNode) -> Doc {
         let children = solid_children(node);
         self.clauses(&children)
@@ -943,7 +995,7 @@ impl Formatter {
     }
 
     /// Clauses in parentheses, from `(` to `)`: on one line when they fit, and otherwise with
-    /// each clause on a line of its own, two spaces deeper, and `)` back at the depth of the
+    /// each clause on a line of its own, [`INDENT`] deeper, and `)` back at the depth of the
     /// line. `None` for elements without the parentheses.
     fn clauses(&self, children: &[SyntaxElement]) -> Option<Doc> {
         let (open, rest) = children.split_first()?;
@@ -951,17 +1003,21 @@ impl Formatter {
         if open.kind() != K::L_PAREN || close.kind() != K::R_PAREN {
             return None;
         }
-        let mut inner = Vec::new();
-        for (index, clause) in clauses.iter().enumerate() {
-            inner.push(match index {
-                0 => Doc::SoftLine,
-                _ => Doc::Line,
-            });
-            inner.push(self.element(clause));
-        }
+        let step = self.step();
+        let inner = self.nested(|| {
+            let mut inner = Vec::new();
+            for (index, clause) in clauses.iter().enumerate() {
+                inner.push(match index {
+                    0 => Doc::SoftLine,
+                    _ => Doc::Line,
+                });
+                inner.push(self.element(clause));
+            }
+            inner
+        });
         Some(Doc::group(Doc::concat([
             self.element(open),
-            Doc::nest(INDENT, Doc::Concat(inner)),
+            Doc::nest(step, Doc::Concat(inner)),
             Doc::SoftLine,
             self.element(close),
         ])))

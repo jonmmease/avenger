@@ -104,20 +104,38 @@ fn a_new_line_takes_the_depth_of_what_most_likely_comes_next() {
     assert_eq!(after("FROM t"), 0);
     assert_eq!(after("FROM t\n|> WHERE a > 0"), 0);
     // An item, after a comma, after a keyword that starts a list, and after an opener.
-    assert_eq!(after("FROM t\n|> AGGREGATE count(*) AS n,"), 5);
-    assert_eq!(after("FROM t\n|> AGGREGATE"), 5);
-    assert_eq!(after("FROM t\n|> AGGREGATE mark_bar("), 5);
-    assert_eq!(after("FROM t\n|> AGGREGATE mark_bar(\n     x => x("), 7);
+    assert_eq!(after("FROM t\n|> AGGREGATE count(*) AS n,"), 4);
+    assert_eq!(after("FROM t\n|> AGGREGATE"), 4);
+    assert_eq!(after("FROM t\n|> AGGREGATE mark_bar("), 4);
+    assert_eq!(after("FROM t\n|> AGGREGATE mark_bar(\n    x => x("), 8);
     assert_eq!(
-        after("FROM t\n|> AGGREGATE mark_bar(\n     x => species,"),
-        5
+        after("FROM t\n|> AGGREGATE mark_bar(\n    x => species,"),
+        4
     );
+    // The items of an operator's clause, 4 deeper than the `|>`.
+    assert_eq!(after("FROM t\n|> AGGREGATE count(*) AS n\n   GROUP BY"), 4);
+    assert_eq!(
+        after("FROM t\n|> AGGREGATE count(*) AS n\n   GROUP BY a,"),
+        4
+    );
+    // A bracket that opens after a closer on its line, as the bracket's line opens it.
+    assert_eq!(
+        after("FROM t\n|> SELECT * EXCEPT (\n    a\n   ) REPLACE("),
+        4
+    );
+    // After a binary operator that ends its line, the chain continues, but not after a star.
+    assert_eq!(after("FROM t\n|> WHERE x AND"), 4);
+    assert_eq!(after("FROM t\n|> WHERE x\n    AND y OR"), 4);
+    assert_eq!(after("FROM t\n|> AGGREGATE\n    a ||"), 8);
+    assert_eq!(after("FROM t\n|> EXTEND a *"), 4);
+    assert_eq!(after("FROM t\n|> SELECT *"), 0);
+    assert_eq!(after("FROM t\n|> SELECT t.*"), 0);
     // A query in parentheses.
-    assert_eq!(after("FROM t\n|> JOIN ("), 5);
-    assert_eq!(after("FROM t\n|> JOIN (\n     FROM u"), 5);
+    assert_eq!(after("FROM t\n|> JOIN ("), 4);
+    assert_eq!(after("FROM t\n|> JOIN (\n    FROM u"), 4);
     // A blank line before a closer takes the depth of the items, not of the closer.
-    let text = "FROM t\n|> AGGREGATE mark_bar(\n     angle => 23,\n\n   )";
-    assert_eq!(depth(text, text.find("\n\n").unwrap() + 1), Some(5));
+    let text = "FROM t\n|> AGGREGATE mark_bar(\n    angle => 23,\n\n   )";
+    assert_eq!(depth(text, text.find("\n\n").unwrap() + 1), Some(4));
     // A new statement.
     assert_eq!(after("FROM t;"), 0);
     assert_eq!(after(""), 0);
@@ -132,18 +150,18 @@ fn a_new_line_of_a_data_script_takes_the_depth_of_its_statement_or_its_list() {
         0
     );
     // An option, a column, and the query of a view or a table.
-    assert_eq!(after("CREATE EXTERNAL TABLE t\nOPTIONS ("), 2);
+    assert_eq!(after("CREATE EXTERNAL TABLE t\nOPTIONS ("), 4);
     assert_eq!(
-        after("CREATE EXTERNAL TABLE t\nOPTIONS (\n  format = 'CSV',"),
-        2
+        after("CREATE EXTERNAL TABLE t\nOPTIONS (\n    format = 'CSV',"),
+        4
     );
-    assert_eq!(after("LOAD DATA INTO t\nFROM FILES ("), 2);
-    assert_eq!(after("CREATE TEMP EXTERNAL TABLE t ("), 2);
-    assert_eq!(after("CREATE VIEW v AS ("), 2);
-    assert_eq!(after("CREATE TABLE t AS (\n  FROM u"), 2);
+    assert_eq!(after("LOAD DATA INTO t\nFROM FILES ("), 4);
+    assert_eq!(after("CREATE TEMP EXTERNAL TABLE t ("), 4);
+    assert_eq!(after("CREATE VIEW v AS ("), 4);
+    assert_eq!(after("CREATE TABLE t AS (\n    FROM u"), 4);
     // The closer of a list, and a new statement.
     assert_eq!(
-        last("CREATE EXTERNAL TABLE t\nOPTIONS (\n  format = 'CSV',\n)"),
+        last("CREATE EXTERNAL TABLE t\nOPTIONS (\n    format = 'CSV',\n)"),
         0
     );
     assert_eq!(after("CREATE SCHEMA s;"), 0);
@@ -157,19 +175,23 @@ fn last(text: &str) -> usize {
 #[test]
 fn the_first_token_of_a_line_decides_its_depth() {
     assert_eq!(
-        last("FROM t\n|> AGGREGATE mark_bar(\n     x => species,\n)"),
+        last("FROM t\n|> AGGREGATE mark_bar(\n    x => species,\n)"),
         3
     );
     assert_eq!(
         last("FROM t\n|> AGGREGATE mark_bar(x => species) AS chart\nGROUP BY island"),
         3
     );
-    assert_eq!(last("FROM t\n|> WHERE a > 0\nAND b > 0"), 5);
-    assert_eq!(last("FROM t\n|> JOIN (\n     FROM u\n|> WHERE b"), 5);
+    assert_eq!(last("FROM t\n|> WHERE a > 0\nAND b > 0"), 4);
+    assert_eq!(last("FROM t\n|> JOIN (\n    FROM u\n|> WHERE b"), 4);
     assert_eq!(
-        last("FROM t\n|> EXTEND CASE\n     WHEN a THEN b\nEND AS c"),
+        last("FROM t\n|> EXTEND CASE\n    WHEN a THEN b\nEND AS c"),
         3
     );
+    // `WHEN` under a pipe operator's line, 4 deeper than its `|>`.
+    assert_eq!(last("FROM t\n|> EXTEND CASE\nWHEN a THEN b"), 4);
+    // A chain that continues after a closer continues the line of the closer's bracket.
+    assert_eq!(last("FROM t\n|> WHERE x IN (\n    FROM u\n   )\nAND b"), 4);
     // Inside a string, the line keeps its text.
     assert_eq!(depth("FROM t |> SELECT '''\n  x'''", 21), None);
 }

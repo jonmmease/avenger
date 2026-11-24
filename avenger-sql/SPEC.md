@@ -85,15 +85,15 @@ Every comma-separated list takes a comma after its last item, whether GoogleSQL 
 ```sql
 FROM penguins
 |> WHERE species IN (
-     'Adelie',
-     'Gentoo',
+    'Adelie',
+    'Gentoo',
    )
 |> AGGREGATE
-     count(*) AS n,
-     avg(body_mass_g) AS mass,
+    count(*) AS n,
+    avg(body_mass_g) AS mass,
    GROUP BY
-     species,
-     island,
+    species,
+    island,
 ```
 
 There are two exceptions:
@@ -118,9 +118,9 @@ FROM penguins
 ```sql
 FROM penguins
 |> AGGREGATE mark_symbol(
-     x => x(body_mass_g, axis => axis(grid => FALSE)),
-     y => y(avg(flipper_length_mm), title => 'Flipper length (mm)'),
-     color => color(datum('Adelie'), legend => FALSE),
+    x => x(body_mass_g, axis => axis(grid => FALSE)),
+    y => y(avg(flipper_length_mm), title => 'Flipper length (mm)'),
+    color => color(datum('Adelie'), legend => FALSE),
    ) AS chart
    GROUP BY species
 ```
@@ -130,8 +130,8 @@ FROM penguins
 ```sql
 FROM penguins
 |> AGGREGATE mark_symbol(
-     x => x(body_mass_g, axis => axis(labels => "%'.0f g")),
-     y => y(bill_length_mm, axis => labels(format => '%.1f')),
+    x => x(body_mass_g, axis => axis(labels => "%'.0f g")),
+    y => y(bill_length_mm, axis => labels(format => '%.1f')),
    ) AS chart
 ```
 
@@ -175,35 +175,35 @@ A value always wraps in its constructor: where `foo => v` is valid, `foo => foo(
 ```sql
 FROM penguins
 |> AGGREGATE mark_symbol(
-     x => x(bill_length_mm, axis => title('Bill length (mm)')),
-     y => y(body_mass_g, scale => 'log', axis => axis(grid => FALSE)),
-     title => title('Penguins', subtitle => 'Palmer Archipelago'),
+    x => x(bill_length_mm, axis => title('Bill length (mm)')),
+    y => y(body_mass_g, scale => 'log', axis => axis(grid => FALSE)),
+    title => title('Penguins', subtitle => 'Palmer Archipelago'),
    ) AS chart
 ```
 
 ## Layout
 
-Every example follows the style of [STYLE.md](STYLE.md), which avenger-sql-syntax's formatter writes. A call that fits in 100 columns stays on one line. A call that doesn't fit breaks after its `(`, with one argument on each line, two spaces deeper than the depth of the line on which the call starts, followed by a comma, and its `)` on its own line at that depth. A pipe operator's line has the depth of its keyword, column 3 after `|> `, so the arguments of a mark in `|> AGGREGATE` start at column 5, and its `)` lines up with `AGGREGATE`. A comma after the last argument keeps a call broken.
+Every example follows the style of [STYLE.md](STYLE.md), which avenger-sql-syntax's formatter writes. A call that fits in 100 columns stays on one line. A call that doesn't fit breaks after its `(`, with one argument on each line, 4 spaces deeper than the line on which the call starts, followed by a comma, and its `)` on its own line at that line's depth. A pipe operator's line has the depth of its keyword, column 3 after `|> `, and the arguments of a call that it opens are 4 spaces deeper than its `|>`, so the arguments of a mark in `|> AGGREGATE` start at column 4, and its `)` lines up with `AGGREGATE`. A comma after the last argument keeps a call broken.
 
 ```sql
 FROM penguins
 |> AGGREGATE mark_symbol(
-     x => x(
-       bill_length_mm,
-       title => 'Bill length (mm)',
-       axis => axis(labels => labels(angle => -45), grid => FALSE),
-     ),
-     y => y(
-       body_mass_g,
-       scale => scale(type => log(base => 2), pin => pin(1000, position => 'low')),
-     ),
-     color => color(
-       species,
-       scale => scale(range => 'tableau10'),
-       legend => legend(orient => 'bottom', columns => 2),
-     ),
-     stroke => 'black',
-     tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)],
+    x => x(
+        bill_length_mm,
+        title => 'Bill length (mm)',
+        axis => axis(labels => labels(angle => -45), grid => FALSE),
+    ),
+    y => y(
+        body_mass_g,
+        scale => scale(type => log(base => 2), pin => pin(1000, position => 'low')),
+    ),
+    color => color(
+        species,
+        scale => scale(range => 'tableau10'),
+        legend => legend(orient => 'bottom', columns => 2),
+    ),
+    stroke => 'black',
+    tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)],
    ) AS chart
    GROUP BY island
 ```
@@ -221,11 +221,11 @@ FROM penguins
 ```sql
 FROM prices
 |> MATCH_RECOGNIZE(
-     PARTITION BY symbol
-     ORDER BY day
-     MEASURES first(day) AS start_day, last(up.price) AS high
-     PATTERN (dn+ up+)
-     DEFINE dn AS price < prev(price), up AS price > prev(price)
+    PARTITION BY symbol
+    ORDER BY day
+    MEASURES first(day) AS start_day, last(up.price) AS high
+    PATTERN (dn+ up+)
+    DEFINE dn AS price < prev(price), up AS price > prev(price)
    )
 ```
 
