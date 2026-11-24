@@ -12,9 +12,11 @@ use eframe::{egui, egui_wgpu::RenderState};
 
 use crate::charts::Images;
 use crate::exec::Exec;
-use crate::live::LiveChart;
+use crate::live::{LiveChart, OnChange};
 use crate::paged::{PagedTable, RowSource};
+use crate::state::ChartState;
 use crate::table::{CellKey, CellScene, Cells, Env, Grid, LiveCells};
+use avenger_chart_app::ChartChange;
 
 /// What the charts of a view share with their host: the GPU, the runtime of their evaluations and
 /// their apps, the cascade and the reader's preferences, the label engine, and the images.
@@ -50,6 +52,8 @@ pub struct ResultView {
     /// Whether the chart cells of the table run their charts' apps, so that they pan, zoom, and
     /// show tooltips, one cell at a time.
     pub interactive: bool,
+    /// The host's callback of the changes of the chart that fills the view.
+    on_change: Option<OnChange>,
 }
 
 impl Default for ResultView {
@@ -64,6 +68,7 @@ impl Default for ResultView {
             live_cells: LiveCells::default(),
             scenes: channel(),
             interactive: false,
+            on_change: None,
         }
     }
 }
@@ -71,6 +76,24 @@ impl Default for ResultView {
 impl ResultView {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Has `on_change` hear the changes of the gestures of the chart that fills the view, a result
+    /// of one chart, from its next build, as a host that shows the chart's state apart needs.
+    pub fn set_on_change(&mut self, on_change: impl Fn(&ChartChange) + Send + Sync + 'static) {
+        self.on_change = Some(Arc::new(on_change));
+    }
+
+    /// The state of the chart that fills the view, once it builds: its selections, widgets,
+    /// scales' domains, and modes, as text.
+    pub fn chart_state(&self) -> Option<ChartState> {
+        let (_, result) = self.result.as_ref()?;
+        let chart = self
+            .pane
+            .chart
+            .as_ref()
+            .filter(|_| result.shape() == Shape::Chart)?;
+        Some(chart.state())
     }
 
     /// The result that the view shows.
@@ -176,9 +199,15 @@ impl ResultView {
         if result.shape() == Shape::Chart {
             let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
             let chart = result.chart(0, 0).expect("a single chart");
-            return self
-                .pane
-                .show(ui, rect, chart, egui::Id::new(("live chart", id)), &env);
+            let on_change = self.on_change.clone();
+            return (self.pane).show(
+                ui,
+                rect,
+                chart,
+                egui::Id::new(("live chart", id)),
+                &env,
+                on_change,
+            );
         }
         if let Some((key, pane)) = &mut self.opened {
             let key = *key;
@@ -194,7 +223,7 @@ impl ResultView {
             let mut error = None;
             if let Some(chart) = result.chart(key.0, key.1) {
                 let chart_id = egui::Id::new(("opened chart", id, key));
-                error = pane.show(ui, rect, chart, chart_id, &env);
+                error = pane.show(ui, rect, chart, chart_id, &env, None);
             }
             // Escape goes back unless it is the chart's: the chart hears keys while it has the
             // focus or the pointer.
@@ -246,6 +275,7 @@ impl Pane {
         chart: &Chart,
         id: egui::Id,
         env: &Env<'_>,
+        on_change: Option<OnChange>,
     ) -> Option<String> {
         let mut error = None;
         if self.chart.is_none() && !self.failed {
@@ -261,6 +291,7 @@ impl Pane {
                 env.runtime,
                 ui.ctx(),
                 env.state,
+                on_change,
             );
             match built {
                 Ok(chart) => self.chart = Some(chart),

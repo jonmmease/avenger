@@ -1182,6 +1182,7 @@ dependencies = [
  "avenger-eventstream",
  "avenger-image",
  "avenger-scenegraph",
+ "avenger-selection",
  "avenger-sql",
  "avenger-sql-project",
  "avenger-style",

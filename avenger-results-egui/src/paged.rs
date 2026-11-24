@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
-use avenger_chart::results::{is_chart_field, QueryResult};
+use avenger_chart::results::QueryResult;
 use avenger_sql::types::googlesql_name;
 use eframe::egui;
 use egui_table::{CellInfo, Column, HeaderCellInfo, HeaderRow, PrefetchInfo, Table, TableDelegate};
@@ -199,14 +199,8 @@ impl PagedTable {
             }
         }
         if read {
-            // A chart that doesn't decode ends the table's reading with its error.
-            match QueryResult::new(self.schema.clone(), self.batches.clone()) {
-                Ok(rows) => self.rows = rows,
-                Err(error) => {
-                    self.error = Some(error.to_string());
-                    self.end = Some(Err(error.to_string()));
-                }
-            }
+            self.rows = QueryResult::new(self.schema.clone(), self.batches.clone())
+                .expect("a result of rows without charts");
         }
     }
 
@@ -284,11 +278,6 @@ impl TableDelegate for Grid<'_> {
         let (row, column) = (cell.row_nr as usize, cell.col_nr);
         stripe(ui, row);
         match row < self.table.loaded() {
-            // A column of charts, as a stage after a mark has, shows `<chart>` for each chart.
-            true if is_chart_field(&self.table.schema.fields()[column]) => {
-                let chart = self.table.rows.chart(row, column).map(|_| "<chart>");
-                text_ui(ui, chart);
-            }
             true => text_ui(ui, self.table.rows.value_text(row, column).as_deref()),
             // A row that the reader hasn't read yet.
             false => {

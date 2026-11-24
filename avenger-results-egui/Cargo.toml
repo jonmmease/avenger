@@ -16,6 +16,7 @@ avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-selection = { path = "../avenger-selection" }
 avenger-sql = { path = "../avenger-sql" }
 avenger-sql-project = { path = "../avenger-sql-project" }
 avenger-style = { path = "../avenger-style" }

@@ -119,6 +119,17 @@ struct Prepared {
     warnings: Vec<EvalWarning>,
 }
 
+/// A scale of a chart as an evaluation draws it: its identity, its kind of fit, which says whether
+/// its domain is an interval or categories, the scale, and the plots whose layers it scales.
+#[derive(Clone, Debug)]
+pub struct EvaluatedScale {
+    pub identity: ScaleIdentity,
+    pub kind: FitKind,
+    pub scale: ConfiguredScale,
+    /// The indices of the plots whose layers go through the scale, in tree order.
+    pub plots: Vec<usize>,
+}
+
 /// A chart prepared for evaluation at any size: its resolved models, its style tree, its drawn rows
 /// and selection states, and what the computed styles of the last host inputs give.
 ///
@@ -1103,6 +1114,46 @@ impl ChartEvaluator {
         self.identities
             .get(self.plot_group(plot, channel)?)?
             .as_ref()
+    }
+
+    /// Each scale of the chart at the last evaluation, in the order of its scale groups, as it
+    /// draws: a position scale's view, when a pan or a zoom gave it one, or else its fit at the
+    /// size of its first plot, and another scale as the evaluation configured it. A scale without
+    /// an identity, or one that the evaluation did not reach, is left out.
+    pub fn scales(&self) -> Vec<EvaluatedScale> {
+        let Some(prepared) = self.prepared.as_ref() else {
+            return Vec::new();
+        };
+        let resolved = self.chart.resolve();
+        (resolved.scales.iter().enumerate())
+            .filter_map(|(group, spec)| {
+                let identity = self.identities.get(group)?.clone()?;
+                let mut plots: Vec<usize> = (spec.members.iter())
+                    .map(|member| resolved.tree.layers[member.layer].plot)
+                    .collect();
+                plots.sort_unstable();
+                plots.dedup();
+                let scale = match (prepared.positions.get(group)?, self.state.views.get(&group)) {
+                    (Some(_), Some(view)) => view.scale.clone(),
+                    // A position scale without a view fits the length of its first plot.
+                    (Some(position), None) => {
+                        let [width, height] = self.plot_size(*plots.first()?)?;
+                        let length = match spec.channel {
+                            Channel::Y => height,
+                            _ => width,
+                        };
+                        position.fitting.at((0.0, f64::from(length))).ok()?.scale
+                    }
+                    (None, _) => prepared.scales.get(group)?.clone()?,
+                };
+                Some(EvaluatedScale {
+                    identity,
+                    kind: self.kinds[group],
+                    scale,
+                    plots,
+                })
+            })
+            .collect()
     }
 
     /// The selection whose clauses give the domain of the scale of `channel` of the plot at index
