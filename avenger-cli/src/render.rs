@@ -350,7 +350,7 @@ impl Target {
 
     /// The lines of the file before the target's text: none for a script, and those of the
     /// document before its cell.
-    fn lines_before(&self) -> usize {
+    pub(crate) fn lines_before(&self) -> usize {
         match (&self.document, self.cell()) {
             (Some(document), Some(cell)) => document.text[..cell.range.start].matches('\n').count(),
             _ => 0,
@@ -358,7 +358,7 @@ impl Target {
     }
 
     /// The kind of the target's script.
-    fn script_kind(&self) -> Script {
+    pub(crate) fn script_kind(&self) -> Script {
         match self.data {
             true => Script::Data,
             false => Script::Chart,
@@ -425,6 +425,15 @@ impl Target {
     fn source(&self) -> &str {
         (self.analysis.project().document(&self.script))
             .map_or(self.text.as_str(), |document| document.text())
+    }
+
+    /// The text of the target's script, whose statements a statement's run runs: the script's,
+    /// or its cell's.
+    pub(crate) fn script_text(&self) -> String {
+        match self.cell() {
+            Some(cell) => cell.text.clone(),
+            None => self.source().to_string(),
+        }
     }
 
     /// The file on disk of the target, whose reports `check` places with `place`.
@@ -503,14 +512,39 @@ pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
             });
         }
     }
+    plan_chart(target, &target.path, &target.text).await
+}
+
+/// Checks `text`, a chart script that runs a part of the target's script, such as the rows that
+/// enter an operator of its query, and gives its frame, unrun, or the reports of its errors. The
+/// text keeps the offsets of the target's script, so its reports have their places in the file.
+pub(crate) async fn plan_text(target: &mut Target, text: &str) -> Result<DataFrame, Failure> {
+    let project = target.analysis.project_mut();
+    project.add(STATEMENT_PATH, FileRole::Chart, text);
+    plan_chart(target, STATEMENT_PATH, text).await
+}
+
+/// The variables of `text`, a chart script that runs a part of the target's script, and their
+/// values as its last query reads them, or the reports of an error of their run.
+pub(crate) async fn text_variables(
+    target: &Target,
+    text: &str,
+) -> Result<Vec<(String, datafusion::common::ScalarValue)>, Failure> {
+    (target.loader.chart_variables(STATEMENT_PATH, text).await)
+        .map_err(|error| target.failure(error))
+}
+
+/// Checks the chart script `text` at `path` of the target's analysis, as `check` does, and gives
+/// its frame, unrun, or the reports of its errors.
+async fn plan_chart(target: &Target, path: &str, text: &str) -> Result<DataFrame, Failure> {
     // The script's errors, as `check` reports them, keep it from running.
     let place = |offset| target.to_file(offset);
     let file = target.on_disk(&place);
-    let reports = check_text(analysis, loader, &target.path, &target.text, false, &file).await;
+    let reports = check_text(&target.analysis, &target.loader, path, text, false, &file).await;
     if (reports.iter()).any(|report| report.severity == Severity::Error) {
         return Err(Failure::Reports(reports));
     }
-    match target.loader.run_chart(&target.path, &target.text).await {
+    match target.loader.run_chart(path, text).await {
         Ok(frame) => Ok(frame),
         Err(ChartError::Run(error)) | Err(ChartError::Unloaded { error, .. }) => {
             Err(target.failure(error))
