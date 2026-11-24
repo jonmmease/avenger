@@ -227,6 +227,46 @@ fn a_document_of_two_color_schemes_draws_each_chart_in_both() {
 }
 
 #[test]
+fn a_transparent_png_keeps_the_colors_of_its_edges() {
+    use base64::Engine as _;
+    let (_directory, root) = project();
+    let document = root.join("report.qmd");
+    std::fs::write(&document, "").unwrap();
+    let text = "```{avenger-sql}\n#| fig-format: png\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n";
+    let mut both = request(&document, text);
+    both["colorSchemes"] = json!(["light", "dark"]);
+    let (status, response) = engine(&both);
+    if status != 0
+        && response["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("without a GPU")
+    {
+        eprintln!("no wgpu adapter, so no PNG: {response}");
+        return;
+    }
+    assert_eq!(status, 0, "{response}");
+    let dark = response["cells"][0]["outputs"][1]["data"]["image/png"]
+        .as_str()
+        .unwrap();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(dark)
+        .unwrap();
+    let image = image::load_from_memory(&bytes).unwrap().to_rgba8();
+    // The faint edges of the dark scheme's light text keep its light color, with straight alpha,
+    // as PNG stores it, and not its color times its alpha, which draws dark fringes.
+    let faint: Vec<u8> = (image.pixels())
+        .filter(|pixel| pixel[3] > 0 && pixel[3] < 64)
+        .map(|pixel| pixel[0])
+        .collect();
+    assert!(!faint.is_empty());
+    assert!(
+        faint.iter().filter(|&&red| red > 150).count() * 2 > faint.len(),
+        "{faint:?}"
+    );
+}
+
+#[test]
 fn a_request_of_another_protocol_names_the_side_to_update() {
     let directory = tempfile::tempdir().unwrap();
     let document = directory.path().join("alone.qmd");

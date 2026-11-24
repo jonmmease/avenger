@@ -86,21 +86,14 @@ const TOGGLE_FORMATS = new Set(["html", "html4", "html5", "dashboard"]);
 
 /**
  * The color schemes of the charts of a document whose `theme` is `theme`, in the output format
- * `to`. A theme of a light and a dark variant gives both, in the theme's order, in a format with
- * q2's toggle, and a theme of one variant gives its scheme. A theme's name, no theme, and the
- * formats without the toggle give light.
+ * `to`: light and dark, in that order, for a theme with a dark variant in a format with q2's
+ * toggle, since q2 adds its default light variant to a theme of a dark one alone. A theme's name,
+ * a theme of a light variant alone, no theme, and the formats without the toggle give light.
  */
 function colorSchemesFor(theme         , to        )                {
-  if (!TOGGLE_FORMATS.has(to.split(/[+-]/)[0])) {
-    return ["light"];
-  }
-  if (theme === null || typeof theme !== "object" || Array.isArray(theme)) {
-    return ["light"];
-  }
-  const schemes = Object.keys(theme).filter(
-    (key)                     => key === "light" || key === "dark",
-  );
-  return schemes.length > 0 ? schemes : ["light"];
+  const dark = TOGGLE_FORMATS.has(to.split(/[+-]/)[0]) &&
+    theme !== null && typeof theme === "object" && !Array.isArray(theme) && "dark" in theme;
+  return dark ? ["light", "dark"] : ["light"];
 }
 
 /** The options that only change how q2's core writes a cell, never what avenger computes. */

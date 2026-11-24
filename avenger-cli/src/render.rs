@@ -209,7 +209,7 @@ pub(crate) struct Renderer {
     engine: LabelEngine,
     /// The sheet of a transparent background, between the base stylesheet and the project's, when
     /// the options draw on one.
-    transparent: Option<Sheet>,
+    transparent: Sheet,
     extra: Option<Sheet>,
     images: ImageCache,
     runtime: tokio::runtime::Handle,
@@ -223,7 +223,7 @@ impl Renderer {
         };
         Ok(Renderer {
             engine: label_engine(),
-            transparent: options.transparent.then(transparent_sheet),
+            transparent: transparent_sheet(),
             extra,
             images: ImageCache::with_options(image_options()?),
             runtime: options.runtime.clone(),
@@ -726,9 +726,12 @@ pub(crate) async fn result_image(
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Image, Failure> {
-    let sheets = (renderer.transparent.iter())
-        .chain(&target.stylesheet.sheet)
-        .chain(&renderer.extra);
+    let sheets = (options
+        .transparent
+        .then_some(&renderer.transparent)
+        .into_iter())
+    .chain(&target.stylesheet.sheet)
+    .chain(&renderer.extra);
     let cascade = cascade(background(options.color_scheme), sheets);
     let single = (result.shape() == Shape::Chart)
         .then(|| result.chart(0, 0))

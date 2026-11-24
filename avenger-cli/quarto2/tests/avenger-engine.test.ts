@@ -63,7 +63,7 @@ test("the record holds each cell's outputs by its unit's id", async () => {
   assert.deepEqual(request.colorSchemes, ["light"]);
 });
 
-test("a theme of a dark and a light variant asks for both schemes, in its order", async () => {
+test("a theme of a dark and a light variant asks for light, then dark", async () => {
   const requested = join(mkdtempSync(join(tmpdir(), "avenger-")), "request.json");
   process.env.FAKE_REQUEST = requested;
   process.env.FAKE_STATUS = "0";
@@ -74,7 +74,7 @@ test("a theme of a dark and a light variant asks for both schemes, in its order"
     metadata: { theme: { dark: "darkly", light: "cosmo" } },
   };
   await execute(options("# Text", [unit("a", 5)], { format }));
-  assert.deepEqual(JSON.parse(readFileSync(requested, "utf8")).colorSchemes, ["dark", "light"]);
+  assert.deepEqual(JSON.parse(readFileSync(requested, "utf8")).colorSchemes, ["light", "dark"]);
 });
 
 test("a response of many chunks keeps its characters of several bytes", async () => {
@@ -137,10 +137,13 @@ test("a missing avenger names how to find it", async () => {
 
 test("a theme and an output format pick the color schemes of the charts", () => {
   const both = { light: ["cosmo", "theme.scss"], dark: "darkly" };
+  // Light, then dark, whatever the order of the theme's keys, which q2 doesn't keep.
   assert.deepEqual(colorSchemesFor(both, "html"), ["light", "dark"]);
-  assert.deepEqual(colorSchemesFor({ dark: "darkly", light: "cosmo" }, "html5"), ["dark", "light"]);
+  assert.deepEqual(colorSchemesFor({ dark: "darkly", light: "cosmo" }, "html5"), ["light", "dark"]);
   assert.deepEqual(colorSchemesFor(both, "dashboard"), ["light", "dark"]);
-  assert.deepEqual(colorSchemesFor({ dark: "darkly" }, "html"), ["dark"]);
+  // q2 adds its default light variant to a dark one alone, and toggles between them.
+  assert.deepEqual(colorSchemesFor({ dark: "darkly" }, "html"), ["light", "dark"]);
+  assert.deepEqual(colorSchemesFor({ light: "cosmo" }, "html"), ["light"]);
   // A theme's name says nothing of its scheme.
   assert.deepEqual(colorSchemesFor("darkly", "html"), ["light"]);
   assert.deepEqual(colorSchemesFor(undefined, "html"), ["light"]);
