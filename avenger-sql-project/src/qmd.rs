@@ -222,6 +222,8 @@ pub struct CellOptions {
     pub fig_format: Option<FigFormat>,
     /// `fig-dpi`, the dots per inch of a PNG image.
     pub fig_dpi: Option<f64>,
+    /// `error`: `true` shows the cell's error as its output, and `false` stops the render.
+    pub error: Option<bool>,
 }
 
 /// The format of a cell's image, as its `fig-format` names it.
@@ -558,9 +560,12 @@ fn options(text: &str) -> (CellOptions, Vec<OptionError>) {
                 YamlData::Value(Scalar::Null) => {}
                 _ => error("`label` is a name, as `label: fig-cars`".to_string()),
             },
-            "eval" => match &value.data {
-                YamlData::Value(Scalar::Boolean(eval)) => options.eval = Some(*eval),
-                _ => error("`eval` is `true` or `false`".to_string()),
+            "eval" | "error" => match &value.data {
+                YamlData::Value(Scalar::Boolean(value)) => match name {
+                    "eval" => options.eval = Some(*value),
+                    _ => options.error = Some(*value),
+                },
+                _ => error(format!("`{name}` is `true` or `false`")),
             },
             "fig-width" | "fig-height" | "fig-dpi" => {
                 let unit = match name {

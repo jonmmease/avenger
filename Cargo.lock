@@ -732,6 +732,7 @@ dependencies = [
  "avenger-svg",
  "avenger-typst-label",
  "avenger-wgpu",
+ "base64 0.22.1",
  "clap",
  "crossbeam-channel",
  "datafusion",

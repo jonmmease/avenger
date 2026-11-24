@@ -24,6 +24,7 @@ mod files;
 mod fmt;
 pub mod lsp;
 mod project;
+mod quarto2_engine;
 mod query;
 mod render;
 mod report;
@@ -189,6 +190,10 @@ enum Command {
         #[arg(long)]
         headless: bool,
     },
+    /// The cells of a Quarto 2 document for q2's avenger engine extension: one request on
+    /// standard input, one response on standard output, both JSON.
+    #[command(hide = true)]
+    Quarto2Engine,
     /// Render the chart of a chart script, or of a cell of a Quarto document, to PNG, SVG, or PDF
     /// by the extension of `-o`, as `avenger view` draws it. A result of several charts renders as
     /// a table.
@@ -308,6 +313,9 @@ pub fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         };
+    }
+    if let Command::Quarto2Engine = cli.command {
+        return quarto2_engine_main();
     }
     let output = Output::new(cli.json);
     // The futures of a loaded project are not `Send`, so they run on this thread.
@@ -429,7 +437,7 @@ pub fn main() -> ExitCode {
             runtime.block_on(query::run(source, &options, &output))
         }
         Command::Charts { project } => runtime.block_on(charts::run(project.as_deref(), &output)),
-        Command::Lsp | Command::View { .. } | Command::Dap { .. } => {
+        Command::Lsp | Command::View { .. } | Command::Dap { .. } | Command::Quarto2Engine => {
             unreachable!("these run above")
         }
     };
@@ -440,5 +448,16 @@ pub fn main() -> ExitCode {
             eprintln!("error: {error}");
             ExitCode::from(2)
         }
+    }
+}
+
+/// Answers the request of q2's avenger engine on standard input, on standard output, which
+/// carries the response alone: status 0 with the cells, and 1 with an error.
+fn quarto2_engine_main() -> ExitCode {
+    let (response, ok) = quarto2_engine::answer();
+    println!("{response}");
+    match ok {
+        true => ExitCode::SUCCESS,
+        false => ExitCode::from(1),
     }
 }

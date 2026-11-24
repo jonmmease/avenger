@@ -201,7 +201,7 @@ pub async fn run_all(
 
 /// What every chart of a run shares: the label engine, the extra stylesheet, the image cache, and the
 /// runtime that the chart apps prepare their charts on.
-struct Renderer {
+pub(crate) struct Renderer {
     engine: LabelEngine,
     extra: Option<Sheet>,
     images: ImageCache,
@@ -209,7 +209,7 @@ struct Renderer {
 }
 
 impl Renderer {
-    fn new(options: &Options) -> Result<Renderer, String> {
+    pub(crate) fn new(options: &Options) -> Result<Renderer, String> {
         let extra = match &options.style {
             Some(path) => Some(load_sheet(path)?),
             None => None,
@@ -671,18 +671,25 @@ async fn render_target(
     options: &Options,
     renderer: &Renderer,
 ) -> Result<(), Failure> {
-    let bytes = image(target, format, options, renderer).await?;
-    std::fs::write(out, bytes).map_err(|e| Failure::Usage(format!("{}: {e}", out.display())))
+    let image = image(target, format, options, renderer).await?;
+    std::fs::write(out, image.bytes).map_err(|e| Failure::Usage(format!("{}: {e}", out.display())))
+}
+
+/// An image of a target: its bytes, and its size in CSS pixels, which for a PNG is its size in
+/// pixels over its density.
+pub(crate) struct Image {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) size: [f32; 2],
 }
 
 /// Runs the target `target` and draws its result in the format `format`, one chart alone or a
-/// table of its rows, as the image's bytes.
-async fn image(
+/// table of its rows.
+pub(crate) async fn image(
     target: &Target,
     format: Format,
     options: &Options,
     renderer: &Renderer,
-) -> Result<Vec<u8>, Failure> {
+) -> Result<Image, Failure> {
     let result = run_target(target).await?;
     let cascade = target
         .stylesheet
@@ -701,7 +708,11 @@ async fn image(
         }
         (None, None) => table_scene(&result, &cascade, options, renderer).await?,
     };
-    (draw(&scene, format, options, renderer).await).map_err(Failure::Usage)
+    let bytes = (draw(&scene, format, options, renderer).await).map_err(Failure::Usage)?;
+    Ok(Image {
+        bytes,
+        size: [scene.width, scene.height],
+    })
 }
 
 /// Loads the project of the chart `chart`, a path of a chart script or `doc.qmd#NAME`, or a
@@ -711,7 +722,7 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
     let (file, line) = split_line(chart)?;
     let (file, _) = split_name(file);
     let file = std::fs::canonicalize(file).map_err(|error| format!("{file}: {error}"))?;
-    let project = Project::open(&file, line.is_some()).await?;
+    let project = Project::open(&file, line.is_some(), None).await?;
     Ok(project.aim(chart)?.target(project))
 }
 
@@ -740,25 +751,33 @@ pub(crate) struct Project {
 
 impl Project {
     /// Loads the project of the file `file`, a canonical path: the project above it, or the file
-    /// alone when no project holds it as a chart script, a document, or a data script. A target
-    /// at a statement (`statement`) of a module is an error, since a module's statements don't
-    /// run.
-    pub(crate) async fn open(file: &Path, statement: bool) -> Result<Project, Failure> {
+    /// alone when no project holds it as a chart script, a document, or a data script. A
+    /// document's text `text` takes the place of its text on disk. A target at a statement
+    /// (`statement`) of a module is an error, since a module's statements don't run.
+    pub(crate) async fn open(
+        file: &Path,
+        statement: bool,
+        text: Option<String>,
+    ) -> Result<Project, String> {
         let Some(root) = find_root(file) else {
-            return Project::loose(file, None).await;
+            return Project::loose(file, text).await;
         };
         let files =
             (ProjectFiles::find(&root).await).map_err(|e| format!("{}: {e}", root.display()))?;
         let relative = relative(&root, file);
         match files.manifest().role(&relative) {
-            Ok(Some(Role::ChartScript | Role::Document | Role::DataScript)) => {
-                Ok(Project::load(files, Some(root), None).await?)
+            Ok(Some(role @ (Role::ChartScript | Role::Document | Role::DataScript))) => {
+                let mut project = Project::load(files, Some(root), None).await?;
+                if let (Some(text), Role::Document) = (text, role) {
+                    project.analysis.set_document(&relative, Some(text));
+                }
+                Ok(project)
             }
-            Ok(Some(Role::Module(_))) if statement => Err(Failure::Usage(format!(
+            Ok(Some(Role::Module(_))) if statement => Err(format!(
                 "{}: a statement of a module is no target",
                 file.display()
-            ))),
-            _ => Project::loose(file, None).await,
+            )),
+            _ => Project::loose(file, text).await,
         }
     }
 
@@ -771,7 +790,7 @@ impl Project {
 
     /// The project of one file, the loose script or document `file`, with the text `text`, or
     /// its text on disk without one: a script under `charts/`, and a document at the root.
-    pub(crate) async fn loose(file: &Path, text: Option<String>) -> Result<Project, Failure> {
+    pub(crate) async fn loose(file: &Path, text: Option<String>) -> Result<Project, String> {
         let text = match text {
             Some(text) => text,
             None => std::fs::read_to_string(file)
@@ -797,7 +816,7 @@ impl Project {
         let files = ProjectFiles::open(source)
             .await
             .map_err(|error| error.to_string())?;
-        Ok(Project::load(files, None, Some((file.to_path_buf(), relative))).await?)
+        Project::load(files, None, Some((file.to_path_buf(), relative))).await
     }
 
     async fn load(
