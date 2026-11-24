@@ -27,7 +27,9 @@ mod variants;
 mod widgets;
 
 pub use error::{EvalError, EvalWarning};
-pub use evaluator::{ChartEvaluator, EvaluatedChart, EvaluatedLayer, EvaluatedPlot, PreparedChart};
+pub use evaluator::{
+    ChartEvaluator, EvaluatedChart, EvaluatedLayer, EvaluatedPlot, EvaluatedScale, PreparedChart,
+};
 pub use geo::{ProjectionNavigation, ProjectionView};
 pub use lumps::lump_label_values;
 pub use registry::Registry;

@@ -18,7 +18,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use avenger_results_egui::{Exec, Images, ResultView, Shared, Surface};
+use avenger_chart_app::ChartChange;
+use avenger_results_egui::{
+    describe_change, ChartState, Exec, Images, ResultView, Shared, Surface,
+};
 use avenger_sql_project::charts::label_engine;
 use avenger_sql_project::watch::{Burst, Watch};
 use avenger_style::{Cascade, ColorScheme, Preferences, Sheet};
@@ -45,12 +48,21 @@ pub fn run(chart: String, scheme: Option<ColorScheme>) -> Result<(), String> {
     window(title, scheme, move |sink| follow(chart, sink))
 }
 
+/// What the window tells the thread that drives it: the state of the chart that fills the window,
+/// when it first shows and when a gesture on it settles, with a line that names what the gesture
+/// changed.
+pub(crate) struct WindowEvent {
+    pub(crate) state: ChartState,
+    pub(crate) change: Option<String>,
+}
+
 /// What the thread that drives a window sends it through: the window's messages, each of which
-/// wakes it, and whether the window closed.
+/// wakes it, whether the window closed, and the window's events.
 pub(crate) struct Sink {
     sender: Sender<Message>,
     ctx: egui::Context,
     closed: Arc<AtomicBool>,
+    events: crossbeam_channel::Receiver<WindowEvent>,
 }
 
 impl Sink {
@@ -64,6 +76,11 @@ impl Sink {
     /// Whether the window closed.
     pub(crate) fn closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
+    }
+
+    /// What the window reports: the state of the chart that fills it.
+    pub(crate) fn events(&self) -> &crossbeam_channel::Receiver<WindowEvent> {
+        &self.events
     }
 
     /// Closes the window.
@@ -103,6 +120,12 @@ pub(crate) fn window(
 struct Window {
     runtime: Exec,
     view: ResultView,
+    /// What the window reports to the session's thread.
+    events: crossbeam_channel::Sender<WindowEvent>,
+    /// The changes of the gestures on the chart that settled, from the chart's app.
+    settled: Receiver<ChartChange>,
+    /// Whether the chart that fills the window has reported its state since it last changed.
+    reported: bool,
     images: Images,
     engine: LabelEngine,
     /// The project's entry stylesheet.
@@ -135,11 +158,25 @@ impl Window {
         let runtime = Exec::new().map_err(|error| error.to_string())?;
         let (sender, messages) = channel();
         let closed = Arc::new(AtomicBool::new(false));
+        let (events, window_events) = crossbeam_channel::unbounded();
+        // The chart's app reports each gesture that settles, from its own thread.
+        let (settle, settled) = channel();
+        let mut view = ResultView::new();
+        {
+            let ctx = cc.egui_ctx.clone();
+            view.set_on_change(move |change| {
+                if change.settled {
+                    let _ = settle.send(change.clone());
+                    ctx.request_repaint();
+                }
+            });
+        }
         {
             let sink = Sink {
                 sender,
                 ctx: cc.egui_ctx.clone(),
                 closed: closed.clone(),
+                events: window_events,
             };
             std::thread::Builder::new()
                 .name("avenger-view".into())
@@ -149,7 +186,10 @@ impl Window {
         let surface = Surface::of(&cc.egui_ctx.style().visuals);
         Ok(Self {
             runtime,
-            view: ResultView::new(),
+            view,
+            events,
+            settled,
+            reported: false,
             images: Images::new(&cc.egui_ctx, crate::render::image_options()?),
             engine: label_engine(),
             sheet: None,
@@ -204,6 +244,7 @@ impl Window {
                 Message::Outcome(Outcome::Ran(result)) => {
                     self.errors.clear();
                     self.view.set_result(result, state);
+                    self.reported = false;
                 }
                 Message::Outcome(Outcome::Rows(source)) => {
                     self.errors.clear();
@@ -307,6 +348,26 @@ impl eframe::App for Window {
                 self.report(vec![error]);
             }
         });
+        // The chart's state, once its chart builds and after each gesture that settles, which is
+        // only then built, since it formats every scale's domain.
+        let changes: Vec<ChartChange> = self.settled.try_iter().collect();
+        if !self.reported || !changes.is_empty() {
+            if let Some(state) = self.view.chart_state() {
+                if !self.reported {
+                    self.reported = true;
+                    let _ = self.events.send(WindowEvent {
+                        state: state.clone(),
+                        change: None,
+                    });
+                }
+                for change in changes {
+                    let _ = self.events.send(WindowEvent {
+                        state: state.clone(),
+                        change: describe_change(&change, &state),
+                    });
+                }
+            }
+        }
         if self.view.busy() {
             ctx.request_repaint();
         }
@@ -377,6 +438,8 @@ fn follow(chart: String, sink: Sink) {
             Burst::Waiting(time) => time,
             Burst::Quiet => Duration::from_millis(500),
         };
+        // `view` shows the chart's state in the chart alone, so its reports go unread.
+        while sink.events().try_recv().is_ok() {}
         let _ = wakes.recv_timeout(wait);
     }
 }

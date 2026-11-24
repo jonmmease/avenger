@@ -52,6 +52,8 @@ pub(crate) enum Reason {
     Entry,
     Breakpoint,
     Step,
+    /// The session stopped again where it was, as after the chart's state changed.
+    Pause,
 }
 
 impl Reason {
@@ -61,6 +63,7 @@ impl Reason {
             Reason::Entry => "entry",
             Reason::Breakpoint => "breakpoint",
             Reason::Step => "step",
+            Reason::Pause => "pause",
         }
     }
 }

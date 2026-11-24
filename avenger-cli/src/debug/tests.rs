@@ -133,3 +133,114 @@ fn a_session_enters_and_moves_between_its_stops() {
     assert_eq!(stops.moved(6, reverse, &bound), (5, Reason::Breakpoint));
     assert_eq!(stops.moved(2, reverse, &bound), (0, Reason::Step));
 }
+
+/// A writer that keeps what the adapter writes, for the test to read.
+#[derive(Clone, Default)]
+struct Written(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Written {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Written {
+    /// The messages written since the last call, as JSON.
+    fn take(&self) -> Vec<serde_json::Value> {
+        let bytes = std::mem::take(&mut *self.0.lock().unwrap());
+        let text = String::from_utf8(bytes).unwrap();
+        (text
+            .split("Content-Length: ")
+            .filter(|part| !part.is_empty()))
+        .map(|part| serde_json::from_str(part.split_once("\r\n\r\n").unwrap().1).unwrap())
+        .collect()
+    }
+
+    /// The events of the messages written since the last call, by name.
+    fn events(&self) -> Vec<String> {
+        (self.take().into_iter())
+            .filter_map(|message| message["event"].as_str().map(str::to_string))
+            .collect()
+    }
+}
+
+/// An adapter at the result stop of the fixture's chart, without a window, whose client supports
+/// `invalidated` or not, and what it writes.
+fn at_result(invalidated: bool) -> (super::adapter::Adapter<Written>, Written) {
+    let written = Written::default();
+    let mut adapter = super::adapter::Adapter::new(written.clone(), None).unwrap();
+    let request =
+        |seq: i64, command: &str, arguments: serde_json::Value| super::protocol::Request {
+            seq,
+            command: command.to_string(),
+            arguments,
+        };
+    let chart = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../avenger-sql-project/tests/projects/vega/charts/origins.av.sql");
+    let initialize = serde_json::json!({"supportsInvalidatedEvent": invalidated});
+    adapter.answer(&request(1, "initialize", initialize));
+    let launch = serde_json::json!({"target": chart.to_str().unwrap()});
+    adapter.answer(&request(2, "launch", launch));
+    adapter.answer(&request(3, "configurationDone", serde_json::json!({})));
+    let stopped: Vec<serde_json::Value> = (written.take().into_iter())
+        .filter(|message| message["event"] == "stopped")
+        .collect();
+    assert_eq!(stopped[0]["body"]["description"], "result at line 2");
+    (adapter, written)
+}
+
+fn state(brush: &str) -> avenger_results_egui::ChartState {
+    avenger_results_egui::ChartState {
+        selections: vec![("brush".into(), vec![brush.into()])],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn the_chart_s_state_refreshes_a_client_once_for_each_settled_gesture() {
+    // A client without `invalidated` stops again at the result, once when the chart first
+    // reports its state, and once for each settled gesture, with a line in the console.
+    let (mut adapter, written) = at_result(false);
+    adapter.chart_changed(state("clear"), None);
+    assert_eq!(written.events(), ["stopped"]);
+    adapter.chart_changed(state("clear"), None);
+    assert!(written.events().is_empty());
+    let brush = "brush: Horsepower 80 to 140".to_string();
+    adapter.chart_changed(state("Horsepower 80 to 140"), Some(brush.clone()));
+    let messages = written.take();
+    assert_eq!(messages[0]["event"], "output");
+    assert_eq!(messages[0]["body"]["output"], format!("{brush}\n"));
+    assert_eq!(messages[1]["event"], "stopped");
+    assert_eq!(messages[1]["body"]["reason"], "pause");
+    // The result's scopes hold the chart's state.
+    let scopes = super::protocol::Request {
+        seq: 9,
+        command: "scopes".into(),
+        arguments: serde_json::json!({"frameId": 1}),
+    };
+    adapter.answer(&scopes);
+    let response = written.take().pop().unwrap();
+    let names: Vec<&str> = (response["body"]["scopes"].as_array().unwrap().iter())
+        .map(|scope| scope["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "Result",
+            "Script",
+            "Selections",
+            "Widgets",
+            "Scale Domains",
+            "Modes"
+        ]
+    );
+    // A client with `invalidated` hears it in place of a stop.
+    let (mut adapter, written) = at_result(true);
+    adapter.chart_changed(state("clear"), Some(brush));
+    assert_eq!(written.events(), ["output", "invalidated"]);
+}

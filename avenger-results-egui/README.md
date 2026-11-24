@@ -14,6 +14,10 @@ cargo run --release -p avenger-results-egui --example results
 
 In a table, the columns and the rows resize by dragging: a column by its header's edge, and the rows by the strip along the bottom of a cell. With `ResultView::interactive`, the chart cell under the pointer runs its chart's app. The expand button in the top right corner of a chart cell, or a double click, opens the cell's chart over the table, live, with a bar of the cell's row and a Back button, which Escape also presses.
 
+## The chart's state
+
+`ResultView::set_on_change` has a host hear the changes of the gestures on the chart that fills the view, as `avenger_chart_app::ChartChange`s, and `ResultView::chart_state` reads the chart's state as text, a `ChartState`: each selection's clauses, each widget's value, each scale's domain as the chart draws it, an interval or its categories, and the visible one of a panned or zoomed position scale, and the modes that are on. `describe_change` names what a change changed, as `brush: Horsepower 80.0 to 140.0`, for a host that shows the state apart from the chart, as a debugger's panes do.
+
 ## What a host gives
 
 The charts of a view share what `Shared` holds: eframe's wgpu `RenderState`, whose device draws the charts into egui textures, an `Exec`, the runtime of the charts' apps and of the cells' background evaluations, natively on a multithreaded tokio runtime and on the web on the page's thread, the cascade and the reader's preferences, the label engine, and `Images`, the caches of the charts' images.

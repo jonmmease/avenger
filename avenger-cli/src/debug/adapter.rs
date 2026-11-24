@@ -24,7 +24,9 @@ use serde_json::{json, Value};
 use super::debuggee::{Debuggee, Ran, Rows};
 use super::protocol::{Output, Request};
 use super::stops::{Move, Place, Reason};
-use crate::view::{Message, Sink};
+use avenger_results_egui::ChartState;
+
+use crate::view::{Message, Sink, WindowEvent};
 
 /// The id of the session's thread, and of its frame.
 const THREAD: i64 = 1;
@@ -49,13 +51,17 @@ enum Var {
     Row(usize),
     /// The script's variables.
     Script,
+    /// The state of the chart at a result stop: its selections, widgets, scales, and modes.
+    Selections,
+    Widgets,
+    Scales,
+    Modes,
 }
 
-/// A breakpoint of the target's file: its id, and the stop that it binds to, or why it binds to
-/// none.
+/// A breakpoint of the target's file: its id, and the stop that it binds to, if any.
 struct Breakpoint {
     id: i64,
-    bound: Result<usize, String>,
+    bound: Option<usize>,
 }
 
 /// The window's side of a session: a request to open the window, titled as the request says,
@@ -82,6 +88,10 @@ pub(crate) struct Adapter<W: Write> {
     notes: Vec<String>,
     /// The current stop, its run, and what the variable references of its panes hold.
     stop: Option<usize>,
+    /// The state of the chart that fills the window, as it last reported it.
+    chart: Option<ChartState>,
+    /// Whether the client refreshes its panes on an `invalidated` event.
+    invalidated: bool,
     ran: Option<Ran>,
     vars: Vec<Var>,
 }
@@ -105,6 +115,8 @@ impl<W: Write> Adapter<W> {
             ids: 0,
             notes: Vec::new(),
             stop: None,
+            chart: None,
+            invalidated: false,
             ran: None,
             vars: Vec::new(),
         })
@@ -123,6 +135,7 @@ impl<W: Write> Adapter<W> {
                         terminated = true;
                         self.out.event("terminated", json!({}));
                     }
+                    self.window_events();
                     continue;
                 }
             };
@@ -145,10 +158,52 @@ impl<W: Write> Adapter<W> {
         }
     }
 
+    /// Hears the state of the chart that fills the window, as the window reports it.
+    fn window_events(&mut self) {
+        let Some(sink) = &self.sink else {
+            return;
+        };
+        let events: Vec<WindowEvent> = sink.events().try_iter().collect();
+        for WindowEvent { state, change } in events {
+            self.chart_changed(state, change);
+        }
+    }
+
+    /// The chart that fills the window reported its state: when it first shows, or after a
+    /// gesture that settled, named by `change`. At a result stop, the client refreshes its panes:
+    /// with `invalidated`, when it supports the event, or else with a stop at the same frame, and
+    /// the console names a gesture's change.
+    pub(crate) fn chart_changed(&mut self, state: ChartState, change: Option<String>) {
+        let first = self.chart.is_none();
+        self.chart = Some(state);
+        let at_result = match (&self.debuggee, self.stop) {
+            (Some(debuggee), Some(index)) => debuggee.stops().get(index).place == Place::Result,
+            _ => false,
+        };
+        if !at_result || (change.is_none() && !first) {
+            return;
+        }
+        if let Some(change) = &change {
+            self.out.console(change);
+        }
+        match self.invalidated {
+            true => self.out.event(
+                "invalidated",
+                json!({"areas": ["variables"], "threadId": THREAD, "stackFrameId": THREAD}),
+            ),
+            false => self.stopped(Reason::Pause),
+        }
+    }
+
     /// Answers `request`, and whether the session goes on.
-    fn answer(&mut self, request: &Request) -> bool {
+    pub(crate) fn answer(&mut self, request: &Request) -> bool {
         match request.command.as_str() {
-            "initialize" => self.out.respond(request, capabilities()),
+            "initialize" => {
+                self.invalidated = request.arguments["supportsInvalidatedEvent"]
+                    .as_bool()
+                    .unwrap_or(false);
+                self.out.respond(request, capabilities());
+            }
             "launch" => self.launch(request),
             "setBreakpoints" => self.set_breakpoints(request),
             "setExceptionBreakpoints" => self.out.respond(request, json!({"breakpoints": []})),
@@ -296,7 +351,10 @@ impl<W: Write> Adapter<W> {
                     json!({"id": id, "verified": false, "line": line, "message": message})
                 }
             });
-            kept.push(Breakpoint { id, bound });
+            kept.push(Breakpoint {
+                id,
+                bound: bound.ok(),
+            });
         }
         if ours {
             self.breakpoints = kept;
@@ -315,7 +373,7 @@ impl<W: Write> Adapter<W> {
     /// The stops that the breakpoints bind to.
     fn bound(&self) -> BTreeSet<usize> {
         (self.breakpoints.iter())
-            .filter_map(|breakpoint| breakpoint.bound.as_ref().ok().copied())
+            .filter_map(|breakpoint| breakpoint.bound)
             .collect()
     }
 
@@ -364,6 +422,8 @@ impl<W: Write> Adapter<W> {
         if let Some(sink) = &self.sink {
             sink.send(Message::Title(title));
             sink.send(Message::Outcome(outcome));
+            // The window reports the new result's chart, if it has one.
+            self.chart = None;
         }
         if let Err(errors) = &ran.rows {
             for error in errors {
@@ -384,7 +444,7 @@ impl<W: Write> Adapter<W> {
         let line = debuggee.file_line(stop.line);
         let description = format!("{} at line {line}", stop.name);
         let ids: Vec<i64> = (self.breakpoints.iter())
-            .filter(|breakpoint| breakpoint.bound.as_ref().ok() == self.stop.as_ref())
+            .filter(|breakpoint| breakpoint.bound == self.stop)
             .map(|breakpoint| breakpoint.id)
             .collect();
         let mut body = json!({
@@ -433,19 +493,28 @@ impl<W: Write> Adapter<W> {
             self.out.respond(request, json!({"scopes": []}));
             return;
         };
-        let name = match debuggee.stops().get(index).place {
+        let place = debuggee.stops().get(index).place;
+        let name = match place {
             Place::Stage(_) => "Stage",
             Place::Result => "Result",
         };
-        let rows = self.reference(Var::Rows);
-        let script = self.reference(Var::Script);
-        self.out.respond(
-            request,
-            json!({"scopes": [
-                {"name": name, "variablesReference": rows, "expensive": false},
-                {"name": "Script", "variablesReference": script, "expensive": false},
-            ]}),
-        );
+        let mut scopes = vec![(name, Var::Rows), ("Script", Var::Script)];
+        // At a result, the state of the chart that the window shows, once it reports it.
+        if place == Place::Result && self.chart.is_some() {
+            scopes.extend([
+                ("Selections", Var::Selections),
+                ("Widgets", Var::Widgets),
+                ("Scale Domains", Var::Scales),
+                ("Modes", Var::Modes),
+            ]);
+        }
+        let scopes: Vec<Value> = (scopes.into_iter())
+            .map(|(name, var)| {
+                let reference = self.reference(var);
+                json!({"name": name, "variablesReference": reference, "expensive": false})
+            })
+            .collect();
+        self.out.respond(request, json!({"scopes": scopes}));
     }
 
     /// `variables`: the children of a variable reference of the current stop.
@@ -467,12 +536,44 @@ impl<W: Write> Adapter<W> {
         self.out.respond(request, json!({"variables": variables}));
     }
 
+    /// The children of a scope of the state of the chart that the window shows: none before the
+    /// chart reports its state.
+    fn chart_children(&self, var: Var) -> Vec<Value> {
+        let Some(state) = &self.chart else {
+            return Vec::new();
+        };
+        let pairs: Vec<(&str, String)> = match var {
+            Var::Selections => (state.selections.iter())
+                .map(|(name, clauses)| match clauses.is_empty() {
+                    true => (name.as_str(), "clear".to_string()),
+                    false => (name.as_str(), clauses.join("; ")),
+                })
+                .collect(),
+            Var::Widgets => (state.widgets.iter())
+                .map(|(key, value)| (key.as_str(), value.clone()))
+                .collect(),
+            Var::Scales => (state.scales.iter())
+                .map(|scale| (scale.name.as_str(), scale.domain.clone()))
+                .collect(),
+            Var::Modes => (state.modes.iter())
+                .map(|mode| (mode.as_str(), "on".to_string()))
+                .collect(),
+            _ => Vec::new(),
+        };
+        (pairs.into_iter())
+            .map(|(name, value)| leaf(name, &value, None))
+            .collect()
+    }
+
     /// The children of `var`, as the protocol's variables.
     fn children(&mut self, var: Var) -> Result<Vec<Value>, String> {
         let Some(ran) = self.ran.as_mut() else {
             return Ok(Vec::new());
         };
         match var {
+            Var::Selections | Var::Widgets | Var::Scales | Var::Modes => {
+                Ok(self.chart_children(var))
+            }
             Var::Script => {
                 let variables = ran.variables.as_ref().map_err(|errors| errors.join("\n"))?;
                 Ok((variables.iter())

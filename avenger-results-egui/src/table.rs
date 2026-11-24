@@ -476,6 +476,7 @@ impl LiveCells {
                 env.runtime,
                 ui.ctx(),
                 env.state,
+                None,
             );
             self.spent += started.elapsed();
             match built {

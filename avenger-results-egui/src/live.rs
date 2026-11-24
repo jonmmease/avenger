@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::exec::Exec;
 use avenger_app::app::{AvengerApp, Changes};
 use avenger_chart::Chart;
-use avenger_chart_app::{ChartApp, ChartAppState, ChartUpdate, ChartUpdates};
+use avenger_chart_app::{ChartApp, ChartAppState, ChartChange, ChartUpdate, ChartUpdates};
 use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{Key, MouseButton, WindowEvent, WindowResizeEvent};
@@ -20,6 +20,10 @@ use eframe::{egui, egui_wgpu::RenderState};
 use crate::charts::Images;
 use crate::gpu::{self, Painter, Texture};
 use crate::input;
+use crate::state::{chart_state, ChartState};
+
+/// A host's callback that hears the changes of a chart's gestures.
+pub(crate) type OnChange = Arc<dyn Fn(&ChartChange) + Send + Sync>;
 
 /// A chart app in a rectangle of egui.
 pub struct LiveChart {
@@ -60,16 +64,20 @@ impl LiveChart {
         runtime: &Exec,
         ctx: &egui::Context,
         state: &RenderState,
+        on_change: Option<OnChange>,
     ) -> Result<Self, String> {
         let dimensions = gpu::dimensions(egui::vec2(size[0], size[1]), ctx.pixels_per_point());
         let updates = ChartUpdates::new();
         // The first build draws at the reader's preferences.
         updates.set_preferences(preferences);
-        let app = ChartApp::new(chart, cascade, engine)
+        let mut app = ChartApp::new(chart, cascade, engine)
             .images(images.live())
             .size(dimensions.size)
-            .updates(&updates)
-            .build();
+            .updates(&updates);
+        if let Some(on_change) = on_change {
+            app = app.on_change(move |change| on_change(change));
+        }
+        let app = app.build();
         let app = runtime.block_on(app).map_err(|error| error.to_string())?;
         #[cfg(not(target_arch = "wasm32"))]
         let app = app
@@ -116,6 +124,11 @@ impl LiveChart {
     /// its chart.
     pub fn busy(&self) -> bool {
         self.dirty || self.loading || self.refresh.load(Ordering::SeqCst) || self.updates.pending()
+    }
+
+    /// The state of the chart: its selections, widgets, scales' domains, and modes, as text.
+    pub fn state(&self) -> ChartState {
+        chart_state(self.app.state())
     }
 
     /// Releases the chart's texture.

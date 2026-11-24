@@ -10,10 +10,12 @@ mod gpu;
 mod input;
 mod live;
 pub mod paged;
+mod state;
 mod table;
 mod view;
 
 pub use charts::{Images, StaticChart, Surface};
 pub use exec::{Exec, Task};
 pub use paged::{PagedTable, RowSource, RowStream, PAGE_ROWS};
+pub use state::{describe_change, plot_name, ChartState, ScaleState};
 pub use view::{ResultView, Shared};
