@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The CLI embeds the grammar of avenger-sql, a wasm module in Git LFS.
+      - name: Pull the wasm modules from Git LFS
+        run: git lfs pull --include "*.wasm"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"

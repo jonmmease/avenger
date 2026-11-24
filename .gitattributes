@@ -16,7 +16,10 @@ avenger-sql-project/tests/projects/vega/data/files/vega_datasets/* filter=lfs di
 # The bundle of the Quarto 2 extension, which q2 call build-ts-extension builds from its source
 avenger-cli/quarto2/_extensions/avenger/dist/** linguist-generated=true
 
+# WebAssembly modules, such as the grammar of avenger-sql that the CLI embeds, which a build of
+# the CLI needs pulled from Git LFS
+*.wasm filter=lfs diff=lfs merge=lfs -text
+
 # The tree-sitter grammar of avenger-sql, which quarto2/scripts/sync-grammar.mjs copies from
-# tree-sitter-avenger-sql, in Git, since the CLI embeds it
+# tree-sitter-avenger-sql
 avenger-cli/quarto2/grammars/** linguist-generated=true
-avenger-cli/quarto2/grammars/**/*.wasm binary
