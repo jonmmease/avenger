@@ -259,6 +259,7 @@ async fn query_target(
         cell: None,
         files: opened.files,
         root: Some(opened.root),
+        loose: None,
         line: None,
         statement: None,
         data: false,
