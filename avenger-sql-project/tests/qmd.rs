@@ -1,8 +1,9 @@
 //! The cells of Quarto documents: the fences that are cells and those that are not, fences in
 //! HTML comments, indented fences, with spaces and tabs, the offsets of a cell in its document,
-//! the formatting of cells, and the options of a cell's leading `#|` lines.
+//! the formatting of cells, the options of a cell's leading `#|` lines, and the script of a
+//! document's cells.
 
-use avenger_sql_project::qmd::{cell_path, split_cell_path, CellOptions, FigFormat, Qmd};
+use avenger_sql_project::qmd::{CellOptions, FigFormat, Qmd};
 
 const DOCUMENT: &str = "\
 ---
@@ -107,17 +108,54 @@ fn format_formats_the_cells_and_leaves_the_rest() {
 }
 
 #[test]
-fn a_cell_path_names_its_document_and_number() {
+fn the_script_of_a_document_keeps_its_lines_and_ends_each_cell() {
+    let text = "# Report\n\n```{avenger-sql}\nCREATE TEMP TABLE t AS (FROM UNNEST([1]) AS a)\n```\n\nProse.\n\n```{avenger-sql}\nFROM t;\n```\n\n```{avenger-sql}\n#| eval: false\nFROM nope\n```\n";
+    let document = Qmd::parse(text);
+    let script = &document.script;
+    // A line for each line of the document: the cells' lines, a `;` where a cell's last
+    // statement has none, and empty lines elsewhere, the cell that `eval: false` keeps from
+    // running too.
     assert_eq!(
-        cell_path("reports/overview.qmd", 3),
-        "reports/overview.qmd#3"
+        script.text,
+        "\n\n\nCREATE TEMP TABLE t AS (FROM UNNEST([1]) AS a)\n;\n\n\n\n\nFROM t;\n\n\n\n\n\n\n"
     );
+    assert_eq!(script.text.lines().count(), text.lines().count());
+    assert_eq!(script.cells.len(), 3);
+    assert!(script.cells[2].is_none());
+    let starts: Vec<u32> = script
+        .cell_starts()
+        .iter()
+        .map(|start| u32::from(*start))
+        .collect();
+    assert_eq!(starts, [3, script.text.find("FROM t").unwrap() as u32]);
+    // Offsets map both ways in a cell's text, and the added `;` is in no cell's text.
+    let from = script.text.find("FROM UNNEST").unwrap();
+    assert_eq!(script.to_document(from), text.find("FROM UNNEST").unwrap());
     assert_eq!(
-        split_cell_path("reports/overview.qmd#3"),
-        Some(("reports/overview.qmd", 2))
+        script.to_script(text.find("FROM UNNEST").unwrap()),
+        Some(from)
     );
-    assert_eq!(split_cell_path("charts/a.av.sql"), None);
-    assert_eq!(split_cell_path("reports/overview.qmd#0"), None);
+    assert_eq!(script.to_script(text.find("Prose").unwrap()), None);
+    let added = script.text.find("\n;").unwrap() + 1;
+    assert!(!script.holds(added));
+    assert!(script.holds(from));
+    assert_eq!(script.cell_at(from), Some(0));
+}
+
+#[test]
+fn the_script_of_an_indented_cell_drops_the_fence_s_indent() {
+    let text = "1. Item\n\n    ```{avenger-sql}\n    FROM t\n    |> SELECT a\n    ```\n";
+    let document = Qmd::parse(text);
+    let script = &document.script;
+    assert_eq!(script.text, "\n\n\nFROM t\n|> SELECT a\n;\n");
+    let select = script.text.find("SELECT").unwrap();
+    assert_eq!(script.to_document(select), text.find("SELECT").unwrap());
+    // An offset in the indent of a line is the start of its line in the script.
+    let indent = text.find("    |>").unwrap();
+    assert_eq!(
+        script.to_script(indent),
+        Some(script.text.find("|>").unwrap())
+    );
 }
 
 #[test]

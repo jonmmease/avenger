@@ -371,7 +371,7 @@ fn a_cell_s_stops_and_breakpoints_have_the_lines_of_its_document() {
     assert!(breakpoints[1]["message"]
         .as_str()
         .unwrap()
-        .contains("outside the cell"));
+        .contains("in no `{avenger-sql}` cell"));
     assert_eq!(breakpoints[2]["line"], 5);
     let response = client.request("stackTrace", json!({"threadId": 1}));
     let frame = &response["body"]["stackFrames"][0];

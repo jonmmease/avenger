@@ -1,15 +1,20 @@
-//! `avenger charts`: the chart scripts of a project and the `{avenger-sql}` cells of its Quarto
-//! documents, by the names that `render` and `view` take, each with the columns of charts of its
+//! `avenger charts`: the chart scripts of a project and the `{avenger-sql}` cells with values of
+//! its Quarto documents, by the names that `render` and `view` take, each with the columns of charts of its
 //! result. The queries plan and do not run, so the columns come from each query's schema, and a
 //! query that does not plan lists its error.
 
 use std::path::Path;
 
 use avenger_chart::results::is_chart_field;
-use avenger_sql_project::{qmd::cell_path, ChartError, Loader};
+use avenger_sql_project::{ChartError, Loader};
 use serde_json::json;
 
-use crate::{project::open, report::Output, Status};
+use crate::{
+    project::open,
+    render::{cell_aim, Pick},
+    report::Output,
+    Status,
+};
 
 /// One chart script or cell, as the command lists it.
 struct Listed {
@@ -38,13 +43,22 @@ pub async fn run(project: Option<&Path>, output: &Output) -> Result<Status, Stri
     }
     for (document, qmd) in opened.analysis.documents() {
         let file = output.display(&opened.root.join(document));
+        let statements = crate::cells::statements(qmd);
         for (index, cell) in qmd.cells.iter().enumerate() {
+            // A cell without a value, which only defines what later cells read, lists nothing.
+            if crate::cells::value(&statements, index).is_none() {
+                continue;
+            }
+            let pick = Pick::Name((index + 1).to_string());
+            let charts = match cell_aim(qmd, document, &pick) {
+                Ok(aim) => chart_columns(loader, document, &aim.masked).await,
+                Err(error) => Err(error),
+            };
             let name = (cell.options.label.clone()).unwrap_or_else(|| (index + 1).to_string());
-            let path = cell_path(document, index + 1);
             listed.push(Listed {
                 target: format!("{file}#{name}"),
                 cell: Some((index + 1, cell.options.label.clone())),
-                charts: chart_columns(loader, &path, &cell.text).await,
+                charts,
             });
         }
     }

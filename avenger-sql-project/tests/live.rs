@@ -226,7 +226,7 @@ async fn a_changed_data_file_loads_the_scripts_that_read_it() {
 }
 
 #[tokio::test]
-async fn the_cells_of_a_document_are_chart_scripts_of_the_project() {
+async fn the_cells_of_a_document_are_one_chart_script_of_the_project() {
     let directory = copy();
     let root = directory.path();
     std::fs::create_dir_all(root.join("reports")).unwrap();
@@ -235,26 +235,28 @@ async fn the_cells_of_a_document_are_chart_scripts_of_the_project() {
     let (_, mut analysis, _) = live(root).await;
     let document = analysis.qmd("reports/overview.qmd").unwrap();
     assert_eq!(document.cells.len(), 1);
-    let cell = "reports/overview.qmd#1";
-    assert_eq!(analysis.project().diagnostics(cell), Vec::new());
+    let path = "reports/overview.qmd";
+    assert_eq!(analysis.project().diagnostics(path), Vec::new());
 
-    // An edit of a data script reaches the cell that reads its table.
+    // An edit of a data script reaches the document whose cell reads its table.
     let summaries = read(root, SUMMARIES).replace("AS cars", "AS n");
     let reached = analysis.project_mut().set_texts([(SUMMARIES, summaries)]);
-    assert!(reached.contains(cell), "{reached:?}");
-    let messages: Vec<String> = (analysis.project().diagnostics(cell).into_iter())
+    assert!(reached.contains(path), "{reached:?}");
+    let messages: Vec<String> = (analysis.project().diagnostics(path).into_iter())
         .map(|diagnostic| diagnostic.message)
         .collect();
     assert_eq!(messages, ["Unrecognized name: cars"]);
 
-    // A new text adds a cell, and the result holds the document.
-    let two = format!("{text}\n```{{avenger-sql}}\nFROM wet_days\n```\n");
-    let reached = analysis.set_document("reports/overview.qmd", Some(two));
+    // A new text adds a cell, which reads a temporary table of the first, and starts with a
+    // `DECLARE`.
+    let two = "# Report\n\n```{avenger-sql}\nCREATE TEMP TABLE t AS (FROM wet_days)\n```\n\n```{avenger-sql}\nDECLARE n INT64 DEFAULT 1;\nFROM t |> LIMIT n\n```\n";
+    let reached = analysis.set_document(path, Some(two.to_string()));
     let reached: Vec<&str> = reached.iter().map(String::as_str).collect();
-    assert_eq!(reached, ["reports/overview.qmd", "reports/overview.qmd#2"]);
-    // Without a text, the document and its cells go.
-    let reached = analysis.set_document("reports/overview.qmd", None);
-    assert!(reached.contains("reports/overview.qmd#1"), "{reached:?}");
-    assert!(analysis.qmd("reports/overview.qmd").is_none());
-    assert!(analysis.project().document(cell).is_none());
+    assert_eq!(reached, [path]);
+    assert_eq!(analysis.project().diagnostics(path), Vec::new());
+    // Without a text, the document goes.
+    let reached = analysis.set_document(path, None);
+    assert!(reached.contains(path), "{reached:?}");
+    assert!(analysis.qmd(path).is_none());
+    assert!(analysis.project().document(path).is_none());
 }

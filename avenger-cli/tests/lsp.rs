@@ -609,6 +609,40 @@ fn an_option_of_a_cell_with_the_wrong_type_is_a_diagnostic_at_its_value() {
 }
 
 #[test]
+fn a_cell_reaches_the_definitions_of_earlier_cells() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    // Lines 2 and 6 hold the temporary table and its read, in two indented cells.
+    let text = "1. One\n\n   ```{avenger-sql}\n   CREATE TEMP TABLE t AS (FROM UNNEST([1]) AS a)\n   ```\n\n   ```{avenger-sql}\n   DECLARE n INT64 DEFAULT 1;\n   FROM t |> LIMIT n\n   ```\n";
+    std::fs::write(root.join("reports/overview.qmd"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let report = uri(&root, "reports/overview.qmd");
+    client.open(&report, text);
+    client.until("the document's diagnostics", |c| {
+        c.diagnostics.contains_key(&report)
+    });
+    // No error: the read of `t` finds the first cell's table, and the `DECLARE` starts its cell.
+    assert_eq!(client.messages(&report), Vec::<String>::new());
+    let at = json!({"textDocument": {"uri": report}, "position": position(8, 8)});
+    let definition = client.request::<GotoDefinition>(at.clone());
+    assert_eq!(definition["uri"], json!(report), "{definition}");
+    assert_eq!(
+        definition["range"]["start"],
+        position(3, 21),
+        "{definition}"
+    );
+    // A rename edits both cells, at their places in the document.
+    let mut rename = at;
+    rename["newName"] = json!("numbers");
+    let edit = client.request::<Rename>(rename);
+    let mut starts: Vec<Value> = (edit["changes"][report.as_str()].as_array().unwrap().iter())
+        .map(|edit| edit["range"]["start"].clone())
+        .collect();
+    starts.sort_by_key(|start| start["line"].as_u64());
+    assert_eq!(starts, [position(3, 21), position(8, 8)], "{edit}");
+}
+
+#[test]
 fn a_rename_reaches_the_cells_of_a_closed_document() {
     let (_directory, root) = project();
     std::fs::create_dir_all(root.join("reports")).unwrap();

@@ -52,15 +52,16 @@ const LOAD_TEMP: &str = "a chart script loads its own files with `LOAD DATA OVER
 const IN_SCRIPT: &str =
     "a data script only registers tables, and queries, DECLARE and SET go in a chart script";
 
-/// The diagnostics of the checks of the validation pass on the tree `root` of a text of `role`.
-pub(crate) fn validate(root: &SyntaxNode, role: Role) -> Vec<Diagnostic> {
+/// The diagnostics of the checks of the validation pass on the tree `root` of a text of `role`,
+/// a script of cells that start at `cells`, or none.
+pub(crate) fn validate(root: &SyntaxNode, role: Role, cells: &[TextSize]) -> Vec<Diagnostic> {
     let mut validator = Validator {
         in_module: role == Role::Module,
         in_data: role == Role::Data,
         diagnostics: Vec::new(),
     };
     if let (Some(script), Role::Script) = (ast::Script::cast(root.clone()), role) {
-        validator.declare_order(script.stmts());
+        validator.declare_order(script.stmts(), cells);
     }
     for node in root.descendants() {
         validator.node(&node);
@@ -234,17 +235,24 @@ impl Validator {
         }
     }
 
-    /// As in GoogleSQL, every `DECLARE` of a script comes before its other statements.
-    fn declare_order(&mut self, statements: impl Iterator<Item = ast::Stmt>) {
+    /// As in GoogleSQL, every `DECLARE` of a script comes before its other statements, and in a
+    /// script of cells, which start at `cells`, before the other statements of its cell.
+    fn declare_order(&mut self, statements: impl Iterator<Item = ast::Stmt>, cells: &[TextSize]) {
         let mut after_others = false;
+        let mut cell = 0;
         for statement in statements {
+            let start = statement.range().start();
+            while cell < cells.len() && cells[cell] <= start {
+                cell += 1;
+                after_others = false;
+            }
             let declare = matches!(statement, ast::Stmt::DeclareStmt(_));
             if declare && after_others {
-                self.error(
-                    DiagnosticCode::InvalidStatement,
-                    statement.range(),
-                    "a DECLARE comes before the other statements of a script",
-                );
+                let message = match cells.is_empty() {
+                    true => "a DECLARE comes before the other statements of a script",
+                    false => "a DECLARE comes before the other statements of its cell",
+                };
+                self.error(DiagnosticCode::DeclareOrder, statement.range(), message);
             }
             after_others |= !declare;
         }

@@ -245,3 +245,84 @@ fn fmt_formats_the_cells_of_a_document() {
     );
     assert_eq!(avenger(&root, &["fmt", "--check", "reports"]).0, 0);
 }
+
+/// A document whose cells read what earlier cells define: a temporary table of cell 1, read by
+/// cells 2, 4, and 5, a variable that cell 3 declares and cell 4 reads, and a table of cell 3
+/// with an error, which only cell 5 reads.
+const CELLS: &str = "# Cells\n\n```{avenger-sql}\nCREATE TEMP TABLE t AS (FROM UNNEST([1, 2, 3]) AS a)\n```\n\n```{avenger-sql}\n#| label: fig-all\nFROM t |> AGGREGATE mark_bar(x => a, y => a) AS chart\n```\n\n```{avenger-sql}\nDECLARE n INT64 DEFAULT 2;\nCREATE TEMP TABLE broken AS (FROM t |> WHERE nope)\n```\n\n```{avenger-sql}\nFROM t |> WHERE a >= n |> AGGREGATE mark_bar(x => a, y => a) AS chart\n```\n\n```{avenger-sql}\nFROM broken |> AGGREGATE mark_bar(x => a, y => a) AS chart\n```\n";
+
+#[test]
+fn the_cells_of_a_document_read_what_earlier_cells_define() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    std::fs::write(root.join("reports/cells.qmd"), CELLS).unwrap();
+    // The error of cell 3 is the document's, and its `DECLARE` at the start of a cell is none.
+    let (status, stdout, _) = avenger(&root, &["check", "reports/cells.qmd"]);
+    assert_eq!(status, 1);
+    assert!(
+        stdout.starts_with("reports/cells.qmd:14:46: error: Unrecognized name: nope"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("DECLARE"), "{stdout}");
+    // The cells with values are listed, and a cell without a query is not.
+    let (_, stdout, _) = avenger(&root, &["charts"]);
+    // Cell 5's query, which reads cell 3's table, plans with its error.
+    for listed in [
+        "cells.qmd#fig-all: chart",
+        "cells.qmd#4: chart",
+        "cells.qmd#5: error",
+    ] {
+        assert!(stdout.contains(listed), "{stdout}");
+    }
+    assert!(
+        !stdout.contains("cells.qmd#1") && !stdout.contains("cells.qmd#3"),
+        "{stdout}"
+    );
+    // A cell runs with what it reads: cell 4 with cell 1's table and cell 3's variable, and not
+    // cell 3's table, whose error stops only cell 5.
+    let out = tempfile::tempdir().unwrap();
+    let image = |name: &str| out.path().join(name).to_string_lossy().into_owned();
+    for (cell, file) in [("fig-all", "two.svg"), ("4", "four.svg")] {
+        let target = format!("reports/cells.qmd#{cell}");
+        let (status, _, stderr) = avenger(&root, &["render", &target, "-o", &image(file)]);
+        assert_eq!(status, 0, "{cell}: {stderr}");
+    }
+    let (status, stdout, _) = avenger(
+        &root,
+        &["render", "reports/cells.qmd#5", "-o", &image("five.svg")],
+    );
+    assert_eq!(status, 1);
+    assert!(
+        stdout.starts_with(
+            "reports/cells.qmd:22:1: error: the cell reads cell 3, whose statement at line 14 has an error: Unrecognized name: nope"
+        ),
+        "{stdout}"
+    );
+    let (status, _, stderr) = avenger(
+        &root,
+        &["render", "reports/cells.qmd#1", "-o", &image("one.svg")],
+    );
+    assert_eq!(status, 2);
+    assert!(
+        stderr.contains(
+            "cell `1` has no value, since it makes no query; the cells with values are 2, 4, 5"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_declare_starts_a_cell() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let late = "```{avenger-sql}\nFROM heavy_by_origin\n|> AGGREGATE mark_bar(x => Origin, y => cars) AS chart;\nDECLARE n INT64 DEFAULT 1;\nFROM heavy_by_origin |> LIMIT n\n```\n";
+    std::fs::write(root.join("reports/late.qmd"), late).unwrap();
+    let (status, stdout, _) = avenger(&root, &["check", "reports/late.qmd"]);
+    assert_eq!(status, 1);
+    assert!(
+        stdout.starts_with(
+            "reports/late.qmd:4:1: error: a DECLARE comes before the other statements of its cell"
+        ),
+        "{stdout}"
+    );
+}

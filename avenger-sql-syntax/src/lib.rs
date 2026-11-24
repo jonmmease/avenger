@@ -130,10 +130,21 @@ pub struct Parse {
 impl Parse {
     /// A parse of the tree `green` of a text of `role`, with the diagnostics of the lexer and
     /// the parser, to which it adds those of the validation pass.
-    fn new(green: GreenNode, mut diagnostics: Vec<Diagnostic>, role: Role) -> Self {
+    fn new(green: GreenNode, diagnostics: Vec<Diagnostic>, role: Role) -> Self {
+        Parse::with_cells(green, diagnostics, role, &[])
+    }
+
+    /// A parse as [`Parse::new`] gives it, of a script whose cells start at `cells`.
+    fn with_cells(
+        green: GreenNode,
+        mut diagnostics: Vec<Diagnostic>,
+        role: Role,
+        cells: &[TextSize],
+    ) -> Self {
         diagnostics.extend(validation::validate(
             &SyntaxNode::new_root(green.clone()),
             role,
+            cells,
         ));
         diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
         Parse { green, diagnostics }
@@ -158,6 +169,14 @@ impl Parse {
 /// The tree of a script, the text of statements separated by `;`.
 pub fn parse(source: &str) -> Parse {
     parse_role(source, Role::Script)
+}
+
+/// The tree of a script whose text is the cells of a Quarto document, whose cells start at the
+/// offsets `cells`, in order. It reads as [`parse`] reads a script, but each cell, as a block of
+/// GoogleSQL does, can start with `DECLARE`s.
+pub fn parse_cells(source: &str, cells: &[TextSize]) -> Parse {
+    let (green, diagnostics, _) = parser::parse(source, Role::Script, None);
+    Parse::with_cells(green, diagnostics, Role::Script, cells)
 }
 
 /// The tree of a module, the text of a `.av.sqlm` file.

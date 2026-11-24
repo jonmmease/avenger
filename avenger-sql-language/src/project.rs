@@ -32,7 +32,14 @@ use crate::{
 pub enum FileRole {
     Data,
     Chart,
-    Module { names: Vec<String> },
+    /// The chart script that holds the cells of a Quarto document, whose cells start at `cells`,
+    /// each of which can start with `DECLARE`s.
+    Cells {
+        cells: Arc<[Offset]>,
+    },
+    Module {
+        names: Vec<String>,
+    },
 }
 
 impl FileRole {
@@ -40,7 +47,7 @@ impl FileRole {
     pub fn role(&self) -> Role {
         match self {
             FileRole::Data => Role::Data,
-            FileRole::Chart => Role::Script,
+            FileRole::Chart | FileRole::Cells { .. } => Role::Script,
             FileRole::Module { .. } => Role::Module,
         }
     }
@@ -364,7 +371,10 @@ impl Project {
         let unavailable = self.unavailable_reads(path, &file.document);
         let reads: Vec<TextRange> = unavailable.iter().map(|read| read.range).collect();
         diagnostics.extend(unavailable);
-        if matches!(file.role, FileRole::Data | FileRole::Chart) {
+        if matches!(
+            file.role,
+            FileRole::Data | FileRole::Chart | FileRole::Cells { .. }
+        ) {
             for (range, uri) in uris(&file.document) {
                 let outside = matches!(
                     uri_kind(&uri),
@@ -824,7 +834,7 @@ impl Project {
                         seeds.insert(path.clone());
                     }
                     FileRole::Module { names } => modules.push(names.clone()),
-                    FileRole::Chart => {}
+                    FileRole::Chart | FileRole::Cells { .. } => {}
                 }
             }
         }
@@ -931,7 +941,8 @@ impl Project {
                     Some((_, text)) => text,
                     None => self.files[path].document.text().to_string(),
                 };
-                let document = self.document_of(&text, Role::Data, Arc::new(catalog.clone()));
+                let catalog = Arc::new(catalog.clone());
+                let document = self.document_of(&text, &FileRole::Data, catalog);
                 tables.extend(exported(document.data_analysis().expect("a data script")));
                 let role = FileRole::Data;
                 self.files.insert(path.clone(), File { role, document });
@@ -973,8 +984,11 @@ impl Project {
         for (path, role, text) in again {
             pending.insert(path, (role, text));
         }
-        let charts: Vec<(String, String)> = (self.files.iter())
-            .filter(|(path, file)| file.role == FileRole::Chart && !pending.contains_key(*path))
+        let charts: Vec<(String, FileRole, String)> = (self.files.iter())
+            .filter(|(path, file)| {
+                matches!(file.role, FileRole::Chart | FileRole::Cells { .. })
+                    && !pending.contains_key(*path)
+            })
             .filter(|(_, file)| {
                 let read = references(&file.document.root());
                 (read.tables.iter()).any(|read| {
@@ -985,13 +999,16 @@ impl Project {
                     || (data_changed && !read.modules.is_empty())
                     || (all_data && !file.document.definitions().is_empty())
             })
-            .map(|(path, file)| (path.clone(), file.document.text().to_string()))
+            .map(|(path, file)| {
+                let text = file.document.text().to_string();
+                (path.clone(), file.role.clone(), text)
+            })
             .collect();
-        for (path, text) in charts {
-            pending.insert(path, (FileRole::Chart, text));
+        for (path, role, text) in charts {
+            pending.insert(path, (role, text));
         }
         for (path, (role, text)) in pending {
-            let document = self.document_of(&text, role.role(), self.catalog.clone());
+            let document = self.document_of(&text, &role, self.catalog.clone());
             reached.insert(path.clone());
             self.files.insert(path, File { role, document });
         }
@@ -1057,17 +1074,17 @@ impl Project {
     fn document_of(
         &self,
         text: &str,
-        role: Role,
+        role: &FileRole,
         catalog: Arc<dyn Catalog + Send + Sync>,
     ) -> Document {
-        Document::new(
-            text,
-            role,
-            catalog,
-            self.library.clone(),
-            self.options.clone(),
-        )
-        .with_paths(self.paths.clone())
+        let (library, options) = (self.library.clone(), self.options.clone());
+        let document = match role {
+            FileRole::Cells { cells } => {
+                Document::new_cells(text, cells.clone(), catalog, library, options)
+            }
+            _ => Document::new(text, role.role(), catalog, library, options),
+        };
+        document.with_paths(self.paths.clone())
     }
 }
 

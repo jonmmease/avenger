@@ -172,9 +172,10 @@ impl Document {
 
         // The renamed text must mean what the text means: no new error, and the same names
         // refer to the renamed definition.
-        let renamed_document = Document::new(
+        let renamed_document = Document::build(
             apply(&self.text, &edits),
             self.role,
+            moved_cells(&self.cells, &edits),
             self.catalog.clone(),
             self.library.clone(),
             self.options.clone(),
@@ -406,6 +407,19 @@ pub(crate) fn apply(text: &str, edits: &[TextEdit]) -> String {
     }
     out.push_str(&text[at..]);
     out
+}
+
+/// The starts of cells `cells` after `edits`, each moved by the edits before it.
+fn moved_cells(cells: &[Offset], edits: &[TextEdit]) -> std::sync::Arc<[Offset]> {
+    (cells.iter())
+        .map(|start| {
+            let shift: i64 = (edits.iter())
+                .filter(|edit| edit.range.end() <= *start)
+                .map(|edit| edit.replacement.len() as i64 - i64::from(u32::from(edit.range.len())))
+                .sum();
+            Offset::from((i64::from(u32::from(*start)) + shift) as u32)
+        })
+        .collect()
 }
 
 /// Where `range` is after `edits`: an edited range becomes the range of its replacement, and

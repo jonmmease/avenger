@@ -30,7 +30,7 @@ use avenger_sql_language::FileRole;
 use avenger_sql_project::{
     charts::{background, label_engine, preferences},
     find_root,
-    qmd::{cell_path, is_document, Cell, Qmd},
+    qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
 };
 use avenger_style::{Cascade, ColorScheme, HostInputs, ParseOptions, Sheet, SourceId};
@@ -39,6 +39,7 @@ use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::{common::DataFusionError, dataframe::DataFrame};
 
 use crate::{
+    cells,
     check::{check_text, failure_reports, first_line, File, Place},
     project::{load_files, targets},
     report::{Output, Report, Severity},
@@ -292,6 +293,10 @@ pub(crate) struct Target {
     pub(crate) file: PathBuf,
     pub(crate) document: Option<Qmd>,
     pub(crate) cell: Option<usize>,
+    /// For a cell, its document's script with only the statements that its statement reads, cut
+    /// after it, and how the target names it, which finds it again after the document changes.
+    pub(crate) masked: Option<String>,
+    pub(crate) pick: Option<Pick>,
     /// The files of the project, and its root on disk, or `None` for a loose file, which runs as
     /// a project of one file.
     pub(crate) files: ProjectFiles,
@@ -339,15 +344,43 @@ impl Target {
         }
     }
 
+    /// How the target of a cell names its statement in `document`, its document after a change: a
+    /// cell's value as before, and a statement at a line at the same line of its cell, which keeps
+    /// its label or its number, so the target follows edits around the cell.
+    pub(crate) fn moved_pick(&self, document: &Qmd) -> Result<Pick, String> {
+        let (Some(Pick::Line(line)), Some(old), Some(cell)) =
+            (&self.pick, &self.document, self.cell())
+        else {
+            return Ok(self.pick.clone().unwrap_or(Pick::Only));
+        };
+        let line_of = |text: &str, offset: usize| text[..offset].matches('\n').count() + 1;
+        let within = line - line_of(&old.text, cell.range.start);
+        let name = self.cell_name().unwrap_or_else(|| "1".to_string());
+        let (_, moved) = (document.cell(&name))
+            .ok_or_else(|| format!("`{}` has no cell `{name}` any more", self.display_name()))?;
+        Ok(Pick::Line(
+            line_of(&document.text, moved.range.start) + within,
+        ))
+    }
+
+    /// Points the target of a cell at what `aim` runs in its document, after the document
+    /// changed.
+    pub(crate) fn retarget(&mut self, aim: CellAim) {
+        self.cell = Some(aim.cell);
+        self.text = aim.masked.clone();
+        self.masked = Some(aim.masked);
+        self.show(aim.statement);
+    }
+
     /// Points the target at its statement again, by the statement's key, after its text changed:
     /// its script's text, or its cell's. The target's line follows the statement.
     pub(crate) fn point_again(&mut self) -> Result<(), String> {
         let Some(statement) = &self.statement else {
             return Ok(());
         };
-        let (before, script) = (self.lines_before(), self.script_kind());
+        let script = self.script_kind();
         let file = self.display_name();
-        let statement = by_key(&self.text, &statement.key, before, script, &file)?;
+        let statement = by_key(&self.text, &statement.key, 0, script, &file)?;
         self.show(statement);
         Ok(())
     }
@@ -355,24 +388,23 @@ impl Target {
     /// Shows the statement `statement` of the target's text: the script's value as the target's
     /// text, and another statement as a chart script of its own at [`STATEMENT_PATH`].
     fn show(&mut self, statement: Statement) {
-        if !matches!(statement.shows, Shows::Value | Shows::Step(_)) {
+        // A cell's statement runs in its masked script, whose cells can start with `DECLARE`s.
+        let role = (self.document.as_ref()).map(|document| FileRole::Cells {
+            cells: document.script.cell_starts(),
+        });
+        if role.is_some() || !matches!(statement.shows, Shows::Value | Shows::Step(_)) {
             let text = statement.text(&self.text);
             let project = self.analysis.project_mut();
-            project.add(STATEMENT_PATH, FileRole::Chart, text.as_str());
+            project.add(
+                STATEMENT_PATH,
+                role.unwrap_or(FileRole::Chart),
+                text.as_str(),
+            );
             self.path = STATEMENT_PATH.to_string();
             self.text = text;
         }
-        self.line = Some(statement.line + self.lines_before());
+        self.line = Some(statement.line);
         self.statement = Some(statement);
-    }
-
-    /// The lines of the file before the target's text: none for a script, and those of the
-    /// document before its cell.
-    pub(crate) fn lines_before(&self) -> usize {
-        match (&self.document, self.cell) {
-            (Some(document), Some(index)) => lines_before(document, index),
-            _ => 0,
-        }
     }
 
     /// The kind of the target's script.
@@ -423,11 +455,39 @@ impl Target {
     /// a script, in its document for a cell, and the start of the statement for a data script's
     /// statement, whose query the file doesn't hold.
     fn to_file(&self, offset: usize) -> usize {
-        match (self.cell(), &self.statement) {
+        match (&self.document, &self.statement) {
             (_, Some(statement)) if self.data => statement.start,
-            (Some(cell), _) => cell.to_document(offset),
+            (Some(document), _) => document.script.to_document(offset),
             (None, _) => offset,
         }
+    }
+
+    /// The reports of a cell's errors `reports`, or when one is of an earlier cell that the
+    /// cell's statement reads, one report at the cell's first line that names that cell and the
+    /// error's line, since the errors that follow in the cell are that error's.
+    fn earlier(&self, reports: Vec<Report>) -> Vec<Report> {
+        let (Some(document), Some(cell)) = (&self.document, self.cell) else {
+            return reports;
+        };
+        let script = &document.script;
+        let cell_of = |report: &Report| {
+            let range = report.range.as_ref()?;
+            script.cell_at(script.to_script(range.bytes.0)?)
+        };
+        let earlier = (reports.iter()).find_map(|report| {
+            let other = cell_of(report).filter(|other| *other != cell)?;
+            (report.severity == Severity::Error).then_some((report, other))
+        });
+        let Some((earlier, other)) = earlier else {
+            return reports;
+        };
+        let line = earlier.range.as_ref().map_or(0, |range| range.start.line);
+        let message = format!(
+            "the cell reads cell {}, whose statement at line {line} has an error: {}",
+            other + 1,
+            earlier.message
+        );
+        vec![self.report(message)]
     }
 
     /// The cell of the target, for a cell of a document.
@@ -444,8 +504,8 @@ impl Target {
     /// The text of the target's script, whose statements a statement's run runs: the script's,
     /// or its cell's.
     pub(crate) fn script_text(&self) -> String {
-        match self.cell() {
-            Some(cell) => cell.text.clone(),
+        match &self.masked {
+            Some(masked) => masked.clone(),
             None => self.source().to_string(),
         }
     }
@@ -593,7 +653,7 @@ async fn plan_chart(
     let file = target.on_disk(&place);
     let reports = check_text(&target.analysis, &target.loader, path, text, false, &file).await;
     if (reports.iter()).any(|report| report.severity == Severity::Error) {
-        return Err(Failure::Reports(reports));
+        return Err(Failure::Reports(target.earlier(reports)));
     }
     match target.loader.run_chart_with(path, text, overrides).await {
         Ok(frame) => Ok(frame),
@@ -785,39 +845,36 @@ impl Project {
             self.files.manifest().role(&relative),
             Ok(Some(Role::DataScript))
         );
-        let (path, text, document, cell) = match self.analysis.qmd(&relative) {
-            Some(document) => {
-                let (index, cell) = match (name, line) {
-                    (_, Some(line)) => (cell_at_line(document, line))
-                        .map_err(|error| format!("{chart}:{line}: {error}"))?,
-                    (Some(name), None) => document.cell(name).ok_or_else(|| {
-                        format!("{}: no `{{avenger-sql}}` cell `{name}`", file.display())
-                    })?,
-                    (None, None) if document.cells.len() == 1 => (0, &document.cells[0]),
-                    (None, None) => {
-                        return Err(Failure::Usage(format!(
-                            "{}: the document has {} cells; name one as `#NUMBER` or `#LABEL`, or \
-                             by a line as `:LINE`",
-                            file.display(),
-                            document.cells.len()
-                        )))
-                    }
-                };
-                let text = cell.text.clone();
-                (
-                    cell_path(&relative, index + 1),
-                    text,
-                    Some(document.clone()),
-                    Some(index),
-                )
-            }
-            None => {
-                let text = (self.analysis.project().document(&relative))
-                    .map(|document| document.text().to_string())
-                    .ok_or_else(|| format!("{}: not a chart script", file.display()))?;
-                (relative.clone(), text, None, None)
-            }
-        };
+        if let Some(document) = self.analysis.qmd(&relative) {
+            let pick = match (name, line) {
+                (_, Some(line)) => Pick::Line(line),
+                (Some(name), None) => Pick::Name(name.to_string()),
+                (None, None) => Pick::Only,
+            };
+            let aim =
+                cell_aim(document, &file.display().to_string(), &pick).map_err(
+                    |error| match line {
+                        Some(line) => format!("{chart}:{line}: {error}"),
+                        None => error,
+                    },
+                )?;
+            return Ok(Aim {
+                path: relative.clone(),
+                text: aim.masked.clone(),
+                script: relative,
+                file,
+                document: Some(document.clone()),
+                cell: Some(aim.cell),
+                masked: Some(aim.masked),
+                pick: Some(pick),
+                statement: Some(aim.statement),
+                data: false,
+            });
+        }
+        let path = relative.clone();
+        let text = (self.analysis.project().document(&relative))
+            .map(|document| document.text().to_string())
+            .ok_or_else(|| format!("{}: not a chart script", file.display()))?;
         if let (true, None) = (data, line) {
             // A data script has no value: its tables show by their lines.
             let tables: Vec<String> = (data_tables(&text).into_iter())
@@ -833,15 +890,11 @@ impl Project {
         }
         let statement = match line {
             Some(line) => {
-                let before = match (&document, cell) {
-                    (Some(document), Some(index)) => lines_before(document, index),
-                    _ => 0,
-                };
                 let script = match data {
                     true => Script::Data,
                     false => Script::Chart,
                 };
-                let statement = (at_line(&text, line - before, before, script))
+                let statement = (at_line(&text, line, 0, script))
                     .map_err(|error| format!("{chart}:{line}: {error}"))?;
                 Some(statement)
             }
@@ -852,19 +905,87 @@ impl Project {
             text,
             script: relative,
             file,
-            document,
-            cell,
+            document: None,
+            cell: None,
+            masked: None,
+            pick: None,
             statement,
             data,
         })
     }
 }
 
-/// The lines of the text of `document` before its cell at `index`.
-fn lines_before(document: &Qmd, index: usize) -> usize {
-    document.text[..document.cells[index].range.start]
-        .matches('\n')
-        .count()
+/// How a target names the statement of a cell that it runs: the value of a cell by its number or
+/// its label, the statement at a line, or the value of a document's one cell with a value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Pick {
+    Name(String),
+    Line(usize),
+    Only,
+}
+
+/// What a target of a cell runs: the cell's index, the document's script masked to what the
+/// cell's statement reads, and the statement.
+pub(crate) struct CellAim {
+    pub(crate) cell: usize,
+    pub(crate) masked: String,
+    pub(crate) statement: Statement,
+}
+
+/// What the target that `pick` names in `document`, the file `file`, runs. A cell runs with the
+/// statements of its cell before its statement and the statements that those read, in the cells
+/// before it, and none of the others, as [`cells`] finds them.
+pub(crate) fn cell_aim(document: &Qmd, file: &str, pick: &Pick) -> Result<CellAim, String> {
+    let statements = cells::statements(document);
+    let values: Vec<usize> = (0..document.cells.len())
+        .filter(|index| cells::value(&statements, *index).is_some())
+        .collect();
+    let numbers = || {
+        let numbers: Vec<String> = values.iter().map(|index| (index + 1).to_string()).collect();
+        match numbers.is_empty() {
+            true => "no cell has one".to_string(),
+            false => format!("the cells with values are {}", numbers.join(", ")),
+        }
+    };
+    let at = match pick {
+        Pick::Name(name) => {
+            let (index, _) = (document.cell(name))
+                .ok_or_else(|| format!("{file}: no `{{avenger-sql}}` cell `{name}`"))?;
+            cells::value(&statements, index).ok_or_else(|| {
+                format!(
+                    "{file}: cell `{name}` has no value, since it makes no query; {}",
+                    numbers()
+                )
+            })?
+        }
+        Pick::Line(line) => {
+            cell_at_line(document, *line)?;
+            let statement = at_line(&document.script.text, *line, 0, Script::Chart)?;
+            (statements.iter())
+                .position(|at| at.start == statement.start)
+                .ok_or_else(|| format!("no statement of a cell at line {line}"))?
+        }
+        Pick::Only => match values[..] {
+            [index] => cells::value(&statements, index).expect("a cell with a value"),
+            _ => {
+                return Err(format!(
+                    "{file}: the document has {} cells, and {}; name one as `#NUMBER` or \
+                     `#LABEL`, or by a line as `:LINE`",
+                    document.cells.len(),
+                    numbers()
+                ))
+            }
+        },
+    };
+    let keep = cells::closure(&statements, at);
+    let masked = cells::masked(document, &statements, &keep, at);
+    let line = masked[..statements[at].start].matches('\n').count() + 1;
+    let statement = at_line(&masked, line, 0, Script::Chart)?;
+    Ok(CellAim {
+        cell: statements[at].cell.expect("a statement of a cell"),
+        masked,
+        statement,
+    })
 }
 
 /// What a target runs in its project: its path in the analysis and its text, its file, and the
@@ -876,6 +997,8 @@ pub(crate) struct Aim {
     file: PathBuf,
     document: Option<Qmd>,
     cell: Option<usize>,
+    masked: Option<String>,
+    pick: Option<Pick>,
     statement: Option<Statement>,
     data: bool,
 }
@@ -896,6 +1019,8 @@ impl Aim {
             file: self.file,
             document: self.document,
             cell: self.cell,
+            masked: self.masked,
+            pick: self.pick,
             line: None,
             statement: None,
             data: self.data,

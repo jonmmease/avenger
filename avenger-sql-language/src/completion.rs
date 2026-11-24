@@ -366,9 +366,13 @@ impl Document {
                     }
                 }
                 Expected::Statement => {
-                    // A `DECLARE` comes before the other statements of a script.
+                    // A `DECLARE` comes before the other statements of a script, or of its cell.
+                    let cell = (self.cells.iter()).rfind(|cell| **cell <= start).copied();
                     let declares = statements(&root)
                         .filter(|stmt| stmt.syntax().text_range().end() <= start)
+                        .filter(|stmt| {
+                            cell.is_none_or(|cell| stmt.syntax().text_range().start() >= cell)
+                        })
                         .all(|stmt| matches!(stmt, ast::Stmt::DeclareStmt(_)));
                     let keywords = match self.role {
                         Role::Script => STATEMENTS,

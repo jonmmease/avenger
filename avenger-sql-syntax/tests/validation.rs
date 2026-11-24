@@ -158,3 +158,30 @@ fn an_unclosed_string_adds_no_errors_of_its_literal() {
         ]
     );
 }
+
+#[test]
+fn a_cell_of_a_document_starts_with_its_declares() {
+    use avenger_sql_syntax::{parse_cells, Offset};
+    let text = "DECLARE a INT64 DEFAULT 1;\nFROM t;\nDECLARE b INT64 DEFAULT 2;\nFROM t;\nDECLARE c INT64 DEFAULT 3;\n";
+    let second = text.find("DECLARE b").unwrap();
+    // A `DECLARE` at the start of the second cell is in order, and one after another statement
+    // of its cell is not.
+    let parse = parse_cells(text, &[Offset::from(0), Offset::from(second as u32)]);
+    let late: Vec<(&str, &str)> = (parse.diagnostics().iter())
+        .map(|diagnostic| {
+            assert_eq!(diagnostic.code, DiagnosticCode::DeclareOrder);
+            let range = std::ops::Range::<usize>::from(diagnostic.range);
+            (&text[range], diagnostic.message.as_str())
+        })
+        .collect();
+    assert_eq!(
+        late,
+        [(
+            "DECLARE c INT64 DEFAULT 3",
+            "a DECLARE comes before the other statements of its cell"
+        )]
+    );
+    // A script without cells has GoogleSQL's rule.
+    let script = avenger_sql_syntax::parse(text);
+    assert_eq!(script.diagnostics().len(), 2);
+}

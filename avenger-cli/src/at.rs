@@ -11,7 +11,7 @@ use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library};
 use avenger_sql_language::{Document, Offset, Role as TextRole};
 use avenger_sql_project::{
     find_root,
-    qmd::{cell_path, is_document, Cell, Qmd},
+    qmd::{is_document, Qmd},
     MODULE_SUFFIX,
 };
 use lsp_types::Position;
@@ -32,9 +32,9 @@ enum Analyzed {
 /// The document and the offset of a position.
 pub(crate) struct At {
     analyzed: Analyzed,
-    /// The text of the file on disk, and the cell of a document that holds the position.
+    /// The text of the file on disk, and for a document, the document.
     text: String,
-    cell: Option<Cell>,
+    document: Option<Qmd>,
     /// The offset in the document.
     pub offset: Offset,
 }
@@ -59,13 +59,12 @@ impl At {
             let opened = open(Some(&file)).await?;
             let relative = relative(&root, &file);
             if let Some(qmd) = opened.analysis.qmd(&relative) {
-                let (index, cell, offset) = in_cell(qmd, position, path)?;
-                let path = cell_path(&relative, index + 1);
-                let opened = Box::new(opened);
+                let (qmd, offset) = (qmd.clone(), in_cell(qmd, position, path)?);
+                let (opened, path) = (Box::new(opened), relative);
                 return Ok(At {
                     analyzed: Analyzed::Project { opened, path },
                     text,
-                    cell: Some(cell),
+                    document: Some(qmd),
                     offset,
                 });
             }
@@ -75,18 +74,26 @@ impl At {
                 return Ok(At {
                     analyzed: Analyzed::Project { opened, path },
                     text,
-                    cell: None,
+                    document: None,
                     offset,
                 });
             }
         }
         // A loose file, or a file without a role in its project, alone.
         if is_document(&file.to_string_lossy()) {
-            let (_, cell, offset) = in_cell(&Qmd::parse(text.as_str()), position, path)?;
+            let qmd = Qmd::parse(text.as_str());
+            let offset = in_cell(&qmd, position, path)?;
+            let script = Document::new_cells(
+                qmd.script.text.as_str(),
+                qmd.script.cell_starts(),
+                Arc::new(MemoryCatalog::new()),
+                Arc::new(Library::new()),
+                Options::default(),
+            );
             return Ok(At {
-                analyzed: Analyzed::Alone(Box::new(alone(&cell.text, TextRole::Script))),
+                analyzed: Analyzed::Alone(Box::new(script)),
                 text,
-                cell: Some(cell),
+                document: Some(qmd),
                 offset,
             });
         }
@@ -98,7 +105,7 @@ impl At {
         Ok(At {
             analyzed: Analyzed::Alone(Box::new(alone(&text, role))),
             text,
-            cell: None,
+            document: None,
             offset,
         })
     }
@@ -145,20 +152,18 @@ impl At {
 
     /// The line and the column, from 1, of the offset `offset` of the document.
     pub fn line_column(&self, offset: Offset) -> (u32, u32) {
-        let place = Place::new(&self.text, self.cell.as_ref(), Encoding::Utf32);
+        let place = Place::new(&self.text, self.document.as_ref(), Encoding::Utf32);
         let position = place.position(usize::from(offset));
         (position.line + 1, position.character + 1)
     }
 }
 
-/// The cell of `qmd` that holds `position`, its index, and the position's offset in it, or the
-/// error of a position of the file `path` outside every cell.
-fn in_cell(qmd: &Qmd, position: Position, path: &str) -> Result<(usize, Cell, Offset), String> {
+/// The offset in the script of the cells of `qmd` of `position`, or the error of a position of
+/// the file `path` outside every cell of the script.
+fn in_cell(qmd: &Qmd, position: Position, path: &str) -> Result<Offset, String> {
     let offset = usize::from(LineIndex::new(&qmd.text, Encoding::Utf32).offset(position));
-    let found = (qmd.cells.iter().enumerate())
-        .find_map(|(index, cell)| Some((index, cell, cell.to_cell(offset)?)));
-    match found {
-        Some((index, cell, in_cell)) => Ok((index, cell.clone(), Offset::from(in_cell as u32))),
+    match qmd.script.to_script(offset) {
+        Some(offset) => Ok(Offset::from(offset as u32)),
         None => Err(format!(
             "{path}:{}:{}: not in an `{{avenger-sql}}` cell",
             position.line + 1,

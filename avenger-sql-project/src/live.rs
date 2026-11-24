@@ -3,7 +3,8 @@
 //! that analyzes every script and module with the tables that the loader read, kept in step.
 //!
 //! The analysis also holds the project's Quarto documents, whose `{avenger-sql}` cells it
-//! analyzes as chart scripts at the paths that [`qmd::cell_path`](crate::qmd::cell_path) gives.
+//! analyzes as one chart script at the document's path, the document's
+//! [`DocumentScript`](crate::qmd::DocumentScript).
 //!
 //! The futures of the loader are not `Send`, so a tool runs them on one thread, apart from the
 //! analysis. Each load sends back a [`LoadState`], which [`Analysis::apply`] takes, so that the
@@ -28,7 +29,7 @@ use tokio::sync::RwLock;
 use crate::{
     load::{ChartError, FilesReload, LoadedProject, ProjectDiagnostic, ScriptStatus, TableChange},
     project::{ProjectError, ProjectFiles},
-    qmd::{cell_path, set_cells, Qmd},
+    qmd::{role, set_script, Qmd},
 };
 
 /// The loaded project, which a tool's background work shares. A chart run reads it and a load
@@ -291,13 +292,7 @@ impl Analysis {
         let mut documents = BTreeMap::new();
         for path in files.documents() {
             let document = Qmd::parse(source.read_text(path).await?);
-            for (index, cell) in document.cells.iter().enumerate() {
-                texts.push((
-                    cell_path(path, index + 1),
-                    FileRole::Chart,
-                    cell.text.clone(),
-                ));
-            }
+            texts.push((path.clone(), role(&document), document.script.text.clone()));
             documents.insert(path.clone(), document);
         }
         let project = Project::new(
@@ -326,13 +321,12 @@ impl Analysis {
 
     /// Sets the text of the document at `path`, as an editor or a change on disk gives it, which
     /// adds the document when the analysis lacks it, or removes the document without a text.
-    /// The result is the files that the change reaches, as [`Project::set_texts`] gives them,
-    /// with the document's own path, since its cells move when its other lines change.
+    /// The result is the files that the change reaches, as [`Project::add`] gives them, with the
+    /// document's own path.
     pub fn set_document(&mut self, path: &str, text: Option<String>) -> BTreeSet<String> {
-        let old = self.documents.remove(path).unwrap_or_default();
+        self.documents.remove(path);
         let new = text.map(Qmd::parse);
-        let cells = new.as_ref().map_or(&[][..], |new| &new.cells[..]);
-        let mut reached = set_cells(&mut self.project, path, &old.cells, cells);
+        let mut reached = set_script(&mut self.project, path, new.as_ref());
         reached.insert(path.to_string());
         if let Some(new) = new {
             self.documents.insert(path.to_string(), new);

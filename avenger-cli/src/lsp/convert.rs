@@ -8,7 +8,7 @@ use avenger_sql_language::{
 };
 use avenger_sql_syntax::NameRole;
 
-use avenger_sql_project::qmd::Cell;
+use avenger_sql_project::qmd::{Cell, Qmd};
 use lsp_types::{
     CompletionItemKind, DiagnosticSeverity, Position, Range, SemanticTokenModifier,
     SemanticTokenType, SymbolKind as LspSymbolKind,
@@ -106,31 +106,44 @@ impl<'a> LineIndex<'a> {
 }
 
 /// Where a file of the analysis is in a file of the client: all of it, for a script or a module,
-/// or a cell of a document.
+/// or the script of a document's cells, whose lines are the document's.
 pub struct Place<'a> {
     index: LineIndex<'a>,
-    cell: Option<&'a Cell>,
+    document: Option<&'a Qmd>,
 }
 
 impl<'a> Place<'a> {
-    /// The place of the file `cell` of the client's text `text`, or of all of it without one.
-    pub fn new(text: &'a str, cell: Option<&'a Cell>, encoding: Encoding) -> Place<'a> {
+    /// The place of the file of the client's text `text`, the script of `document`'s cells, or
+    /// all of it without one.
+    pub fn new(text: &'a str, document: Option<&'a Qmd>, encoding: Encoding) -> Place<'a> {
         Place {
             index: LineIndex::new(text, encoding),
-            cell,
+            document,
         }
     }
 
-    pub fn cell(&self) -> Option<&'a Cell> {
-        self.cell
+    /// The document whose cells' script the file of the analysis is.
+    pub fn document(&self) -> Option<&'a Qmd> {
+        self.document
+    }
+
+    /// The cell of the offset `offset` of the file of the analysis, for a document's script.
+    pub fn cell_at(&self, offset: usize) -> Option<&'a Cell> {
+        let document = self.document?;
+        Some(&document.cells[document.script.cell_at(offset)?])
+    }
+
+    /// The offset in the client's file of the offset `offset` of the file of the analysis.
+    fn to_file(&self, offset: usize) -> usize {
+        match self.document {
+            Some(document) => document.script.to_document(offset),
+            None => offset,
+        }
     }
 
     /// The position of the offset `offset` of the file of the analysis.
     pub fn position(&self, offset: usize) -> Position {
-        match self.cell {
-            Some(cell) => self.index.position(cell.to_document(offset)),
-            None => self.index.position(offset),
-        }
+        self.index.position(self.to_file(offset))
     }
 
     pub fn range(&self, range: TextRange) -> Range {
@@ -150,41 +163,56 @@ impl<'a> Place<'a> {
         self.index.position(offset)
     }
 
-    /// The offset in the file of the analysis of `position`, or `None` outside the cell.
+    /// The offset in the file of the analysis of `position`, or `None` outside the cells of a
+    /// document.
     pub fn offset(&self, position: Position) -> Option<Offset> {
         let offset = self.index.offset(position);
-        match self.cell {
-            Some(cell) => Some(Offset::from(cell.to_cell(usize::from(offset))? as u32)),
+        match self.document {
+            Some(document) => Some(Offset::from(
+                document.script.to_script(usize::from(offset))? as u32,
+            )),
             None => Some(offset),
         }
     }
 
-    /// The range in the file of the analysis of `range`, cut to the cell, or `None` when the
-    /// range misses it.
+    /// The range in the file of the analysis of `range`, or `None` when the range holds no text
+    /// of a document's cells.
     pub fn text_range(&self, range: Range) -> Option<TextRange> {
-        let Some(cell) = self.cell else {
+        let Some(document) = self.document else {
             return Some(self.index.text_range(range));
         };
         let range = self.index.text_range(range);
         let (start, end) = (usize::from(range.start()), usize::from(range.end()));
-        if end < cell.range.start || cell.range.end < start {
-            return None;
-        }
-        let start = cell.to_cell(start.max(cell.range.start)).unwrap_or(0);
-        let end = cell
-            .to_cell(end.min(cell.range.end))
-            .unwrap_or(cell.text.len());
+        let script = &document.script;
+        let (start, end) = match (script.to_script(start), script.to_script(end)) {
+            (Some(start), Some(end)) => (start, end),
+            (Some(start), None) => (
+                start,
+                script
+                    .cell_at(start)
+                    .and_then(|cell| script.cells[cell].clone())
+                    .map_or(start, |cell| cell.end),
+            ),
+            (None, Some(end)) => (
+                script
+                    .cell_at(end)
+                    .and_then(|cell| script.cells[cell].clone())
+                    .map_or(end, |cell| cell.start),
+                end,
+            ),
+            (None, None) => return None,
+        };
         Some(TextRange::new(
             Offset::from(start as u32),
             Offset::from(end.max(start) as u32),
         ))
     }
 
-    /// The text `replacement` of an edit of the file of the analysis, with the indent of the
-    /// cell before each line with text after the first, and at its end after a line break,
-    /// before the line of the document that follows.
-    pub fn replacement(&self, replacement: &str) -> String {
-        let indent = self.cell.map_or("", |cell| cell.indent.as_str());
+    /// The text `replacement` of an edit at the offset `at` of the file of the analysis, with the
+    /// indent of the fence of the cell there before each line with text after the first, and at
+    /// its end after a line break, before the line of the document that follows.
+    pub fn replacement(&self, at: Offset, replacement: &str) -> String {
+        let indent = (self.cell_at(usize::from(at))).map_or("", |cell| cell.indent.as_str());
         if indent.is_empty() || !replacement.contains('\n') {
             return replacement.to_string();
         }

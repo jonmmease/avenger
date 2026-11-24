@@ -86,8 +86,13 @@ pub async fn sql_with_modules(
 /// [`DataFusionError::External`].
 pub fn script_tree(text: &str) -> Result<SyntaxNode> {
     let parse = avenger_sql_syntax::parse(text);
-    if !parse.ok() {
-        let diagnostics = (parse.diagnostics().iter())
+    // The order of `DECLARE`s is a rule of a script's text, which `check` reports: the script of
+    // a Quarto document's cells, whose cells can start with `DECLARE`s, runs as a script.
+    let errors: Vec<_> = (parse.diagnostics().iter())
+        .filter(|diagnostic| diagnostic.code != avenger_sql_syntax::DiagnosticCode::DeclareOrder)
+        .collect();
+    if !errors.is_empty() {
+        let diagnostics = (errors.into_iter())
             .map(|diagnostic| Diagnostic {
                 range: diagnostic.range,
                 message: diagnostic.message.clone(),

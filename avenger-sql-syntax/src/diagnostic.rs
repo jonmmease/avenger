@@ -27,6 +27,10 @@ pub enum DiagnosticCode {
     NotPipeSyntax,
     /// A rule of the forms of a statement, such as the parts of a `CREATE`, or of a module.
     InvalidStatement,
+    /// A `DECLARE` after the other statements of a script, or of its cell in a script of cells.
+    /// The order is GoogleSQL's rule of a script's text: the statements run the same in any
+    /// order, so a runner of a checked script, whose cells it doesn't know, can leave it out.
+    DeclareOrder,
     /// Parentheses nested too deeply to parse.
     TooDeep,
 }

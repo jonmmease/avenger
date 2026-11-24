@@ -23,7 +23,7 @@ use avenger_results_egui::{RowSource, RowStream};
 use datafusion::{arrow::datatypes::SchemaRef, dataframe::DataFrame};
 use futures::{future::LocalBoxFuture, StreamExt};
 
-use crate::render::{collect_target, load, plan_target, Failure, Target};
+use crate::render::{cell_aim, collect_target, load, plan_target, Failure, Target};
 use crate::report::{Report, Severity};
 use crate::statement::split_line;
 
@@ -235,9 +235,10 @@ impl Session {
         outcomes
     }
 
-    /// Reads the chart's own file again: a script, or the document of a cell, whose cell keeps
-    /// its label or its number. A target's statement is found again by its key, so it follows
-    /// edits around it.
+    /// Reads the chart's own file again: a script, whose statement is found again by its key, so
+    /// it follows edits around it, or the document of a cell, whose statement is found again as
+    /// the target names it: a cell's value by its label or its number, or the statement at a
+    /// line.
     fn own_text_changed(&mut self, path: &Path) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let target = &mut self.target;
@@ -252,15 +253,13 @@ impl Session {
             }
             Some(_) => {
                 let document = Qmd::parse(text.as_str());
-                let name = target.cell_name().unwrap_or_else(|| "1".to_string());
-                let (index, cell) = document.cell(&name).ok_or_else(|| {
-                    format!("`{}` has no cell `{name}` any more", target.display_name())
-                })?;
-                target.text = cell.text.clone();
-                target.path = avenger_sql_project::qmd::cell_path(&target.script, index + 1);
-                target.cell = Some(index);
+                let pick = target.moved_pick(&document)?;
+                let aim = cell_aim(&document, &target.display_name(), &pick)?;
                 target.analysis.set_document(&target.script, Some(text));
                 target.document = Some(document);
+                target.pick = Some(pick);
+                target.retarget(aim);
+                return Ok(());
             }
         }
         if let Err(error) = target.point_again() {
