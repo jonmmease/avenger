@@ -385,11 +385,7 @@ impl Target {
     pub(crate) fn cell_name(&self) -> Option<String> {
         let index = self.cell?;
         let cell = self.cell()?;
-        Some(
-            cell.label
-                .clone()
-                .unwrap_or_else(|| (index + 1).to_string()),
-        )
+        Some((cell.options.label.clone()).unwrap_or_else(|| (index + 1).to_string()))
     }
 
     /// The window's title of the target: its file, with the line of its statement, its cell, and

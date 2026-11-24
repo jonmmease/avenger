@@ -31,7 +31,7 @@ fn project() -> (tempfile::TempDir, PathBuf) {
     (directory, root)
 }
 
-const REPORT: &str = "# Report\n\n```{avenger-sql}\n--| label: fig-weather\nFROM wet_days |> AGGREGATE mark_bar(x => weather, y => COUNT(*)) AS chart\n```\n";
+const REPORT: &str = "# Report\n\n```{avenger-sql}\n#| label: fig-weather\nFROM wet_days |> AGGREGATE mark_bar(x => weather, y => COUNT(*)) AS chart\n```\n";
 
 /// The kinds of `outcomes`, in order.
 fn kinds(outcomes: &[Outcome]) -> Vec<&'static str> {

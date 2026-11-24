@@ -773,6 +773,9 @@ impl Server {
             if let Some(document) = state.analysis.qmd(path) {
                 for (index, cell) in document.cells.iter().enumerate() {
                     let place = Place::new(&document.text, Some(cell), self.encoding);
+                    diagnostics.extend(
+                        (cell.option_diagnostics().iter()).map(|d| lsp_diagnostic(&place, d)),
+                    );
                     let cell = cell_path(path, index + 1);
                     diagnostics.extend(
                         (project.diagnostics(&cell).iter()).map(|d| lsp_diagnostic(&place, d)),
@@ -805,6 +808,8 @@ impl Server {
         if let Some(document) = self.loose_documents.get(path) {
             for (cell, analysis) in document.qmd.cells.iter().zip(&document.cells) {
                 let place = Place::new(&document.qmd.text, Some(cell), self.encoding);
+                diagnostics
+                    .extend((cell.option_diagnostics().iter()).map(|d| lsp_diagnostic(&place, d)));
                 diagnostics.extend(
                     analysis
                         .diagnostics()

@@ -217,6 +217,7 @@ pub fn source(source: Source) -> &'static str {
         Source::Project => "avenger project",
         Source::Loader => "avenger loader",
         Source::Typst => "typst",
+        Source::Options => "avenger cell options",
     }
 }
 

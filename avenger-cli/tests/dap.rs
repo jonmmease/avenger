@@ -50,7 +50,7 @@ FROM heavy
 ";
 
 /// A document whose labeled cell starts at its fourth line.
-const REPORT: &str = "# Report\n\n```{avenger-sql}\n--| label: fig-weather\nFROM wet_days\n|> AGGREGATE mark_bar(x => weather, y => COUNT(*)) AS chart\n```\n";
+const REPORT: &str = "# Report\n\n```{avenger-sql}\n#| label: fig-weather\nFROM wet_days\n|> AGGREGATE mark_bar(x => weather, y => COUNT(*)) AS chart\n```\n";
 
 const HEAVY: &str = "\
 DECLARE min_weight INT64 DEFAULT 3000;

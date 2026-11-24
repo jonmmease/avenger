@@ -1,8 +1,8 @@
 //! The cells of Quarto documents: the fences that are cells and those that are not, fences in
 //! HTML comments, indented fences, with spaces and tabs, the offsets of a cell in its document,
-//! and the formatting of cells.
+//! the formatting of cells, and the options of a cell's leading `#|` lines.
 
-use avenger_sql_project::qmd::{cell_path, split_cell_path, Qmd};
+use avenger_sql_project::qmd::{cell_path, split_cell_path, CellOptions, FigFormat, Qmd};
 
 const DOCUMENT: &str = "\
 ---
@@ -10,7 +10,7 @@ title: Overview
 ---
 
 ```{avenger-sql}
---| label: fig-heavy
+#| label: fig-heavy
 FROM heavy
 ```
 
@@ -46,7 +46,7 @@ fn the_cells_are_the_avenger_fences_outside_other_blocks() {
     assert_eq!(
         texts,
         [
-            "--| label: fig-heavy\nFROM heavy\n",
+            "#| label: fig-heavy\nFROM heavy\n",
             "FROM wet\n|> SELECT date\n",
             "FROM tilde\n"
         ]
@@ -181,10 +181,10 @@ fn a_tab_indents_a_fence_to_the_next_multiple_of_four_columns() {
 #[test]
 fn a_cell_has_a_number_and_the_label_of_its_options() {
     let document = Qmd::parse(
-        "```{avenger-sql}\n--| label: fig-heavy\n--| echo: false\nFROM heavy\n```\n\n```{avenger-sql}\n--| echo: false\nFROM t\n--| label: not-an-option\n```\n\n```{avenger-sql}\n--| label: \"fig-quoted\"\nFROM q\n```\n",
+        "```{avenger-sql}\n#| label: fig-heavy\n#| echo: false\nFROM heavy\n```\n\n```{avenger-sql}\n#| echo: false\nFROM t\n#| label: not-an-option\n```\n\n```{avenger-sql}\n#| label: \"fig-quoted\"\nFROM q\n```\n",
     );
     let labels: Vec<Option<&str>> = (document.cells.iter())
-        .map(|cell| cell.label.as_deref())
+        .map(|cell| cell.options.label.as_deref())
         .collect();
     // An option line after the cell's first statement line is no option.
     assert_eq!(labels, [Some("fig-heavy"), None, Some("fig-quoted")]);
@@ -194,4 +194,107 @@ fn a_cell_has_a_number_and_the_label_of_its_options() {
     assert!(document.cell("0").is_none());
     assert!(document.cell("4").is_none());
     assert!(document.cell("fig-none").is_none());
+}
+
+/// The options and the option errors of the one cell of `options`, its `#|` lines, and its
+/// text.
+fn cell_options(options: &str) -> (CellOptions, Vec<(String, String)>) {
+    let document = Qmd::parse(format!("```{{avenger-sql}}\n{options}FROM t\n```\n"));
+    let cell = &document.cells[0];
+    let errors = (cell.option_errors.iter())
+        .map(|error| {
+            (
+                cell.text[error.range.clone()].to_string(),
+                error.message.clone(),
+            )
+        })
+        .collect();
+    (cell.options.clone(), errors)
+}
+
+#[test]
+fn a_cell_without_options_has_none() {
+    assert_eq!(cell_options(""), (CellOptions::default(), Vec::new()));
+}
+
+#[test]
+fn a_cell_reads_the_options_that_avenger_uses_and_keeps_others_out() {
+    let (options, errors) = cell_options(
+        "#| label: fig-cars\n#| eval: false\n#| fig-width: 6\n#| fig-height: 3.5\n#| fig-format: retina\n#| fig-dpi: 192\n#| echo: false\n#| fig-cap:\n#|   - One\n#|   - Two\n",
+    );
+    assert_eq!(errors, Vec::new());
+    assert_eq!(
+        options,
+        CellOptions {
+            label: Some("fig-cars".to_string()),
+            eval: Some(false),
+            fig_width: Some(6.0),
+            fig_height: Some(3.5),
+            fig_format: Some(FigFormat::Retina),
+            fig_dpi: Some(192.0),
+        }
+    );
+}
+
+#[test]
+fn a_value_of_options_is_yaml() {
+    // Quotes, a value over lines, an indented `#|`, and no space after `#|`.
+    let (options, errors) = cell_options("  #|label: 'fig-quoted'\n#| fig-format: >-\n#|   png\n");
+    assert_eq!(errors, Vec::new());
+    assert_eq!(options.label.as_deref(), Some("fig-quoted"));
+    assert_eq!(options.fig_format, Some(FigFormat::Png));
+}
+
+#[test]
+fn a_value_of_the_wrong_type_is_an_error_at_the_value() {
+    let (options, errors) = cell_options(
+        "#| eval: sometimes\n#| fig-width: wide\n#| fig-height: 0\n#| fig-format: pdf\n#| label: true\n",
+    );
+    assert_eq!(options, CellOptions::default());
+    let errors: Vec<(&str, &str)> = (errors.iter())
+        .map(|(text, message)| (text.as_str(), message.as_str()))
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            ("sometimes", "`eval` is `true` or `false`"),
+            (
+                "wide",
+                "`fig-width` is a number of inches, as `fig-width: 6`, more than 0"
+            ),
+            (
+                "0",
+                "`fig-height` is a number of inches, as `fig-height: 4`, more than 0"
+            ),
+            ("pdf", "the avenger engine draws `svg`, `png`, or `retina`"),
+            ("true", "`label` is a name, as `label: fig-cars`"),
+        ]
+    );
+}
+
+#[test]
+fn options_that_are_not_yaml_are_an_error() {
+    let (options, errors) = cell_options("#| label: [unclosed\n");
+    assert_eq!(options, CellOptions::default());
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].1.starts_with("the cell's options are not YAML"),
+        "{errors:?}"
+    );
+    let (_, errors) = cell_options("#| just text\n");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].1.contains("a YAML mapping"), "{errors:?}");
+}
+
+#[test]
+fn the_options_of_an_indented_cell_have_its_offsets() {
+    let text = "1. Item\n\n    ```{avenger-sql}\n    #| fig-width: wide\n    FROM t\n    ```\n";
+    let document = Qmd::parse(text);
+    let cell = &document.cells[0];
+    let error = &cell.option_errors[0];
+    let start = cell.to_document(error.range.start);
+    assert_eq!(&text[start..start + 4], "wide");
+    let diagnostics = cell.option_diagnostics();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].source, avenger_sql_language::Source::Options);
 }

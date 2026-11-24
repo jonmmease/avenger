@@ -15,16 +15,27 @@
 //! The scanner reads no containers: it takes a fence at any indent, so a fence indented four or
 //! more columns outside a list, which Pandoc reads as an indented code block, is a fence, and a
 //! fence in a block quote is not one.
+//!
+//! A cell's leading `#|` lines are its options, a YAML block, as Quarto reads them: Quarto takes
+//! the prefix of a cell's options from the comment syntax of its language, and a language that its
+//! table doesn't name, as `avenger-sql`, takes `#`, which avenger-sql reads as a comment. Avenger reads the options that change what a cell runs or
+//! how its chart draws, [`CellOptions`], and leaves the others to Quarto. A value of the wrong
+//! type is an error of the cell's options, at the value.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use avenger_sql_language::{FileRole, Project};
+use avenger_sql_language::{Diagnostic, FileRole, Project, Severity, Source};
+use avenger_sql_syntax::{Offset, TextRange};
+use saphyr::{LoadableYamlNode, MarkedYaml, Marker, Scalar, YamlData};
 
 use crate::manifest::DOCUMENT_SUFFIX;
 
 /// The class of the fences of avenger cells.
 const CELL_CLASS: &str = "{avenger-sql";
+
+/// The prefix of the lines of a cell's options.
+const OPTION_PREFIX: &str = "#|";
 
 /// A Quarto document: its text and its cells.
 #[derive(Clone, Debug, Default)]
@@ -34,7 +45,7 @@ pub struct Qmd {
 }
 
 /// A cell of a document: its text, and where its lines are in the document.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Cell {
     /// The text between the fences, without the fence's indent.
     pub text: String,
@@ -46,10 +57,45 @@ pub struct Cell {
     pub range: Range<usize>,
     /// Whether a fence closes the cell.
     pub closed: bool,
-    /// The cell's label, as its leading `--|` option lines set it with `label: NAME`, which
-    /// Quarto's cross-references name it by, such as `fig-weather`.
-    pub label: Option<String>,
+    /// The options of the cell's leading `#|` lines that avenger reads.
+    pub options: CellOptions,
+    /// The errors of the cell's options, at their ranges in the cell's text.
+    pub option_errors: Vec<OptionError>,
     lines: Vec<Line>,
+}
+
+/// The options of a cell that avenger reads, from its leading `#|` lines. An option that a cell
+/// doesn't set, or sets to a value of the wrong type, is `None`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CellOptions {
+    /// `label`, which Quarto's cross-references name the cell by, such as `fig-weather`.
+    pub label: Option<String>,
+    /// `eval`: `false` keeps the cell from running.
+    pub eval: Option<bool>,
+    /// `fig-width`, the width of the cell's chart in inches.
+    pub fig_width: Option<f64>,
+    /// `fig-height`, the height of the cell's chart in inches.
+    pub fig_height: Option<f64>,
+    /// `fig-format`, the format of the cell's image.
+    pub fig_format: Option<FigFormat>,
+    /// `fig-dpi`, the dots per inch of a PNG image.
+    pub fig_dpi: Option<f64>,
+}
+
+/// The format of a cell's image, as its `fig-format` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FigFormat {
+    Svg,
+    Png,
+    /// PNG at twice the density.
+    Retina,
+}
+
+/// An error of a cell's options: its range in the cell's text, and its message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OptionError {
+    pub range: Range<usize>,
+    pub message: String,
 }
 
 /// A line of a cell: its start in the cell, its start in the document, and the bytes of the
@@ -68,7 +114,8 @@ impl Qmd {
             let index = number.checked_sub(1)?;
             return Some((index, self.cells.get(index)?));
         }
-        (self.cells.iter().enumerate()).find(|(_, cell)| cell.label.as_deref() == Some(name))
+        (self.cells.iter().enumerate())
+            .find(|(_, cell)| cell.options.label.as_deref() == Some(name))
     }
 
     /// The document with `text`, and its cells.
@@ -98,6 +145,25 @@ impl Qmd {
 }
 
 impl Cell {
+    /// The errors of the cell's options, as diagnostics of its text, with the source
+    /// [`Source::Options`].
+    pub fn option_diagnostics(&self) -> Vec<Diagnostic> {
+        (self.option_errors.iter())
+            .map(|error| Diagnostic {
+                range: TextRange::new(
+                    Offset::from(error.range.start as u32),
+                    Offset::from(error.range.end as u32),
+                ),
+                message: error.message.clone(),
+                help: None,
+                severity: Severity::Error,
+                source: Source::Options,
+                code: None,
+                fixes: Vec::new(),
+            })
+            .collect()
+    }
+
     /// The offset in the document of the offset `offset` of the cell's text.
     pub fn to_document(&self, offset: usize) -> usize {
         let at = self.lines.partition_point(|line| line.cell <= offset);
@@ -281,8 +347,10 @@ fn cell(text: &str, range: Range<usize>, indent: &str, closed: bool) -> Cell {
         cell_text.push_str(&line[dropped..]);
         start += line.len();
     }
+    let (options, option_errors) = options(&cell_text);
     Cell {
-        label: label(&cell_text),
+        options,
+        option_errors,
         text: cell_text,
         indent: indent.to_string(),
         range,
@@ -291,16 +359,149 @@ fn cell(text: &str, range: Range<usize>, indent: &str, closed: bool) -> Cell {
     }
 }
 
-/// The label that the leading `--|` option lines of the cell's text `text` set, such as
-/// `fig-weather` in `--| label: fig-weather`, without quotes around it.
-fn label(text: &str) -> Option<String> {
-    let options = (text.lines())
-        .map(str::trim_start)
-        .map_while(|line| line.strip_prefix("--|"));
-    options
-        .filter_map(|option| option.trim().strip_prefix("label:"))
-        .map(|value| value.trim().trim_matches(['"', '\'']).to_string())
-        .find(|label| !label.is_empty())
+/// The options of the cell's text `text`, from its leading `#|` lines, and their errors.
+fn options(text: &str) -> (CellOptions, Vec<OptionError>) {
+    let block = OptionBlock::of(text);
+    let mut options = CellOptions::default();
+    let mut errors = Vec::new();
+    if block.yaml.is_empty() {
+        return (options, errors);
+    }
+    let documents = match MarkedYaml::load_from_str(&block.yaml) {
+        Ok(documents) => documents,
+        Err(error) => {
+            let at = block.to_cell(*error.marker());
+            errors.push(OptionError {
+                range: at..at,
+                message: format!("the cell's options are not YAML: {}", error.info()),
+            });
+            return (options, errors);
+        }
+    };
+    let Some(document) = documents.first() else {
+        return (options, errors);
+    };
+    let entries = match &document.data {
+        YamlData::Mapping(entries) => entries,
+        YamlData::Value(Scalar::Null) => return (options, errors),
+        _ => {
+            errors.push(OptionError {
+                range: block.range(document),
+                message: "the cell's options are a YAML mapping of names to values, as \
+                          `#| label: fig-cars`"
+                    .to_string(),
+            });
+            return (options, errors);
+        }
+    };
+    for (key, value) in entries {
+        let Some(name) = key.data.as_str() else {
+            continue;
+        };
+        let mut error = |message: String| {
+            errors.push(OptionError {
+                range: block.range(value),
+                message,
+            })
+        };
+        match name {
+            "label" => match &value.data {
+                YamlData::Value(Scalar::String(label)) => options.label = Some(label.to_string()),
+                YamlData::Value(Scalar::Integer(label)) => options.label = Some(label.to_string()),
+                YamlData::Value(Scalar::Null) => {}
+                _ => error("`label` is a name, as `label: fig-cars`".to_string()),
+            },
+            "eval" => match &value.data {
+                YamlData::Value(Scalar::Boolean(eval)) => options.eval = Some(*eval),
+                _ => error("`eval` is `true` or `false`".to_string()),
+            },
+            "fig-width" | "fig-height" | "fig-dpi" => {
+                let unit = match name {
+                    "fig-dpi" => "dots per inch, as `fig-dpi: 192`",
+                    "fig-width" => "inches, as `fig-width: 6`",
+                    _ => "inches, as `fig-height: 4`",
+                };
+                let number = match &value.data {
+                    YamlData::Value(Scalar::Integer(number)) => Some(*number as f64),
+                    YamlData::Value(Scalar::FloatingPoint(number)) => Some(number.into_inner()),
+                    _ => None,
+                };
+                match number {
+                    Some(number) if number > 0.0 && number.is_finite() => match name {
+                        "fig-width" => options.fig_width = Some(number),
+                        "fig-height" => options.fig_height = Some(number),
+                        _ => options.fig_dpi = Some(number),
+                    },
+                    _ => error(format!("`{name}` is a number of {unit}, more than 0")),
+                }
+            }
+            "fig-format" => {
+                let format = match &value.data {
+                    YamlData::Value(Scalar::String(format)) => match format.as_ref() {
+                        "svg" => Some(FigFormat::Svg),
+                        "png" => Some(FigFormat::Png),
+                        "retina" => Some(FigFormat::Retina),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                match format {
+                    Some(format) => options.fig_format = Some(format),
+                    None => error("the avenger engine draws `svg`, `png`, or `retina`".to_string()),
+                }
+            }
+            _ => {}
+        }
+    }
+    (options, errors)
+}
+
+/// The leading `#|` lines of a cell's text as a YAML block: each line without its indent, its
+/// `#|`, and the one space after it, and where each line of the block starts in the cell's text.
+struct OptionBlock {
+    yaml: String,
+    /// The start of each line of the block in the block, and in the cell's text.
+    lines: Vec<(usize, usize)>,
+}
+
+impl OptionBlock {
+    fn of(text: &str) -> OptionBlock {
+        let mut yaml = String::new();
+        let mut lines = Vec::new();
+        let mut at = 0;
+        for line in text.split_inclusive('\n') {
+            let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+            let Some(rest) = line[indent..].strip_prefix(OPTION_PREFIX) else {
+                break;
+            };
+            let skip = indent + OPTION_PREFIX.len() + usize::from(rest.starts_with(' '));
+            lines.push((yaml.len(), at + skip));
+            yaml.push_str(&line[skip..]);
+            if !yaml.ends_with('\n') {
+                yaml.push('\n');
+            }
+            at += line.len();
+        }
+        OptionBlock { yaml, lines }
+    }
+
+    /// The offset in the cell's text of `marker`, a line from 1 and a column in characters of
+    /// the block.
+    fn to_cell(&self, marker: Marker) -> usize {
+        let index = marker.line().saturating_sub(1).min(self.lines.len() - 1);
+        let (start, cell) = self.lines[index];
+        let end = (self.lines.get(index + 1)).map_or(self.yaml.len(), |(next, _)| *next);
+        let line = &self.yaml[start..end];
+        let column = (line.char_indices().nth(marker.col())).map_or(line.len(), |(at, _)| at);
+        cell + column.min(line.trim_end_matches('\n').len())
+    }
+
+    /// The range in the cell's text of the node `node`.
+    fn range(&self, node: &MarkedYaml) -> Range<usize> {
+        let start = self.to_cell(node.span.start);
+        let end = self.to_cell(node.span.end).max(start);
+        start..end
+    }
 }
 
 /// Whether the file at `path` is named as a Quarto document.
