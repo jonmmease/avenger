@@ -34,7 +34,7 @@ fn project() -> (tempfile::TempDir, PathBuf) {
     std::fs::create_dir_all(root.join("reports")).unwrap();
     std::fs::write(
         root.join("reports/overview.qmd"),
-        "# Report\n\n```{avenger-sql}\n--| label: fig-weather\nFROM wet_days |> AGGREGATE mark_bar(x => weather, y => COUNT(*)) AS chart\n```\n",
+        "# Report\n\n```{avenger-sql}\n#| label: fig-weather\nFROM wet_days |> AGGREGATE mark_bar(x => weather, y => COUNT(*)) AS chart\n```\n",
     )
     .unwrap();
     (directory, root)

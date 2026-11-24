@@ -207,6 +207,30 @@ fn the_cells_of_a_document_check_at_their_places_in_it() {
 }
 
 #[test]
+fn an_option_of_a_cell_with_the_wrong_type_checks_at_its_value() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let report = "# Report\n\n```{avenger-sql}\n#| fig-width: wide\nFROM heavy_by_origin\n|> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n";
+    std::fs::write(root.join("reports/sized.qmd"), report).unwrap();
+    let (status, stdout, _) = avenger(&root, &["check", "reports/sized.qmd"]);
+    assert_eq!(status, 1);
+    assert!(
+        stdout.starts_with(
+            "reports/sized.qmd:4:15: error: `fig-width` is a number of inches, as `fig-width: 6`, more than 0"
+        ),
+        "{stdout}"
+    );
+    // A document outside every project checks its options too.
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("alone.qmd"), report).unwrap();
+    let (_, stdout, _) = avenger(directory.path(), &["check"]);
+    assert!(
+        stdout.contains("alone.qmd:4:15: error: `fig-width`"),
+        "{stdout}"
+    );
+}
+
+#[test]
 fn fmt_formats_the_cells_of_a_document() {
     let (_directory, root) = project();
     std::fs::create_dir_all(root.join("reports")).unwrap();

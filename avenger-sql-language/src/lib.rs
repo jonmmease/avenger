@@ -146,6 +146,9 @@ pub enum Source {
     /// Typst's parser of the strings of Typst markup, such as a title, whose errors fail the
     /// chart's render.
     Typst,
+    /// The options of a cell of a Quarto document, its leading `#|` lines, which avenger reads
+    /// as YAML.
+    Options,
 }
 
 impl Document {

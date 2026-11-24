@@ -103,6 +103,7 @@ async fn check_project(project: &ProjectSelection, run: bool) -> Result<Vec<Repo
                     let path = cell_path(path, index + 1);
                     let text = &cell.text;
                     reports.extend(check_text(&analysis, &loader, &path, text, run, &file).await);
+                    reports.extend(option_reports(cell, &file));
                 }
             }
         }
@@ -181,6 +182,13 @@ fn style_reports(
         .collect()
 }
 
+/// The reports of the errors of the options of `cell`, at their places in `file`.
+fn option_reports(cell: &Cell, file: &File) -> Vec<Report> {
+    (cell.option_diagnostics().iter())
+        .map(|diagnostic| language_report(file, diagnostic))
+        .collect()
+}
+
 /// The report of the diagnostic `diagnostic`, at its place in `file`.
 fn language_report(file: &File, diagnostic: &Diagnostic) -> Report {
     let severity = match diagnostic.severity {
@@ -193,6 +201,7 @@ fn language_report(file: &File, diagnostic: &Diagnostic) -> Report {
         avenger_sql_language::Source::Project => "project",
         avenger_sql_language::Source::Loader => "loader",
         avenger_sql_language::Source::Typst => "typst",
+        avenger_sql_language::Source::Options => "options",
     };
     let range = diagnostic.range;
     let bytes = (
@@ -262,6 +271,7 @@ fn check_loose(path: &Path) -> Result<Vec<Report>, String> {
                 first_line: Some(first_line(&text, cell)),
             };
             reports.extend(loose_reports(&cell.text, TextRole::Script, &file));
+            reports.extend(option_reports(cell, &file));
         }
         return Ok(reports);
     }

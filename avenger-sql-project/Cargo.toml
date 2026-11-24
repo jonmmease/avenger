@@ -16,6 +16,8 @@ avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fo
 bytes = "1.12"
 datafusion = { workspace = true }
 glob = "0.3"
+# The options of a Quarto cell, its leading `#|` lines, are a YAML block.
+saphyr = "0.4"
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }

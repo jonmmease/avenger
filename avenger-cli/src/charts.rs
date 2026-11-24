@@ -39,11 +39,11 @@ pub async fn run(project: Option<&Path>, output: &Output) -> Result<Status, Stri
     for (document, qmd) in opened.analysis.documents() {
         let file = output.display(&opened.root.join(document));
         for (index, cell) in qmd.cells.iter().enumerate() {
-            let name = (cell.label.clone()).unwrap_or_else(|| (index + 1).to_string());
+            let name = (cell.options.label.clone()).unwrap_or_else(|| (index + 1).to_string());
             let path = cell_path(document, index + 1);
             listed.push(Listed {
                 target: format!("{file}#{name}"),
-                cell: Some((index + 1, cell.label.clone())),
+                cell: Some((index + 1, cell.options.label.clone())),
                 charts: chart_columns(loader, &path, &cell.text).await,
             });
         }

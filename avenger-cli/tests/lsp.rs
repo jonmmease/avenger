@@ -587,6 +587,28 @@ fn the_cells_of_a_document_answer_at_their_places_in_it() {
 }
 
 #[test]
+fn an_option_of_a_cell_with_the_wrong_type_is_a_diagnostic_at_its_value() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let text = "# Report\n\n```{avenger-sql}\n#| fig-format: pdf\nFROM heavy_by_origin\n|> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n";
+    std::fs::write(root.join("reports/overview.qmd"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let report = uri(&root, "reports/overview.qmd");
+    client.open(&report, text);
+    client.until("the document's diagnostics", |c| {
+        c.diagnostics.contains_key(&report)
+    });
+    let diagnostics = &client.diagnostics[&report];
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(
+        diagnostics[0].source.as_deref(),
+        Some("avenger cell options")
+    );
+    assert_eq!(diagnostics[0].range.start, Position::new(3, 15));
+    assert_eq!(diagnostics[0].range.end, Position::new(3, 18));
+}
+
+#[test]
 fn a_rename_reaches_the_cells_of_a_closed_document() {
     let (_directory, root) = project();
     std::fs::create_dir_all(root.join("reports")).unwrap();
