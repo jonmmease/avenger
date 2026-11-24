@@ -258,7 +258,7 @@ fn a_cell_without_options_has_none() {
 #[test]
 fn a_cell_reads_the_options_that_avenger_uses_and_keeps_others_out() {
     let (options, errors) = cell_options(
-        "#| label: fig-cars\n#| eval: false\n#| fig-width: 6\n#| fig-height: 3.5\n#| fig-format: retina\n#| fig-dpi: 192\n#| echo: false\n#| fig-cap:\n#|   - One\n#|   - Two\n",
+        "#| label: fig-cars\n#| eval: false\n#| error: true\n#| fig-width: 6\n#| fig-height: 3.5\n#| fig-format: retina\n#| fig-dpi: 192\n#| echo: false\n#| fig-cap:\n#|   - One\n#|   - Two\n",
     );
     assert_eq!(errors, Vec::new());
     assert_eq!(
@@ -270,6 +270,7 @@ fn a_cell_reads_the_options_that_avenger_uses_and_keeps_others_out() {
             fig_height: Some(3.5),
             fig_format: Some(FigFormat::Retina),
             fig_dpi: Some(192.0),
+            error: Some(true),
         }
     );
 }

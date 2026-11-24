@@ -49,6 +49,7 @@ egui-wgpu = { version = "0.33.3", default-features = false, features = [
 lsp-server = "0.7"
 lsp-types = "0.95"
 serde = { workspace = true }
+base64 = { workspace = true }
 serde_json = { workspace = true }
 image = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
