@@ -47,13 +47,16 @@ export interface ResponseCell {
   outputs: Output[];
 }
 
+/** A color scheme of a document's themes. */
+export type ColorScheme = "light" | "dark";
+
 /** The request of `avenger quarto2-engine`. */
 export interface Request {
   protocol: number;
   document: string;
   text: string;
   image: { format: "svg" | "png"; scale: number };
-  colorScheme: "light";
+  colorSchemes: ColorScheme[];
   error: boolean;
 }
 
@@ -75,6 +78,28 @@ const SVG_FORMATS = new Set([
 export function imageFor(to: string): Request["image"] {
   const base = to.split(/[+-]/)[0];
   return SVG_FORMATS.has(base) ? { format: "svg", scale: 1 } : { format: "png", scale: 2 };
+}
+
+/** The output formats whose pages switch between a light and a dark theme with q2's toggle. */
+const TOGGLE_FORMATS = new Set(["html", "html4", "html5", "dashboard"]);
+
+/**
+ * The color schemes of the charts of a document whose `theme` is `theme`, in the output format
+ * `to`. A theme of a light and a dark variant gives both, in the theme's order, in a format with
+ * q2's toggle, and a theme of one variant gives its scheme. A theme's name, no theme, and the
+ * formats without the toggle give light.
+ */
+export function colorSchemesFor(theme: unknown, to: string): ColorScheme[] {
+  if (!TOGGLE_FORMATS.has(to.split(/[+-]/)[0])) {
+    return ["light"];
+  }
+  if (theme === null || typeof theme !== "object" || Array.isArray(theme)) {
+    return ["light"];
+  }
+  const schemes = Object.keys(theme).filter(
+    (key): key is ColorScheme => key === "light" || key === "dark",
+  );
+  return schemes.length > 0 ? schemes : ["light"];
 }
 
 /** The options that only change how q2's core writes a cell, never what avenger computes. */
@@ -229,12 +254,13 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   if (offered.presentedBy !== "core") {
     throw new Error("the avenger engine needs a q2 that writes the cells of an engine's record");
   }
+  const to = options.format.pandoc.to ?? "html";
   const request: Request = {
     protocol: PROTOCOL,
     document: options.target.input,
     text: markdown,
-    image: imageFor(options.format.pandoc.to ?? "html"),
-    colorScheme: "light",
+    image: imageFor(to),
+    colorSchemes: colorSchemesFor(options.format.metadata?.theme, to),
     error: options.format.execute.error === true,
   };
   const env = (options as ExecuteOptions & { executeEnv?: Record<string, string> }).executeEnv;

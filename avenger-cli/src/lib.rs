@@ -378,6 +378,7 @@ pub fn main() -> ExitCode {
                         ))
                     }
                 },
+                transparent: false,
                 style,
                 modes,
                 chart,

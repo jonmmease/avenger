@@ -1,6 +1,6 @@
 //! `avenger quarto2-engine` on copies of avenger-sql-project's fixture project: the cells of a
 //! document's text as q2 passes it, their outputs, their options, the policy of errors, a document
-//! outside every project, and the protocol.
+//! outside every project, the color schemes of a document's themes, and the protocol.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -58,7 +58,7 @@ fn request(document: &Path, text: &str) -> Value {
         "document": document,
         "text": text,
         "image": {"format": "svg", "scale": 1.0},
-        "colorScheme": "light",
+        "colorSchemes": ["light"],
         "error": false,
     })
 }
@@ -167,6 +167,64 @@ fn a_result_of_rows_draws_as_a_table() {
         .as_str()
         .unwrap();
     assert!(svg.contains("Origin"), "{}", &svg[..200]);
+}
+
+/// The SVG of the output `output` of the cell `cell` of `response`.
+fn svg_of(response: &Value, cell: usize, output: usize) -> &str {
+    response["cells"][cell]["outputs"][output]["data"]["image/svg+xml"]
+        .as_str()
+        .unwrap()
+}
+
+#[test]
+fn a_document_of_two_color_schemes_draws_each_chart_in_both() {
+    let (_directory, root) = project();
+    let document = root.join("report.qmd");
+    std::fs::write(&document, "").unwrap();
+    let text = "```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n\n```{avenger-sql}\n#| error: true\nFROM heavy_by_origin |> SELECT nope\n```\n";
+    let mut both = request(&document, text);
+    both["colorSchemes"] = json!(["dark", "light"]);
+    let (status, response) = engine(&both);
+    assert_eq!(status, 0, "{response}");
+    // An image of each scheme, in the request's order, whose class shows it in its scheme.
+    let outputs = response["cells"][0]["outputs"].as_array().unwrap();
+    let classes: Vec<&Value> = (outputs.iter())
+        .map(|output| &output["metadata"]["quarto_attrs"]["classes"])
+        .collect();
+    assert_eq!(
+        classes,
+        [&json!(["dark-content"]), &json!(["light-content"])]
+    );
+    // The dark image differs from the light one, and neither fills its background, which the
+    // page shows through.
+    let (dark, light) = (svg_of(&response, 0, 0), svg_of(&response, 0, 1));
+    assert_ne!(dark, light);
+    for svg in [dark, light] {
+        assert!(!svg.contains(r#"<rect x="0" y="0""#), "{}", &svg[..400]);
+    }
+    // An error is one output, of no scheme.
+    assert_eq!(kinds(&response)[1].2, ["error"]);
+    // One scheme draws one image, untagged, on the scheme's background.
+    let (_, response) = engine(&request(&document, text));
+    let outputs = response["cells"][0]["outputs"].as_array().unwrap();
+    assert_eq!(outputs.len(), 1);
+    assert!(outputs[0]["metadata"].get("quarto_attrs").is_none());
+    assert!(svg_of(&response, 0, 0).contains(r#"<rect x="0" y="0""#));
+    // A request names light, dark, or both, each once.
+    for (schemes, message) in [
+        (json!([]), "`colorSchemes` is empty: light, dark, or both"),
+        (
+            json!(["light", "light"]),
+            "`colorSchemes` names `light` twice",
+        ),
+        (json!(["sepia"]), "`colorSchemes` `sepia`: light or dark"),
+    ] {
+        let mut wrong = request(&document, text);
+        wrong["colorSchemes"] = schemes;
+        let (status, response) = engine(&wrong);
+        assert_eq!(status, 1);
+        assert_eq!(response["error"], message);
+    }
 }
 
 #[test]

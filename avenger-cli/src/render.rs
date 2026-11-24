@@ -63,6 +63,9 @@ pub struct Options {
     pub scale: f32,
     /// The reader's color scheme, light or dark, with its background.
     pub color_scheme: ColorScheme,
+    /// Draw on a transparent background, which the surface around the image shows through. The
+    /// color scheme's background stays the stylesheets' `env(background)`.
+    pub transparent: bool,
     /// A stylesheet after the project's.
     pub style: Option<PathBuf>,
     /// The modes of the chart to turn on.
@@ -691,6 +694,18 @@ pub(crate) async fn image(
     renderer: &Renderer,
 ) -> Result<Image, Failure> {
     let result = run_target(target).await?;
+    result_image(target, &result, format, options, renderer).await
+}
+
+/// Draws `result`, the result of the target `target`, in the format `format`, one chart alone or a
+/// table of its rows, so a result that runs once draws in each color scheme.
+pub(crate) async fn result_image(
+    target: &Target,
+    result: &QueryResult,
+    format: Format,
+    options: &Options,
+    renderer: &Renderer,
+) -> Result<Image, Failure> {
     let cascade = target
         .stylesheet
         .cascade(background(options.color_scheme), renderer.extra.as_ref());
@@ -699,14 +714,14 @@ pub(crate) async fn image(
         .flatten();
     let scene = match (&options.chart, single) {
         (Some(picked), _) => {
-            let chart = pick(&result, picked)
+            let chart = pick(result, picked)
                 .map_err(|error| Failure::Reports(vec![target.report(error)]))?;
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
         (None, Some(chart)) => {
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
-        (None, None) => table_scene(&result, &cascade, options, renderer).await?,
+        (None, None) => table_scene(result, &cascade, options, renderer).await?,
     };
     let bytes = (draw(&scene, format, options, renderer).await).map_err(Failure::Usage)?;
     Ok(Image {
@@ -1415,14 +1430,15 @@ async fn table_scene(
     })
 }
 
-/// The bytes of `scene` drawn in `format`, on the background of the color scheme.
+/// The bytes of `scene` drawn in `format`, on the background of the color scheme, or on a
+/// transparent one.
 async fn draw(
     scene: &SceneGraph,
     format: Format,
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Vec<u8>, String> {
-    let background = color(background(options.color_scheme));
+    let background = (!options.transparent).then(|| color(background(options.color_scheme)));
     let images: Arc<dyn ImageResolver> = Arc::new(renderer.images.clone());
     match format {
         Format::Png => {
@@ -1436,7 +1452,7 @@ async fn draw(
             };
             let mut canvas = (PngCanvas::new(dimensions, config).await)
                 .map_err(|e| format!("{e}; without a GPU, `.svg` renders without one"))?;
-            canvas.set_background(background);
+            canvas.set_background(background.unwrap_or([0.0; 4]));
             (canvas.set_scene(scene, &renderer.engine)).map_err(|e| e.to_string())?;
             let image = canvas.render().await.map_err(|e| e.to_string())?;
             let mut bytes = std::io::Cursor::new(Vec::new());
@@ -1446,7 +1462,7 @@ async fn draw(
         Format::Svg => {
             let svg = avenger_svg::SvgRenderer::new()
                 .with_options(avenger_svg::SvgRenderOptions {
-                    background: Some(background),
+                    background,
                     allow_unready_images: true,
                     ..Default::default()
                 })
@@ -1457,7 +1473,7 @@ async fn draw(
         }
         Format::Pdf => avenger_pdf::PdfRenderer::new()
             .with_options(avenger_pdf::PdfRenderOptions {
-                background: Some(background),
+                background,
                 allow_unready_images: true,
             })
             .with_images(images)
