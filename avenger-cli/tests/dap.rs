@@ -277,7 +277,7 @@ fn a_session_stops_at_its_breakpoints_and_steps_through_its_stages() {
 }
 
 #[test]
-fn a_launch_without_a_chart_s_target_fails_with_its_reason() {
+fn a_launch_without_a_target_fails_with_its_reason() {
     let (_directory, root) = project();
     let mut client = Client::start(&root);
     client.request("initialize", json!({}));
@@ -287,12 +287,8 @@ fn a_launch_without_a_chart_s_target_fails_with_its_reason() {
         .as_str()
         .unwrap()
         .contains("names no `target`"));
-    let data = client.request("launch", json!({"target": "data/summaries.av.sql:2"}));
-    assert_eq!(data["success"], false);
-    assert!(
-        data["message"].as_str().unwrap().contains("data script"),
-        "{data}"
-    );
+    let missing = client.request("launch", json!({"target": "charts/missing.av.sql"}));
+    assert_eq!(missing["success"], false);
     client.request("disconnect", json!({}));
     assert!(client.child.wait().unwrap().success());
 }
@@ -543,6 +539,74 @@ fn an_edit_runs_the_stop_again_and_restart_opens_the_project_again() {
     assert_eq!(restart["success"], true, "{restart}");
     client.event("stopped");
     assert_eq!(client.frame(), ("|> AGGREGATE".to_string(), 4));
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+#[test]
+fn a_data_script_s_statements_stop_at_their_stages_and_their_tables() {
+    let (_directory, root) = project();
+    let (mut client, _) = launched(
+        &root,
+        "data/summaries.av.sql:7",
+        "data/summaries.av.sql",
+        &[4],
+    );
+    // The rows that enter the temporary table's `WHERE`, and the table as it leaves it.
+    assert_eq!(client.frame(), ("|> WHERE".to_string(), 4));
+    assert_eq!(row_count(&mut client), "406 rows");
+    assert_eq!(client.step("next").1, ("table heavy".to_string(), 2));
+    assert_eq!(row_count(&mut client), "174 rows");
+    // The next statement's stage reads the temporary table, and its result is its table.
+    assert_eq!(client.step("next").1, ("|> AGGREGATE".to_string(), 9));
+    assert_eq!(row_count(&mut client), "174 rows");
+    assert_eq!(
+        client.step("next").1,
+        ("table heavy_by_origin".to_string(), 7)
+    );
+    assert_eq!(row_count(&mut client), "2 rows");
+    let script = client.scopes()[1].1.clone();
+    assert!(client.variables(&script).is_empty());
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+#[test]
+fn a_data_script_s_view_stops_at_its_stage_and_its_rows() {
+    let (_directory, root) = project();
+    let path = "data/summaries.av.sql";
+    let (mut client, _) = launched(&root, "data/summaries.av.sql:12", path, &[14]);
+    assert_eq!(client.frame(), ("|> WHERE".to_string(), 14));
+    assert_eq!(row_count(&mut client), "1461 rows");
+    assert_eq!(client.step("next").1, ("table wet_days".to_string(), 12));
+    assert_eq!(row_count(&mut client), "623 rows");
+    client.request("disconnect", json!({}));
+    assert!(client.child.wait().unwrap().success());
+}
+
+#[test]
+fn a_data_script_s_loaded_table_is_its_result_and_its_console_runs_queries() {
+    let (_directory, root) = project();
+    let path = "data/vega_datasets.av.sql";
+    // Without breakpoints, the session stops at its target's result: the table that it loads.
+    let (mut client, _) = launched(&root, "data/vega_datasets.av.sql:7", path, &[]);
+    assert_eq!(
+        client.frame(),
+        ("table vega_datasets.seattle_weather".to_string(), 7)
+    );
+    assert_eq!(row_count(&mut client), "1461 rows");
+    // The console runs queries of the project's tables, and only those.
+    let evaluate = |client: &mut Client, expression: &str| {
+        client.request(
+            "evaluate",
+            json!({"expression": expression, "context": "repl", "frameId": 1}),
+        )
+    };
+    let limited = evaluate(&mut client, "FROM vega_datasets.cars |> LIMIT 3");
+    assert_eq!(limited["body"]["result"], "3 rows, 9 columns", "{limited}");
+    let pipe = evaluate(&mut client, "|> LIMIT 1");
+    assert_eq!(pipe["success"], false);
+    assert!(pipe["message"].as_str().unwrap().contains("FROM"), "{pipe}");
     client.request("disconnect", json!({}));
     assert!(client.child.wait().unwrap().success());
 }

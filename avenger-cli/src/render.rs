@@ -495,29 +495,52 @@ pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
             },
         ) = &target.statement
         {
-            return (loader.step(&target.script, statement.start).await).map_err(|errors| {
-                let reports = (errors.into_iter())
-                    .map(|error| {
-                        let span = (
-                            usize::from(error.range.start()),
-                            usize::from(error.range.end()),
-                        );
-                        Report::at(
-                            &target.file,
-                            file.text,
-                            span,
-                            Severity::Error,
-                            error.message,
-                            "loader",
-                        )
-                        .with_help(error.help)
-                    })
-                    .collect();
-                Failure::Reports(reports)
-            });
+            let step = loader.step(&target.script, statement.start).await;
+            return step.map_err(|errors| step_failure(target, file.text, errors));
         }
     }
     plan_chart(target, &target.path, &target.text, &Overrides::new()).await
+}
+
+/// The reports of the errors of a step of a data script, at their places in the script's file,
+/// whose text is `text`.
+fn step_failure(
+    target: &Target,
+    text: &str,
+    errors: Vec<avenger_sql_project::ProjectDiagnostic>,
+) -> Failure {
+    let reports = (errors.into_iter())
+        .map(|error| {
+            let span = (
+                usize::from(error.range.start()),
+                usize::from(error.range.end()),
+            );
+            let start = span.0.min(text.len());
+            let span = (start, span.1.clamp(start, text.len()));
+            Report::at(
+                &target.file,
+                text,
+                span,
+                Severity::Error,
+                error.message,
+                "loader",
+            )
+            .with_help(error.help)
+        })
+        .collect();
+    Failure::Reports(reports)
+}
+
+/// The table of the target's data script after its statement at the offset `at` of `text`, a
+/// text of the script in place of its own, such as its statement with its query cut short before
+/// an operator, as the loader's step builds it, or the reports of its errors.
+pub(crate) async fn step_text(
+    target: &Target,
+    text: &str,
+    at: usize,
+) -> Result<DataFrame, Failure> {
+    let step = target.loader.step_text(&target.script, text, at).await;
+    step.map_err(|errors| step_failure(target, &target.script_text(), errors))
 }
 
 /// Checks `text`, a chart script that runs a part of the target's script, such as the rows that

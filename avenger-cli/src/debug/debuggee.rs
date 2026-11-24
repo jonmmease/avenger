@@ -18,8 +18,8 @@ use datafusion::{
 use futures::StreamExt;
 
 use super::stops::{Place, Stops};
-use crate::render::{plan_text, text_variables, Failure, Target};
-use crate::statement::{Script, Shows};
+use crate::render::{plan_text, step_text, text_variables, Failure, Target};
+use crate::statement::Shows;
 use crate::view::{canonical, lines, outcome, Outcome, Session};
 
 /// The target of a session and its stops.
@@ -46,23 +46,16 @@ pub(crate) struct Ran {
 fn stops_of(target: &Target, name: &str) -> Result<(String, usize, Stops), String> {
     let text = target.script_text();
     let statement = target.statement.as_ref().map(|statement| statement.start);
-    let stops = Stops::new(&text, Script::Chart, statement)
+    let stops = Stops::new(&text, target.script_kind(), statement)
         .ok_or_else(|| format!("{name}: the script has no query, so no stage to stop at"))?;
     Ok((text, target.lines_before(), stops))
 }
 
 impl Debuggee {
     /// Loads the project of `target`, as `view` takes it: a chart script, a cell `doc.qmd#NAME`,
-    /// or the statement at a line of either, `FILE:LINE`. A data script's target takes no session
-    /// yet.
+    /// or the statement at a line of either, `FILE:LINE`, of a chart script or a data script.
     pub(crate) async fn open(target: &str) -> Result<Debuggee, String> {
         let (session, _) = Session::open(target).await?;
-        if session.target().data {
-            return Err(format!(
-                "{target}: a data script's statements take no debugging session yet; debug a chart \
-                 script, a cell, or a statement of either"
-            ));
-        }
         let (text, before, stops) = stops_of(session.target(), target)?;
         Ok(Debuggee {
             name: target.to_string(),
@@ -152,15 +145,33 @@ impl Debuggee {
         plan_text(self.session.target_mut(), text, &self.overrides).await
     }
 
+    /// Plans the stop at `index`. A chart script's stop runs its text as a chart script. A data
+    /// script's stage runs its statement with the query cut before the operator, through the
+    /// loader's step, and its result is its table, from the project's session or from a step.
+    async fn plan_stop(&mut self, index: usize) -> Result<DataFrame, Failure> {
+        if !self.target().data {
+            let text = self.stops.text(index, &self.text);
+            return self.plan(&text).await;
+        }
+        let at = self.stops.staged(index).clone();
+        match (self.stops.get(index).place, &at.statement.shows) {
+            (Place::Stage(stage), _) => {
+                let text = at.data_stage_text(&self.text, &at.operators[stage]);
+                step_text(self.target(), &text, at.statement.start).await
+            }
+            (Place::Result, Shows::Loaded(path)) => self.plan(&format!("FROM {path}\n")).await,
+            (Place::Result, _) => step_text(self.target(), &self.text, at.statement.start).await,
+        }
+    }
+
     /// Runs the stop at `index`: plans its text and gives what the window shows, and its rows,
     /// which read as the debugger's panes ask for them, and its variables.
     pub(crate) async fn run(&mut self, index: usize) -> (Outcome, Ran) {
-        let text = self.stops.text(index, &self.text);
         let failed = |failure: Failure| match failure {
             Failure::Usage(error) => vec![error],
             Failure::Reports(reports) => lines(&reports),
         };
-        let frame = match self.plan(&text).await {
+        let frame = match self.plan_stop(index).await {
             Ok(frame) => frame,
             Err(failure) => {
                 let errors = failed(failure);
@@ -171,8 +182,15 @@ impl Debuggee {
                 return (Outcome::Failed(errors), ran);
             }
         };
-        let variables = text_variables(self.target(), &text, &self.overrides).await;
-        let variables = variables.map_err(failed);
+        // A data script's statements read no variables.
+        let variables = match self.target().data {
+            true => Ok(Vec::new()),
+            false => {
+                let text = self.stops.text(index, &self.text);
+                let variables = text_variables(self.target(), &text, &self.overrides).await;
+                variables.map_err(failed)
+            }
+        };
         let rows = Ok(Rows::new(frame.clone()));
         (outcome(self.target(), frame).await, Ran { rows, variables })
     }
@@ -219,9 +237,18 @@ impl Debuggee {
         expression: &str,
     ) -> Result<DataFrame, String> {
         let expression = expression.trim();
+        let from = (expression.get(..4)).is_some_and(|word| word.eq_ignore_ascii_case("FROM"));
         let at = self.stops.staged(index).clone();
         let place = self.stops.get(index).place;
-        let text = if expression.starts_with("|>") {
+        // A data script's console runs queries of the project's tables, as a chart script does.
+        let text = if self.target().data {
+            if !from {
+                return Err(
+                    "in a data script, the console runs queries that start with FROM".into(),
+                );
+            }
+            expression.to_string()
+        } else if expression.starts_with("|>") {
             let rows = match (place, &at.statement.shows) {
                 (Place::Stage(stage), _) => at.stage_text(&self.text, &at.operators[stage]),
                 (Place::Result, Shows::Table(path)) => {
@@ -230,7 +257,7 @@ impl Debuggee {
                 (Place::Result, _) => self.text[..at.statement.end].to_string(),
             };
             format!("{rows}\n{expression}")
-        } else if (expression.get(..4)).is_some_and(|word| word.eq_ignore_ascii_case("FROM")) {
+        } else if from {
             match place {
                 Place::Stage(_) => format!("{}{expression}", &self.text[..at.statement.start]),
                 Place::Result => format!("{};\n{expression}", &self.text[..at.statement.end]),

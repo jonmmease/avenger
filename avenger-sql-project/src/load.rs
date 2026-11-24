@@ -775,7 +775,7 @@ impl LoadedProject {
         path: &str,
         files: &mut Vec<(Files, FilesTable)>,
     ) -> Result<LoadedScript, Vec<ProjectDiagnostic>> {
-        let (analysis, catalog) = self.analyze_script(path, files).await?;
+        let (analysis, catalog) = self.analyze_script(path, &self.texts[path], files).await?;
         let diagnostic = |range: TextRange, message: String| ProjectDiagnostic {
             path: path.to_string(),
             range,
@@ -813,7 +813,19 @@ impl LoadedProject {
     /// nothing, so the session keeps the script's final tables. The error is the script's own,
     /// at its places in the script.
     pub async fn step(&self, path: &str, at: usize) -> Result<DataFrame, Vec<ProjectDiagnostic>> {
-        let (analysis, catalog) = self.analyze_script(path, &mut Vec::new()).await?;
+        self.step_text(path, &self.texts[path], at).await
+    }
+
+    /// The table of the data script at `path`, as [`LoadedProject::step`] builds it, with the
+    /// text `text` in place of the script's own, as a debugger runs a statement whose query it
+    /// cut short.
+    pub async fn step_text(
+        &self,
+        path: &str,
+        text: &str,
+        at: usize,
+    ) -> Result<DataFrame, Vec<ProjectDiagnostic>> {
+        let (analysis, catalog) = self.analyze_script(path, text, &mut Vec::new()).await?;
         let failure = |range: TextRange, message: String| {
             vec![ProjectDiagnostic {
                 path: path.to_string(),
@@ -853,9 +865,9 @@ impl LoadedProject {
     async fn analyze_script(
         &self,
         path: &str,
+        text: &str,
         files: &mut Vec<(Files, FilesTable)>,
     ) -> Result<(DataAnalysis, ProjectCatalog), Vec<ProjectDiagnostic>> {
-        let text = &self.texts[path];
         let diagnostic =
             |range: TextRange, message: String, help: Option<String>| ProjectDiagnostic {
                 path: path.to_string(),

@@ -220,6 +220,17 @@ impl Loader {
         self.project.read().await.step(path, at).await
     }
 
+    /// The table of the data script at `path` after its statement at the offset `at` of the text
+    /// `text`, in place of the script's own, as [`LoadedProject::step_text`] builds it.
+    pub async fn step_text(
+        &self,
+        path: &str,
+        text: &str,
+        at: usize,
+    ) -> Result<DataFrame, Vec<ProjectDiagnostic>> {
+        self.project.read().await.step_text(path, text, at).await
+    }
+
     /// The lifted form of the chart script at `path`, whose text is `text`, as
     /// [`LoadedProject::lift`] gives it.
     pub async fn lift(&self, path: &str, text: &str) -> Result<Lifted, DataFusionError> {
