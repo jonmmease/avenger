@@ -1,11 +1,10 @@
-//! The JavaScript interface: `loadFonts`, and `ChartView`, which runs the app of a chart in a
+//! The JavaScript interface: `addFonts`, and `ChartView`, which runs the app of a chart in a
 //! canvas, takes the canvas's DOM events, and draws through the page's one WebGPU device.
 
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     rc::{Rc, Weak},
-    sync::Arc,
 };
 
 use avenger_app::app::{AvengerApp, Changes};
@@ -13,41 +12,54 @@ use avenger_chart::Chart;
 use avenger_chart_app::{ChartApp, ChartAppState, ChartUpdate, ChartUpdates};
 use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::{ElementState, WindowEvent, WindowResizeEvent};
-use avenger_format_datetime_d3::D3DateTimeFormatProvider;
-use avenger_format_number_d3::D3NumberFormatProvider;
-use avenger_typst_label::{EngineOptions, LabelEngine, RegisteredFont};
+use avenger_style::{ColorScheme, Preferences};
+use avenger_typst_label::{LabelEngine, RegisteredFont};
 use avenger_wgpu::{
     canvas::CanvasConfig,
     html_canvas::{BrowserGpu, HtmlCanvasCanvas},
 };
-use js_sys::{Array, Object, Promise, Reflect, Uint8Array};
+use js_sys::{Array, Object, Promise, Reflect};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 use web_sys::{
     AddEventListenerOptions, ClipboardEvent, Event, FocusOptions, HtmlCanvasElement, KeyboardEvent,
-    PointerEvent, ResizeObserver, ResizeObserverEntry, Response, TouchEvent, WheelEvent,
+    PointerEvent, ResizeObserver, ResizeObserverEntry, TouchEvent, WheelEvent,
 };
 
 use crate::{
-    fonts::{font_options, read_fonts},
+    fonts::{label_engine, read_fonts},
     input::{self, Touches, Wheel},
-    styles::{cascade, PageDiagnostic},
+    styles::{cascade, PageDiagnostic, ProjectStyles},
 };
 
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
 /** The options of `ChartView.create`. */
 export interface ViewOptions {
-  /** CSS text that styles the chart after the base stylesheet. */
-  stylesheet?: string;
+  /** The project's stylesheets, which style the chart after the base stylesheet. */
+  styles?: ProjectStyles;
+  /** The reader's color scheme, which sets the chart's background and its scheme's styles. */
+  colorScheme?: "light" | "dark";
+  /** Whether the canvas and the chart's own background are transparent, so the page shows
+   * through, or filled with the scheme's background. */
+  transparent?: boolean;
   /** When wheel events reach the chart: while its canvas has the focus, or always. */
   wheel?: "focus" | "always";
 }
 
-/** A diagnostic of a page stylesheet, at a line and a column of its text, both from 1. */
+/** A project's stylesheets: the path of the entry stylesheet, and the text of each stylesheet
+ * by its path relative to the project's root, which the entry stylesheet imports by paths
+ * relative to itself. */
+export interface ProjectStyles {
+  entry: string;
+  files: Record<string, string>;
+}
+
+/** A diagnostic of a project's stylesheet, at a line and a column of its file, both from 1. */
 export interface StyleDiagnostic {
   severity: "error" | "warning";
   message: string;
+  file: string;
   line: number;
   column: number;
 }
@@ -58,12 +70,11 @@ fn start() {
     console_error_panic_hook::set_once();
 }
 
-/// What the page shares among its views: the fonts that it loaded, the loads that it started,
-/// the label engine of the loaded fonts, and the WebGPU device.
+/// What the page shares among its views: the fonts that it added, the label engine of the
+/// fonts, and the WebGPU device.
 #[derive(Default)]
 struct Page {
     fonts: RefCell<Vec<RegisteredFont>>,
-    loads: RefCell<Vec<Promise>>,
     /// The engine of the fonts, with the number of fonts that it holds.
     engine: RefCell<Option<(usize, LabelEngine)>>,
     /// The promise of the device, which resolves once it opens, and the device then.
@@ -79,55 +90,30 @@ thread_local! {
     static PAGE: Page = Page::default();
 }
 
-/// Fetches the font file at `url`, one TrueType, OpenType, or collection font, and registers its
-/// fonts after the bundled fonts with the views made after the load ends.
-#[wasm_bindgen(js_name = loadFonts, unchecked_return_type = "Promise<void>")]
-pub fn load_fonts(url: String) -> Promise {
-    let load = future_to_promise(async move {
-        let window = web_sys::window().ok_or_else(|| JsError::new("no window"))?;
-        let response: Response = JsFuture::from(window.fetch_with_str(&url))
-            .await?
-            .dyn_into()?;
-        if !response.ok() {
-            let status = response.status();
-            return Err(
-                JsError::new(&format!("cannot load fonts from {url}: status {status}")).into(),
-            );
-        }
-        let buffer = JsFuture::from(response.array_buffer()?).await?;
-        let bytes = Uint8Array::new(&buffer).to_vec();
-        let fonts = read_fonts(&bytes)
-            .map_err(|error| JsError::new(&format!("cannot load fonts from {url}: {error}")))?;
-        PAGE.with(|page| page.fonts.borrow_mut().extend(fonts));
-        Ok(JsValue::UNDEFINED)
-    });
-    PAGE.with(|page| page.loads.borrow_mut().push(load.clone()));
-    load
+/// Adds the fonts of `file`, one TrueType, OpenType, or collection font, for the views made after
+/// it. The module embeds no fonts, so a page adds the faces that `avenger-fonts` bundles first, in
+/// their order, and its own fonts after them.
+#[wasm_bindgen(js_name = addFonts)]
+pub fn add_fonts(file: &[u8]) -> Result<(), JsError> {
+    let fonts = read_fonts(file).map_err(|error| JsError::new(&error.to_string()))?;
+    PAGE.with(|page| page.fonts.borrow_mut().extend(fonts));
+    Ok(())
 }
 
-/// The engine of the bundled fonts and the page's fonts, after the loads that the page started
-/// end.
-async fn engine() -> Result<LabelEngine, JsValue> {
-    let loads = PAGE.with(|page| page.loads.borrow().clone());
-    for load in loads {
-        JsFuture::from(load).await?;
-    }
-    Ok(PAGE.with(|page| {
+/// The engine of the page's fonts, which the views share until the page adds fonts.
+fn engine() -> LabelEngine {
+    PAGE.with(|page| {
         let fonts = page.fonts.borrow();
         let mut engine = page.engine.borrow_mut();
         match &*engine {
             Some((count, engine)) if *count == fonts.len() => engine.clone(),
             _ => {
-                let built = LabelEngine::new(EngineOptions {
-                    fonts: font_options(fonts.clone()),
-                })
-                .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
-                .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()));
+                let built = label_engine(fonts.clone());
                 *engine = Some((fonts.len(), built.clone()));
                 built
             }
         }
-    }))
+    })
 }
 
 /// The page's WebGPU device, which the first view opens.
@@ -177,6 +163,11 @@ struct View {
     canvas: HtmlCanvasElement,
     wheel: Wheel,
     updates: ChartUpdates,
+    /// The project's stylesheets, the color scheme, and whether the view is transparent, which a
+    /// change of the stylesheets or of the scheme styles the chart with again.
+    styles: RefCell<Option<ProjectStyles>>,
+    scheme: Cell<ColorScheme>,
+    transparent: bool,
     /// The app and its canvas, which the driver takes while it awaits the app, and which
     /// `destroy` drops.
     core: RefCell<Option<Core>>,
@@ -207,29 +198,34 @@ pub struct ChartView {
 #[wasm_bindgen]
 impl ChartView {
     /// Decodes the chart message `bytes`, builds its app at the canvas's CSS size and the
-    /// display's pixel ratio, and draws it into `canvas`. `options` is an object with an optional
-    /// `stylesheet`, CSS text that styles the chart after the base stylesheet, and an optional
-    /// `wheel`, `"focus"` by default or `"always"`. Rejects with the decoder's error for an
-    /// invalid message, and when the browser does not support WebGPU. It waits for the fonts that
-    /// the page started to load.
+    /// display's pixel ratio, and draws it into `canvas`, with the fonts that the page added.
+    /// `options` gives the project's `styles`, the `colorScheme`, light by default, whether the
+    /// view is `transparent`, and `wheel`, `"focus"` by default or `"always"`. Rejects with the
+    /// decoder's error for an invalid message, and when the browser does not support WebGPU.
     pub async fn create(
         canvas: HtmlCanvasElement,
         bytes: Vec<u8>,
         #[wasm_bindgen(unchecked_optional_param_type = "ViewOptions")] options: Option<Object>,
     ) -> Result<ChartView, JsValue> {
         let chart = Chart::from_bytes(bytes).map_err(|error| JsError::new(&error.to_string()))?;
-        let stylesheet = string_option(options.as_ref(), "stylesheet")?;
+        let project = styles_option(options.as_ref())?;
+        let scheme = match string_option(options.as_ref(), "colorScheme")? {
+            Some(name) => color_scheme(&name)?,
+            None => ColorScheme::Light,
+        };
+        let transparent = bool_option(options.as_ref(), "transparent")?;
         let wheel = match string_option(options.as_ref(), "wheel")? {
             Some(name) => Wheel::parse(&name).map_err(|error| JsError::new(&error))?,
             None => Wheel::default(),
         };
-        let engine = engine().await?;
+        let engine = engine();
         let gpu = gpu().await?;
-        let (styles, diagnostics) = cascade(stylesheet.as_deref());
+        let (styles, diagnostics) = cascade(project.as_ref(), scheme, transparent);
 
         let size = css_size(&canvas);
         let dimensions = fit(size, pixel_ratio(), gpu.max_texture_dimension());
         let updates = ChartUpdates::new();
+        updates.set_preferences(preferences(scheme));
         let app = ChartApp::new(chart, styles, engine)
             .size(size)
             .updates(&updates)
@@ -250,6 +246,9 @@ impl ChartView {
             canvas: canvas.clone(),
             wheel,
             updates,
+            styles: RefCell::new(project),
+            scheme: Cell::new(scheme),
+            transparent,
             core: RefCell::new(Some(Core {
                 app,
                 canvas: html_canvas,
@@ -284,8 +283,8 @@ impl ChartView {
         })
     }
 
-    /// The diagnostics of the `stylesheet` option: objects with `severity`, `message`, `line`,
-    /// and `column`.
+    /// The diagnostics of the project's stylesheets: objects with `severity`, `message`, `file`,
+    /// `line`, and `column`.
     #[wasm_bindgen(getter, unchecked_return_type = "StyleDiagnostic[]")]
     pub fn diagnostics(&self) -> Array {
         self.diagnostics.clone()
@@ -301,14 +300,31 @@ impl ChartView {
         Ok(())
     }
 
-    /// Styles the chart with `stylesheet`, CSS text after the base stylesheet, or with the base
-    /// stylesheet alone for `null`, and keeps its views and selections. Returns the diagnostics
-    /// of the stylesheet.
-    #[wasm_bindgen(js_name = setStylesheet, unchecked_return_type = "StyleDiagnostic[]")]
-    pub fn set_stylesheet(&self, stylesheet: Option<String>) -> Array {
-        let (styles, diagnostics) = cascade(stylesheet.as_deref());
-        self.view.updates.send(ChartUpdate::styles(styles));
-        diagnostics_array(&diagnostics)
+    /// Styles the chart with the project's stylesheets `styles`, or with the base stylesheet
+    /// alone for `null`, and keeps its views and selections. Returns the diagnostics of the
+    /// stylesheets.
+    #[wasm_bindgen(js_name = setStyles, unchecked_return_type = "StyleDiagnostic[]")]
+    pub fn set_styles(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "ProjectStyles | null")] styles: JsValue,
+    ) -> Result<Array, JsValue> {
+        *self.view.styles.borrow_mut() = project_styles(&styles)?;
+        Ok(diagnostics_array(&self.view.restyle()))
+    }
+
+    /// Draws the chart for a reader who prefers the color scheme `scheme`, `"light"` or `"dark"`:
+    /// its background and the styles of the scheme. Keeps its views and selections.
+    #[wasm_bindgen(js_name = setColorScheme)]
+    pub fn set_color_scheme(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "\"light\" | \"dark\"")] scheme: String,
+    ) -> Result<(), JsValue> {
+        let scheme = color_scheme(&scheme)?;
+        if scheme != self.view.scheme.replace(scheme) {
+            self.view.updates.set_preferences(preferences(scheme));
+            self.view.restyle();
+        }
+        Ok(())
     }
 
     /// Removes the view's listeners and its resize observer, and frees its GPU resources.
@@ -347,6 +363,91 @@ impl View {
     }
 }
 
+impl View {
+    /// Styles the chart again with its stylesheets, its scheme, and its transparency, and returns
+    /// the diagnostics of the stylesheets.
+    fn restyle(&self) -> Vec<PageDiagnostic> {
+        let styles = self.styles.borrow();
+        let (cascade, diagnostics) = cascade(styles.as_ref(), self.scheme.get(), self.transparent);
+        self.updates.send(ChartUpdate::styles(cascade));
+        diagnostics
+    }
+}
+
+/// The color that a view's canvas clears to: none for a transparent view, so the page shows
+/// through, and the background of `scheme` otherwise, as the CLI's images of one scheme have.
+fn canvas_background(scheme: ColorScheme, transparent: bool) -> [f32; 4] {
+    if transparent {
+        return [0.0; 4];
+    }
+    let hex = scheme.background().trim_start_matches('#');
+    let channel = |at: usize| {
+        u8::from_str_radix(&hex[at..at + 2], 16).map_or(1.0, |value| f32::from(value) / 255.0)
+    };
+    [channel(0), channel(2), channel(4), 1.0]
+}
+
+/// The preferences of a reader who prefers the color scheme `scheme`, which the stylesheets'
+/// `prefers-color-scheme` conditions test.
+fn preferences(scheme: ColorScheme) -> Preferences {
+    Preferences {
+        color_scheme: scheme,
+        ..Preferences::default()
+    }
+}
+
+/// The color scheme that `name` names, `light` or `dark`.
+fn color_scheme(name: &str) -> Result<ColorScheme, JsValue> {
+    match name {
+        "light" => Ok(ColorScheme::Light),
+        "dark" => Ok(ColorScheme::Dark),
+        other => Err(JsError::new(&format!("the color scheme `{other}`: light or dark")).into()),
+    }
+}
+
+/// The project's stylesheets of the `styles` option, when it gives them.
+fn styles_option(options: Option<&Object>) -> Result<Option<ProjectStyles>, JsValue> {
+    match options {
+        Some(options) => project_styles(&Reflect::get(options, &JsValue::from_str("styles"))?),
+        None => Ok(None),
+    }
+}
+
+/// The project's stylesheets of `value`, an object of `entry` and `files`, or none for `null`.
+fn project_styles(value: &JsValue) -> Result<Option<ProjectStyles>, JsValue> {
+    if value.is_undefined() || value.is_null() {
+        return Ok(None);
+    }
+    let invalid = || JsError::new("the styles are an object of `entry` and `files`");
+    let entry = Reflect::get(value, &JsValue::from_str("entry"))?
+        .as_string()
+        .ok_or_else(invalid)?;
+    let files = Reflect::get(value, &JsValue::from_str("files"))?;
+    let files: Object = files.dyn_into().map_err(|_| invalid())?;
+    let mut map = std::collections::BTreeMap::new();
+    for pair in Object::entries(&files).iter() {
+        let pair: Array = pair.dyn_into()?;
+        let path = pair.get(0).as_string().ok_or_else(invalid)?;
+        let text = pair.get(1).as_string().ok_or_else(invalid)?;
+        map.insert(path, text);
+    }
+    Ok(Some(ProjectStyles { entry, files: map }))
+}
+
+/// The boolean at `key` of `options`, false when it has none.
+fn bool_option(options: Option<&Object>, key: &str) -> Result<bool, JsValue> {
+    let Some(options) = options else {
+        return Ok(false);
+    };
+    let value = Reflect::get(options, &JsValue::from_str(key))?;
+    if value.is_undefined() || value.is_null() {
+        return Ok(false);
+    }
+    value
+        .as_bool()
+        .ok_or_else(|| JsError::new(&format!("the {key} option is a boolean")).into())
+}
+
 /// The string at `key` of `options`, when it has one.
 fn string_option(options: Option<&Object>, key: &str) -> Result<Option<String>, JsValue> {
     let Some(options) = options else {
@@ -372,6 +473,7 @@ fn diagnostics_array(diagnostics: &[PageDiagnostic]) -> Array {
             };
             set("severity", JsValue::from_str(diagnostic.severity));
             set("message", JsValue::from_str(&diagnostic.message));
+            set("file", JsValue::from_str(&diagnostic.file));
             set("line", JsValue::from(diagnostic.line));
             set("column", JsValue::from(diagnostic.column));
             JsValue::from(object)
@@ -474,6 +576,8 @@ async fn drive(view: Rc<View>) {
                 if let Some(dimensions) = core.resized.take() {
                     core.canvas.resize(dimensions);
                 }
+                (core.canvas)
+                    .set_background(canvas_background(view.scheme.get(), view.transparent));
                 if let Err(error) = core.canvas.render() {
                     log(&format!(
                         "avenger-chart-web: a frame failed to draw: {error}"

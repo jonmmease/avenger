@@ -7,7 +7,7 @@ pub mod styles;
 mod view;
 
 #[cfg(target_arch = "wasm32")]
-pub use view::{load_fonts, ChartView};
+pub use view::{add_fonts, ChartView};
 
 #[cfg(test)]
 mod tests;

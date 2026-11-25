@@ -1,22 +1,31 @@
-//! The parts of the library that run without a browser: font files, the conversion of DOM events,
-//! and page stylesheets.
+//! The parts of the library that run without a browser: font files and the label engine, the
+//! conversion of DOM events, and the styles of a project.
 
 use avenger_eventstream::window::{
     ElementState, Key, MouseButton, MouseScrollDelta, NamedKey, WindowEvent, WindowKeyboardInput,
     WindowMouseWheel,
 };
-use avenger_style::{Element, HostInputs, Property, StyleTree};
-use avenger_typst_label::{bundled_font_options, EngineOptions, LabelEngine, LabelOptions};
+use std::collections::BTreeMap;
+
+use avenger_style::{ColorScheme, Element, HostInputs, Property, StyleTree};
+use avenger_typst_label::{LabelOptions, RegisteredFont};
 
 use crate::{
-    fonts::{font_options, read_fonts, FontsError},
+    fonts::{font_options, label_engine, read_fonts, FontsError},
     input::{self, Touches, Wheel},
-    styles::cascade,
+    styles::{cascade, ProjectStyles},
 };
+
+/// The faces that `avenger-fonts` bundles, in their order, as a page adds them.
+fn bundled_faces() -> Vec<RegisteredFont> {
+    (avenger_fonts::FACES.iter())
+        .flat_map(|(_, face)| read_fonts(&avenger_fonts::decompress(face)).unwrap())
+        .collect()
+}
 
 #[test]
 fn a_font_file_reads_as_its_one_face() {
-    let lato = bundled_font_options().registered_fonts[2].data.clone();
+    let lato = avenger_fonts::decompress(avenger_fonts::LATO_REGULAR);
     let read = read_fonts(&lato).unwrap();
     assert_eq!(read.len(), 1);
     assert_eq!(&*read[0].data, &*lato);
@@ -29,21 +38,28 @@ fn a_file_that_is_not_a_font_is_an_error() {
 }
 
 #[test]
-fn the_engine_has_the_bundled_families_and_then_the_page_fonts() {
-    let bundled = bundled_font_options().registered_fonts.len();
-    let page = read_fonts(&bundled_font_options().registered_fonts[0].data).unwrap();
-    let options = font_options(page);
+fn the_engine_takes_the_bundled_families_and_googlesql_formats_from_the_page_fonts() {
+    let faces = bundled_faces();
+    let options = font_options(faces.clone());
     assert!(!options.load_system_fonts);
-    assert_eq!(options.registered_fonts.len(), bundled + 1);
-    let engine = LabelEngine::new(EngineOptions {
-        fonts: font_options(Vec::new()),
-    });
+    assert_eq!(options.registered_fonts.len(), faces.len());
+    let engine = label_engine(faces);
     for family in ["sans-serif", "monospace"] {
         let mut options = LabelOptions::default();
         options.text.font_family = family.into();
         let label = engine.compile_text("Text", &options).unwrap();
         assert!(!label.frame.text_items().is_empty(), "{family}");
     }
+    // The charts of avenger-sql name GoogleSQL's syntaxes, which evaluation checks.
+    let syntax = |provider: Option<&str>| provider.map(str::to_string);
+    assert_eq!(
+        syntax(engine.number_format().map(|provider| provider.syntax())),
+        Some("googlesql".to_string())
+    );
+    assert_eq!(
+        syntax(engine.datetime_format().map(|provider| provider.syntax())),
+        Some("googlesql".to_string())
+    );
 }
 
 #[test]
@@ -174,36 +190,90 @@ fn a_cancel_of_a_dragging_finger_ends_the_drag() {
     assert_eq!(touches.cancel(2), [left(ElementState::Released)]);
 }
 
-/// The color of a mark of a bar chart's plot, under the styles of `page`.
-fn mark_color(page: Option<&str>) -> [f32; 4] {
+/// A project of the stylesheets `files`, whose entry stylesheet is `chart.css`.
+fn project(files: &[(&str, &str)]) -> ProjectStyles {
+    ProjectStyles {
+        entry: "chart.css".to_string(),
+        files: (files.iter())
+            .map(|(path, text)| (path.to_string(), text.to_string()))
+            .collect::<BTreeMap<_, _>>(),
+    }
+}
+
+/// The colors of a bar chart's root and of a mark of its plot, under `project`, for a reader of
+/// `scheme`, on a `transparent` view or not.
+fn colors(
+    project: Option<&ProjectStyles>,
+    scheme: ColorScheme,
+    transparent: bool,
+) -> ([f32; 4], [f32; 4]) {
     let mut tree = StyleTree::new(Element::Chart);
     let plot = tree.add(tree.root(), Element::Plot);
     tree.set_attribute(plot, "type", "cartesian");
     let mark = tree.add(plot, Element::Mark);
     tree.set_attribute_forms(mark, "type", "bar", "bar");
-    let (styles, diagnostics) = cascade(page);
+    let (styles, diagnostics) = cascade(project, scheme, transparent);
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     let computed = styles.compute(&tree, &HostInputs::default());
-    computed[mark].color(Property::Color).expect("a color")
+    let background = computed[tree.root()]
+        .color(Property::Background)
+        .unwrap_or([0.0; 4]);
+    (
+        background,
+        computed[mark].color(Property::Color).expect("a color"),
+    )
+}
+
+fn mark_color(project: Option<&ProjectStyles>) -> [f32; 4] {
+    colors(project, ColorScheme::Light, false).1
 }
 
 #[test]
-fn a_page_rule_wins_over_the_base_stylesheet() {
+fn a_project_rule_wins_over_the_base_stylesheet() {
     let base = mark_color(None);
-    assert_eq!(
-        mark_color(Some("mark { color: red; }")),
-        [1.0, 0.0, 0.0, 1.0]
-    );
+    let red = project(&[("chart.css", "mark { color: red; }")]);
+    assert_eq!(mark_color(Some(&red)), [1.0, 0.0, 0.0, 1.0]);
     // The reset stylesheet removes the base stylesheet's color of marks.
-    assert_ne!(mark_color(Some("@import 'std:reset.css';")), base);
+    let reset = project(&[("chart.css", "@import 'std:reset.css';")]);
+    assert_ne!(mark_color(Some(&reset)), base);
 }
 
 #[test]
-fn a_page_stylesheet_reports_its_diagnostics_at_their_lines_and_columns() {
-    let (_, diagnostics) = cascade(Some("mark { color: red; }\nplot {\n  colr: blue;\n}"));
+fn a_project_stylesheet_imports_the_project_s_other_stylesheets() {
+    let styles = project(&[
+        ("chart.css", "@import 'styles/theme.css';"),
+        ("styles/theme.css", "@import '../marks.css';"),
+        ("marks.css", "mark { color: blue; }"),
+    ]);
+    assert_eq!(mark_color(Some(&styles)), [0.0, 0.0, 1.0, 1.0]);
+}
+
+#[test]
+fn the_scheme_sets_the_background_and_a_transparent_view_leaves_it_to_the_page() {
+    let rgb = |color: [f32; 4]| color.map(|channel| (channel * 255.0).round() as u8);
+    let (light, _) = colors(None, ColorScheme::Light, false);
+    let (dark, _) = colors(None, ColorScheme::Dark, false);
+    assert_eq!(rgb(light), [255, 255, 255, 255]);
+    assert_eq!(rgb(dark), [0x1e, 0x1e, 0x1e, 255]);
+    let (transparent, _) = colors(None, ColorScheme::Dark, true);
+    assert_eq!(transparent[3], 0.0);
+}
+
+#[test]
+fn a_project_stylesheet_reports_its_diagnostics_at_their_files_lines_and_columns() {
+    let typo = project(&[(
+        "chart.css",
+        "mark { color: red; }\nplot {\n  colr: blue;\n}",
+    )]);
+    let (_, diagnostics) = cascade(Some(&typo), ColorScheme::Light, false);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
-    assert_eq!((diagnostics[0].line, diagnostics[0].column), (3, 3));
-    let (_, diagnostics) = cascade(Some("@import 'theme.css';"));
+    let found = &diagnostics[0];
+    assert_eq!(
+        (found.file.as_str(), found.line, found.column),
+        ("chart.css", 3, 3)
+    );
+    let missing = project(&[("chart.css", "@import 'theme.css';")]);
+    let (_, diagnostics) = cascade(Some(&missing), ColorScheme::Light, false);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
     assert_eq!(diagnostics[0].severity, "error");
     assert!(

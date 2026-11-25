@@ -16,10 +16,10 @@ avenger-chart = { path = "../avenger-chart" }
 avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream", default-features = false }
-avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googlesql" }
+avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-style = { path = "../avenger-style" }
-avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-typst-label = { path = "../avenger-typst-label" }
 thiserror = { workspace = true }
 ttf-parser = "0.25.1"
 
@@ -48,7 +48,6 @@ web-sys = { version = "0.3.107", features = [
     "KeyboardEvent",
     "MouseEvent",
     "PointerEvent",
-    "Response",
     "ResizeObserver",
     "ResizeObserverEntry",
     "TouchEvent",
@@ -56,3 +55,6 @@ web-sys = { version = "0.3.107", features = [
     "WheelEvent",
     "Window",
 ] }
+
+[dev-dependencies]
+avenger-fonts = { path = "../avenger-fonts" }
