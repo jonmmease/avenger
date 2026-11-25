@@ -116,6 +116,8 @@ enum Command {
     Selection(String, Option<SelectionState>),
     /// The clauses of a selection, with the resolution that the chart gives it.
     Clauses(String, Vec<Clause>),
+    /// The modes that are on, which turn off the chart's other toggles.
+    ModesOn(Vec<String>),
     Preferences(Preferences),
 }
 
@@ -127,6 +129,7 @@ pub(crate) enum Applied {
     Mode(String, bool),
     Selection(String, Option<SelectionState>),
     Clauses(String, Vec<Clause>),
+    ModesOn(Vec<String>),
     Preferences(Preferences),
 }
 
@@ -241,6 +244,14 @@ impl ChartUpdates {
         self.command(Command::Clauses(name.to_string(), clauses));
     }
 
+    /// Turns on the modes `names`, as the modes of a [`ChartChange`](crate::ChartChange) or a saved
+    /// state name them, and turns off the chart's other toggles. A mode of a group turns off as
+    /// another mode of its group turns on, and a mode that the chart does not declare is left out.
+    /// The app reports no change.
+    pub fn set_modes_on(&self, names: Vec<String>) {
+        self.command(Command::ModesOn(names));
+    }
+
     /// Sets the preferences of the reader, such as the color scheme, which `@media` conditions of
     /// the chart's styles test, and which the app's widgets, tooltips, and brushes follow. A
     /// host whose surface turns dark sends the dark color scheme with the styles of its new
@@ -324,6 +335,7 @@ impl ChartUpdates {
                 Command::Mode(mode, on) => applied.push(Applied::Mode(mode, on)),
                 Command::Selection(name, state) => applied.push(Applied::Selection(name, state)),
                 Command::Clauses(name, clauses) => applied.push(Applied::Clauses(name, clauses)),
+                Command::ModesOn(names) => applied.push(Applied::ModesOn(names)),
                 Command::Preferences(preferences) => {
                     applied.push(Applied::Preferences(preferences))
                 }

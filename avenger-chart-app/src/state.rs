@@ -473,6 +473,20 @@ impl ChartAppState {
         self.set_selection(name, Some(SelectionState::new(resolution, clauses)));
     }
 
+    /// Turns on the modes `names` that the chart declares, and turns off its other toggles.
+    pub(crate) fn set_modes_on(&mut self, names: &[String]) {
+        let declared: Vec<(String, bool)> = (self.chart().message().modes.iter())
+            .map(|mode| (mode.name.clone(), mode.group.is_empty()))
+            .collect();
+        for (name, toggle) in declared {
+            match names.contains(&name) {
+                true => self.evaluator.set_mode(name, true),
+                false if toggle => self.evaluator.set_mode(name, false),
+                false => {}
+            }
+        }
+    }
+
     pub(crate) fn set_selection(&mut self, name: &str, state: Option<SelectionState>) {
         let mut selections: BTreeMap<String, SelectionState> = self.evaluator.selections().clone();
         match state {

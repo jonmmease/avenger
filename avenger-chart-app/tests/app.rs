@@ -737,6 +737,25 @@ async fn the_clauses_of_one_app_s_change_apply_to_another_with_its_resolution() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_modes_on_of_a_state_turn_on_and_turn_off_toggles() {
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("plot"))
+        .modes([
+            Mode::new("pan").group("drag"),
+            Mode::new("box").group("drag"),
+            Mode::new("labels").on(true),
+        ])
+        .build()
+        .unwrap();
+    let (mut app, updates, _) = app(chart).await;
+    assert_eq!(app.state().modes(), ["pan", "labels"]);
+    updates.set_modes_on(vec!["box".to_string(), "elsewhere".to_string()]);
+    refresh_until(&mut app, |app| app.state().modes() == ["box"]).await;
+    updates.set_modes_on(vec!["pan".to_string(), "labels".to_string()]);
+    refresh_until(&mut app, |app| app.state().modes() == ["pan", "labels"]).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
     let select = vec![ToolBuilder::from(Select::interval(
         "brush",

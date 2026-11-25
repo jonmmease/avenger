@@ -289,13 +289,11 @@ struct View {
     observer: RefCell<Option<Observer>>,
 }
 
-/// What `state()` reads of an app: the clauses of each selection, the modes that are on, and the
-/// modes that the chart declares, with their groups.
+/// What `state()` reads of an app: the clauses of each selection, and the modes that are on.
 #[derive(Default)]
 struct State {
     selections: BTreeMap<String, Vec<Clause>>,
     modes: Vec<String>,
-    declared: Vec<(String, String)>,
 }
 
 impl State {
@@ -305,9 +303,6 @@ impl State {
                 .map(|(name, state)| (name.clone(), state.clauses.clone()))
                 .collect(),
             modes: app.modes().into_iter().map(str::to_string).collect(),
-            declared: (app.chart().message().modes.iter())
-                .map(|mode| (mode.name.clone(), mode.group.clone()))
-                .collect(),
         }
     }
 }
@@ -511,15 +506,7 @@ impl ChartView {
             self.view.updates.set_clauses(&name, clauses);
         }
         if let Some(on) = change.modes {
-            let declared = self.view.state.borrow().declared.clone();
-            for (name, group) in declared {
-                match on.contains(&name) {
-                    true => self.view.updates.set_mode(name, true),
-                    // A mode of a group turns off as another of its group turns on.
-                    false if group.is_empty() => self.view.updates.set_mode(name, false),
-                    false => {}
-                }
-            }
+            self.view.updates.set_modes_on(on);
         }
         Ok(())
     }

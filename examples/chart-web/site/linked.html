@@ -80,6 +80,8 @@
     const element = document.createElement("avenger-chart");
     element.setAttribute("width", String(Math.floor(article.clientWidth - 28)));
     element.setAttribute("height", "380");
+    // The other chart follows the brush as the reader drags it.
+    element.setAttribute("reports", "every");
     const script = document.createElement("script");
     script.type = "application/vnd.avenger.chart+base64";
     script.textContent = chart.bytes;

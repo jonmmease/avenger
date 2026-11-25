@@ -42,6 +42,7 @@ impl AppBuild<ChartAppState> for ChartBuild {
                 Applied::Mode(mode, on) => state.evaluator.set_mode(mode, on),
                 Applied::Selection(name, selection) => state.set_selection(&name, selection),
                 Applied::Clauses(name, clauses) => state.set_clauses(&name, clauses),
+                Applied::ModesOn(names) => state.set_modes_on(&names),
                 Applied::Preferences(preferences) => state.preferences = preferences,
             }
         }
