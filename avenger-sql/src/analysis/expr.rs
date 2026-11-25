@@ -1963,7 +1963,13 @@ impl Pass<'_> {
                 }
                 continue;
             }
-            match self.expr(&value, arg_scope) {
+            // A mark's channel restyles by selections through a CASE or an IF of them.
+            let planned = self.expr(&value, arg_scope);
+            let planned = match (planned, function.family == library::Family::Mark) {
+                (Some(expr), true) => self.restyle(expr, value.syntax().text_range()),
+                (planned, _) => planned,
+            };
+            match planned {
                 Some(expr) => {
                     if marked {
                         let channel = match &named {

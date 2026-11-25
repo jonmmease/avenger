@@ -36,7 +36,7 @@ mod error;
 use std::fmt::Write;
 
 pub use argument::{Arg, Class};
-pub use call::{ChannelArg, MarkCall, MarkTemplate};
+pub use call::{ChannelArg, Conditional, MarkCall, MarkTemplate};
 pub use compose::{composition, compositions, Child, ChildOrder, Composition, CompositionKind};
 pub use error::{ArgError, Expected, Reason};
 

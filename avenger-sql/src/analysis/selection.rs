@@ -13,7 +13,7 @@ use avenger_sql_syntax::{
 };
 use datafusion::{
     arrow::datatypes::DataType,
-    common::ScalarValue,
+    common::{tree_node::TreeNode, ScalarValue},
     logical_expr::{
         expr::{Placeholder, ScalarFunction},
         Expr,
@@ -324,6 +324,147 @@ pub(super) fn select_calls(list: Option<&ast::ArgList>) -> impl Iterator<Item = 
             .and_then(|path| path.names())
             .unwrap_or_default();
         matches!(names.as_slice(), [name] if name.eq_ignore_ascii_case("select"))
+    })
+}
+
+impl Pass<'_> {
+    /// The channel argument `expr` of a mark, at `at`, with a searched `CASE` or an `IF` over
+    /// selections as a restyle that the renderer tests, or `None` after the error of another read
+    /// of a selection in the channel, which a conditional encoding can't hold.
+    pub(super) fn restyle(&mut self, expr: Expr, at: TextRange) -> Option<Expr> {
+        if !reads_selection(&expr) {
+            return Some(expr);
+        }
+        let mut error = None;
+        let restyled = crate::functions::kind::map_value(&expr, &mut |value| {
+            restyled(value).unwrap_or_else(|message| {
+                error = Some(message);
+                value.clone()
+            })
+        });
+        match error {
+            Some(message) => {
+                self.error(at, message);
+                None
+            }
+            None => Some(restyled),
+        }
+    }
+}
+
+/// Whether `expr` reads a selection.
+fn reads_selection(expr: &Expr) -> bool {
+    expr.exists(|expr| Ok(is_read(expr))).unwrap_or(false)
+}
+
+/// The restyle of the channel value `value`, a searched `CASE` over selections, as `IF` plans
+/// too: a call of `restyle` with the value of its `ELSE`, and the predicate and the value of each
+/// `WHEN`, in their order.
+fn restyled(value: &Expr) -> Result<Expr, String> {
+    use prost::Message;
+    let Expr::Case(case) = value else {
+        return Err(
+            "a channel reads a selection through a CASE WHEN or an IF of selections, which the \
+             renderer tests, as `color => CASE WHEN brush THEN species ELSE value('lightgray') \
+             END`: to compute with a selection, filter by it with `WHERE brush`"
+                .into(),
+        );
+    };
+    if case.expr.is_some() {
+        return Err(
+            "a restyle by selections is a searched CASE, CASE WHEN brush THEN ..., which tests \
+             each selection in its WHEN"
+                .into(),
+        );
+    }
+    // The pass gives a CASE without an ELSE a NULL one.
+    let default = (case.else_expr.as_ref()).filter(|default| {
+        !matches!(default.as_ref(), Expr::Literal(value, _) if value.is_null())
+            && !matches!(default.as_ref(), Expr::Cast(cast) if matches!(cast.expr.as_ref(), Expr::Literal(value, _) if value.is_null()))
+    });
+    let Some(default) = default else {
+        return Err(
+            "a CASE of a channel over selections takes an ELSE: the value of the rows that no \
+             selection selects"
+                .into(),
+        );
+    };
+    let mut conditions = Vec::with_capacity(case.when_then_expr.len());
+    for (when, then) in &case.when_then_expr {
+        if reads_selection(then) || reads_selection(default) {
+            return Err(
+                "the values of a restyle are values of the channel, which read no selection".into(),
+            );
+        }
+        conditions.push((predicate(when)?.encode_to_vec(), (**then).clone()));
+    }
+    Ok(crate::functions::kind::restyle(
+        (**default).clone(),
+        conditions,
+    ))
+}
+
+/// The predicate of the condition `when` of a restyle: selections, `selected(...)` calls, and
+/// their combinations with `AND`, `OR`, and `NOT`.
+fn predicate(when: &Expr) -> Result<avenger_chart::proto::Predicate, String> {
+    use avenger_chart::proto::{predicate::Predicate, EmptySelection, PredicateList, Selected};
+    use datafusion::logical_expr::{BinaryExpr, Operator};
+    let list = |exprs: [&Expr; 2]| -> Result<PredicateList, String> {
+        Ok(PredicateList {
+            predicates: exprs.into_iter().map(predicate).collect::<Result<_, _>>()?,
+        })
+    };
+    let predicate = match when {
+        Expr::ScalarFunction(call) if is_read(when) => {
+            let Some(Expr::Placeholder(Placeholder { id, .. })) = call.args.first() else {
+                return Err("a selection's test reads its state".into());
+            };
+            let selection = (id.trim_start_matches('$').strip_prefix("__sel_"))
+                .expect("the state of a selection")
+                .to_string();
+            let literal = |index: usize| match call.args.get(index) {
+                Some(Expr::Literal(value, _)) if !value.is_null() => Some(value.clone()),
+                _ => None,
+            };
+            if literal(5).is_some() {
+                return Err(
+                    "a restyle tests every clause of its selections, so its `selected` takes no \
+                     `exclude`"
+                        .into(),
+                );
+            }
+            let none = literal(4).is_some_and(|empty| empty == ScalarValue::from("none"));
+            Predicate::Selected(Selected {
+                selection,
+                empty: match none {
+                    true => EmptySelection::None,
+                    false => EmptySelection::All,
+                } as i32,
+                exclude_own: false,
+            })
+        }
+        Expr::BinaryExpr(BinaryExpr {
+            left,
+            op: Operator::And,
+            right,
+        }) => Predicate::All(list([left, right])?),
+        Expr::BinaryExpr(BinaryExpr {
+            left,
+            op: Operator::Or,
+            right,
+        }) => Predicate::Any(list([left, right])?),
+        Expr::Not(inner) => Predicate::Negate(Box::new(predicate(inner)?)),
+        _ => {
+            return Err(
+                "a restyle's condition combines selections with AND, OR, and NOT, and tests \
+                 nothing else of a row: compute the other test in a column and filter by it, as \
+                 `|> WHERE year > 2000`"
+                    .into(),
+            )
+        }
+    };
+    Ok(avenger_chart::proto::Predicate {
+        predicate: Some(predicate),
     })
 }
 

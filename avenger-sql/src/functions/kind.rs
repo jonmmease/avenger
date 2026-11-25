@@ -201,3 +201,84 @@ pub(crate) fn map_value(expr: &Expr, f: &mut impl FnMut(&Expr) -> Expr) -> Expr 
         expr => f(expr),
     }
 }
+
+/// `restyle(default, predicate, value, ...)`, whose result is `default`: the channel argument
+/// that the pass plans for a `CASE` or an `IF` over selections, which a mark function reads as
+/// a channel of the value `default` with a conditional value for each `predicate`, an encoded
+/// [`avenger_chart::proto::Predicate`], whose rows draw its `value`. The renderer tests the
+/// predicates, so no query reads the selections.
+///
+/// It is volatile, as [`KindFunction`] is.
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub(crate) struct RestyleFunction {
+    signature: Signature,
+}
+
+impl RestyleFunction {
+    pub(crate) fn new() -> Self {
+        Self {
+            signature: Signature::variadic_any(Volatility::Volatile),
+        }
+    }
+}
+
+impl ScalarUDFImpl for RestyleFunction {
+    fn name(&self) -> &str {
+        "restyle"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
+        Ok(arg_types.to_vec())
+    }
+
+    fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
+        Ok(arg_types[0].clone())
+    }
+
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
+        Ok(args.arg_fields[0].clone())
+    }
+
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        Ok(first(args))
+    }
+}
+
+/// The call of `restyle` with the value `default` and, for each condition, its encoded
+/// predicate and its value.
+pub(crate) fn restyle(default: Expr, conditions: Vec<(Vec<u8>, Expr)>) -> Expr {
+    use datafusion::{common::ScalarValue, logical_expr::ScalarUDF};
+    let mut args = vec![default];
+    for (predicate, value) in conditions {
+        args.push(Expr::Literal(ScalarValue::Binary(Some(predicate)), None));
+        args.push(value);
+    }
+    let udf = std::sync::Arc::new(ScalarUDF::new_from_impl(RestyleFunction::new()));
+    Expr::ScalarFunction(ScalarFunction::new_udf(udf, args))
+}
+
+/// A condition of a restyle: its encoded predicate, and the value of the rows that it selects.
+pub(crate) type Restyle<'e> = (&'e [u8], &'e Expr);
+
+/// The value and the conditions of `expr`, when it calls `restyle`.
+pub(crate) fn restyled(expr: &Expr) -> Option<(&Expr, Vec<Restyle<'_>>)> {
+    use datafusion::common::ScalarValue;
+    let Expr::ScalarFunction(ScalarFunction { func, args }) = expr else {
+        return None;
+    };
+    let inner: &dyn Any = func.inner().as_ref();
+    inner.downcast_ref::<RestyleFunction>()?;
+    let conditions = (args[1..].chunks(2))
+        .map(|pair| match &pair[0] {
+            Expr::Literal(ScalarValue::Binary(Some(bytes)), _) => {
+                Some((bytes.as_slice(), &pair[1]))
+            }
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((&args[0], conditions))
+}

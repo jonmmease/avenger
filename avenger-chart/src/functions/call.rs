@@ -15,10 +15,16 @@ use super::{
 use crate::{
     builder::{from_fragment, to_fragment, Build, Builder, Parts, Value},
     layer::MarkMessage,
-    proto::{self, Encoding, EncodingBuilder, Plot},
-    validate::{scales_numbers, scales_strings},
+    proto::{self, ConditionalValue, Encoding, EncodingBuilder, Plot},
+    validate::{is_position, scales_numbers, scales_strings},
     Chart, ChartError, CoordKind,
 };
+
+/// What a channel or one of its conditional values draws: a column or a value, of a kind.
+enum Read {
+    Field(Kind, String),
+    Value(Kind, Value),
+}
 
 /// A mark in the `mark` oneof of its layer.
 pub(crate) enum LayerMark {
@@ -48,6 +54,15 @@ pub(crate) type ApplyProperties =
 pub enum ChannelArg {
     Field(String),
     Value(ArrayRef),
+}
+
+/// A conditional value of a channel: the rows that `predicate` selects draw `arg`, of the kind
+/// `kind`, or of the channel's default kind for `None`, in place of the channel's own value.
+#[derive(Clone, Debug)]
+pub struct Conditional {
+    pub predicate: proto::Predicate,
+    pub arg: ChannelArg,
+    pub kind: Option<Kind>,
 }
 
 impl super::Channel {
@@ -117,7 +132,9 @@ impl MarkCall {
     /// channel for `None`. `function` is the channel function that wraps the value, when the call
     /// writes one, and `options` are its arguments after the value, in the order of its
     /// [`options`](super::ChannelFunction::options). A constant of the scaled kind, which
-    /// [`DATUM`](super::DATUM) gives, needs a channel with a scale.
+    /// [`DATUM`](super::DATUM) gives, needs a channel with a scale. The rows that a predicate of
+    /// `conditions` selects draw its value instead, the first that selects them, as a restyle by
+    /// a selection draws them, which a position channel, `detail`, and `order` do not take.
     pub fn channel(
         &mut self,
         name: &str,
@@ -125,6 +142,7 @@ impl MarkCall {
         kind: Option<Kind>,
         function: Option<&ChannelFunction>,
         options: &[Option<Arg>],
+        conditions: &[Conditional],
     ) -> Result<(), ArgError> {
         let mark = self.mark.name;
         let declared = (self.mark.channels.iter())
@@ -137,39 +155,43 @@ impl MarkCall {
                 function.name, function.name
             )));
         }
-        if kind == Some(Kind::Scaled) {
-            if !scales_strings(channel) {
-                return Err(ArgError::mark(format!(
-                    "{}() needs a channel with a scale, and `{name}` of {mark}() has none",
-                    Kind::Scaled.name()
-                )));
-            }
-            if let ChannelArg::Field(column) = &arg {
-                return Err(ArgError::mark(format!(
-                    "{}() takes a constant, and `{name}` of {mark}() holds `{column}`, which \
-                     passes through the channel's scale without it",
-                    Kind::Scaled.name()
-                )));
-            }
-        }
-        let mut encoding = match arg {
-            ChannelArg::Field(column) => {
-                if !self.columns.contains(&column) {
-                    self.columns.push(column.clone());
-                }
-                match kind.unwrap_or(declared.field_kind()) {
-                    Kind::Scaled => Encoding::scaled_field(column),
-                    Kind::Direct => Encoding::direct_field(column),
-                }
-            }
-            ChannelArg::Value(array) => {
-                let value = Value::scalar(array);
-                match kind.unwrap_or(declared.value_kind()) {
-                    Kind::Scaled => Encoding::scaled_value(value),
-                    Kind::Direct => Encoding::direct_value(value),
-                }
-            }
+        let mut encoding = match self.read(declared, arg, kind)? {
+            Read::Field(Kind::Scaled, column) => Encoding::scaled_field(column),
+            Read::Field(Kind::Direct, column) => Encoding::direct_field(column),
+            Read::Value(Kind::Scaled, value) => Encoding::scaled_value(value),
+            Read::Value(Kind::Direct, value) => Encoding::direct_value(value),
         };
+        if !conditions.is_empty() {
+            if is_position(channel)
+                || matches!(channel, proto::Channel::Detail | proto::Channel::Order)
+            {
+                return Err(ArgError::mark(format!(
+                    "`{name}` of {mark}() draws every row by its own value, so a selection can't \
+                     restyle it: restyle a channel such as `color`, `opacity`, or `size`"
+                )));
+            }
+            let mut values = Vec::with_capacity(conditions.len());
+            for condition in conditions {
+                let predicate = builder(condition.predicate.clone(), Parts::default());
+                values.push(
+                    match self.read(declared, condition.arg.clone(), condition.kind)? {
+                        Read::Field(Kind::Scaled, column) => {
+                            ConditionalValue::scaled_field(predicate, column)
+                        }
+                        Read::Field(Kind::Direct, column) => {
+                            ConditionalValue::direct_field(predicate, column)
+                        }
+                        Read::Value(Kind::Scaled, value) => {
+                            ConditionalValue::scaled_value(predicate, value)
+                        }
+                        Read::Value(Kind::Direct, value) => {
+                            ConditionalValue::direct_value(predicate, value)
+                        }
+                    },
+                );
+            }
+            encoding = encoding.conditional(values);
+        }
         if let Some(function) = function {
             if options.len() > function.options.len() {
                 return Err(ArgError::arity(
@@ -199,6 +221,44 @@ impl MarkCall {
             encoding,
         );
         Ok(())
+    }
+
+    /// What the channel `declared` draws of `arg`, of the kind `kind` or of the channel's default
+    /// kind for `None`, with the column of a field among the call's columns.
+    fn read(
+        &mut self,
+        declared: &super::Channel,
+        arg: ChannelArg,
+        kind: Option<Kind>,
+    ) -> Result<Read, ArgError> {
+        let mark = self.mark.name;
+        let name = declared.name;
+        if kind == Some(Kind::Scaled) {
+            if !scales_strings(declared.channel) {
+                return Err(ArgError::mark(format!(
+                    "{}() needs a channel with a scale, and `{name}` of {mark}() has none",
+                    Kind::Scaled.name()
+                )));
+            }
+            if let ChannelArg::Field(column) = &arg {
+                return Err(ArgError::mark(format!(
+                    "{}() takes a constant, and `{name}` of {mark}() holds `{column}`, which \
+                     passes through the channel's scale without it",
+                    Kind::Scaled.name()
+                )));
+            }
+        }
+        Ok(match arg {
+            ChannelArg::Field(column) => {
+                if !self.columns.contains(&column) {
+                    self.columns.push(column.clone());
+                }
+                Read::Field(kind.unwrap_or(declared.field_kind()), column)
+            }
+            ChannelArg::Value(array) => {
+                Read::Value(kind.unwrap_or(declared.value_kind()), Value::scalar(array))
+            }
+        })
     }
 
     /// Sets the properties of the mark from `args`, in the order of the mark's properties.

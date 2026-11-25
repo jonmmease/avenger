@@ -245,3 +245,126 @@ FROM penguins
         .collect();
     assert_eq!(ids, ["mark_symbol_1", "mark_bar_2", ""]);
 }
+
+/// The encoding of the channel `channel` of the first layer of `chart`, a symbol layer.
+fn symbol_encoding(
+    chart: &avenger_chart::Chart,
+    channel: impl Fn(&avenger_chart::proto::SymbolMark) -> Option<&avenger_chart::proto::Encoding>,
+) -> avenger_chart::proto::Encoding {
+    let Some(avenger_chart::proto::node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot");
+    };
+    let Some(avenger_chart::proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("a Cartesian plot");
+    };
+    let Some(avenger_chart::proto::cartesian_layer::Mark::Symbol(symbol)) =
+        &cartesian.layers[0].mark
+    else {
+        panic!("a symbol layer");
+    };
+    channel(symbol).cloned().expect("the channel's encoding")
+}
+
+#[tokio::test]
+async fn a_case_or_an_if_of_selections_restyles_a_channel() {
+    use avenger_chart::proto::{
+        conditional_value::Kind, encoding, predicate::Predicate, EmptySelection,
+    };
+    let charts = pass::charts(
+        "DECLARE brush SELECTION;
+DECLARE picks SELECTION;
+FROM penguins
+|> AGGREGATE mark_symbol(
+     x => bill_length_mm,
+     y => body_mass_g,
+     fill => CASE WHEN brush THEN species WHEN selected(picks, empty => 'none') THEN 'red' ELSE value('lightgray') END,
+     opacity => IF(NOT brush OR picks, value(0.2), value(0.9)),
+     tools => [select(brush)]) AS chart",
+    )
+    .await;
+    let fill = symbol_encoding(&charts[0], |symbol| symbol.fill.as_ref());
+    assert!(
+        matches!(fill.kind, Some(encoding::Kind::DirectValue(_))),
+        "{fill:?}"
+    );
+    let predicates: Vec<Predicate> = (fill.conditional.iter())
+        .map(|value| value.predicate.clone().unwrap().predicate.unwrap())
+        .collect();
+    let [Predicate::Selected(brush), Predicate::Selected(picks)] = predicates.as_slice() else {
+        panic!("two selections, in the order of their WHENs: {predicates:?}");
+    };
+    assert_eq!(
+        (brush.selection.as_str(), brush.empty()),
+        ("brush", EmptySelection::All)
+    );
+    assert_eq!(
+        (picks.selection.as_str(), picks.empty()),
+        ("picks", EmptySelection::None)
+    );
+    assert!(matches!(
+        fill.conditional[0].kind,
+        Some(Kind::ScaledField(_))
+    ));
+    assert!(matches!(
+        fill.conditional[1].kind,
+        Some(Kind::DirectValue(_))
+    ));
+    let opacity = symbol_encoding(&charts[0], |symbol| symbol.opacity.as_ref());
+    let Some(Predicate::Any(any)) = &opacity.conditional[0].predicate.as_ref().unwrap().predicate
+    else {
+        panic!("an OR of selections: {opacity:?}");
+    };
+    assert!(matches!(
+        any.predicates[0].predicate,
+        Some(Predicate::Negate(_))
+    ));
+}
+
+#[test]
+fn a_restyle_that_a_conditional_encoding_cannot_hold_is_an_error() {
+    let script = |channel: &str| {
+        format!(
+            "DECLARE brush SELECTION;
+FROM penguins |> AGGREGATE mark_symbol(x => bill_length_mm, y => body_mass_g, {channel}) AS chart"
+        )
+    };
+    let cases = [
+        (
+            "fill => CASE WHEN brush AND island = 'Dream' THEN species ELSE value('gray') END",
+            "a restyle's condition combines selections with AND, OR, and NOT",
+        ),
+        (
+            "fill => CASE WHEN brush THEN species END",
+            "a CASE of a channel over selections takes an ELSE",
+        ),
+        (
+            "fill => CASE WHEN selected(brush, exclude => 'a') THEN species ELSE value('gray') END",
+            "its `selected` takes no `exclude`",
+        ),
+        (
+            "fill => CONCAT(IF(brush, 'a', 'b'), species)",
+            "a channel reads a selection through a CASE WHEN or an IF of selections",
+        ),
+    ];
+    for (channel, message) in cases {
+        let text = script(channel);
+        let errors = pass::errors(&text);
+        assert!(
+            (errors.iter()).any(|(found, _)| found.contains(message)),
+            "{channel}: {errors:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_mark_that_computes_statistics_restyles_by_a_selection() {
+    let charts = pass::charts(
+        "DECLARE picks SELECTION;
+FROM penguins
+|> AGGREGATE mark_bar(x => species, y => COUNT(*), fill => IF(picks, value('red'), value('gray')),
+     tools => [select(picks, type => point(keys => ['species']))]) AS chart",
+    )
+    .await;
+    assert_eq!(charts.len(), 1);
+    assert_eq!(charts[0].selections()[0].name, "picks");
+}

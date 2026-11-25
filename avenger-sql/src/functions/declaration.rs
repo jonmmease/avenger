@@ -24,7 +24,8 @@ use datafusion::{
 
 use super::instance::MarkInstance;
 use avenger_chart::chart_field;
-use avenger_chart::functions::{Arg, ArgError, ChannelArg, Mark, Reason, COORD};
+use avenger_chart::functions::{Arg, ArgError, ChannelArg, Conditional, Kind, Mark, Reason, COORD};
+use prost::Message;
 
 /// The documentation section of the mark functions.
 const SECTION: DocSection = DocSection {
@@ -188,44 +189,69 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
             &what,
             function.map_or(Vec::new(), |(_, o)| o.to_vec()),
         )?;
-        let argument = wrapped.value.clone();
-        if let Some(inner) = contained_wrapper(&argument) {
-            return plan_err!(
-                "{inner}() is the whole value of a channel of {name}(), or the value of its \
-                 channel function, and `{}` holds one inside an expression",
-                declared.name
-            );
-        }
-        // A bare value takes the default kind of its channel, which the mark call gives it.
-        let argument = match argument {
-            // A `NULL` in a channel function means what it means bare.
-            Expr::Literal(value, _) if value.is_null() && explicit.is_none() => continue,
-            Expr::Literal(value, _) if value.data_type() == DataType::Null => {
-                let kind = explicit
-                    .expect("a bare NULL leaves its channel unset")
-                    .name();
+        // A restyle by selections: the value of the rows that no predicate selects, and the
+        // conditional values.
+        let (value, restyles) = match super::kind::restyled(wrapped.value) {
+            Some((default, conditions)) => (default, conditions),
+            None => (wrapped.value, Vec::new()),
+        };
+        let mut conditions = Vec::with_capacity(restyles.len());
+        for (predicate, value) in restyles {
+            let predicate = avenger_chart::proto::Predicate::decode(predicate)
+                .map_err(|error| plan_datafusion_err!("{name}(): {error}"))?;
+            let inner = super::kind::unwrap(value);
+            let Some(arg) = channel_arg(
+                inner.value,
+                inner.kind,
+                declared.name,
+                name,
+                &mut data,
+                &mut fields,
+                schema,
+            )?
+            else {
                 return plan_err!(
-                    "{kind}(NULL) of `{}` has no type: cast the NULL, or leave out the channel",
+                    "a restyle of `{}` of {name}() draws a value, not NULL, for the rows that a \
+                     selection selects",
                     declared.name
                 );
-            }
-            Expr::Literal(value, _) => ChannelArg::Value(value.to_array_of_size(1)?),
-            argument => {
-                let column = match data.iter().position(|known| *known == argument) {
-                    Some(index) => fields[index].name().clone(),
-                    None => {
-                        let column = column_name(&argument);
-                        fields.push(data_field(&argument, &column, schema)?);
-                        data.push(argument);
-                        column
-                    }
-                };
-                ChannelArg::Field(column)
+            };
+            conditions.push(Conditional {
+                predicate,
+                arg,
+                kind: inner.kind,
+            });
+        }
+        // The value of a restyle takes its own kind, inside the channel function's.
+        let (value, explicit) = match conditions.is_empty() {
+            true => (value, explicit),
+            false => {
+                let inner = super::kind::unwrap(value);
+                (inner.value, inner.kind.or(explicit))
             }
         };
+        let Some(argument) = channel_arg(
+            value,
+            explicit,
+            declared.name,
+            name,
+            &mut data,
+            &mut fields,
+            schema,
+        )?
+        else {
+            continue;
+        };
         let function = function.map(|(function, _)| function);
-        mark.channel(declared.name, argument, explicit, function, &options)
-            .map_err(failed)?;
+        mark.channel(
+            declared.name,
+            argument,
+            explicit,
+            function,
+            &options,
+            &conditions,
+        )
+        .map_err(failed)?;
     }
     let properties = constants(name, "a property", properties)?;
     mark.properties(&properties).map_err(failed)?;
@@ -296,6 +322,54 @@ fn declared_selections(
             }
         })
         .collect()
+}
+
+/// The argument of the channel `channel` of the mark `name` that `value` gives, of the kind
+/// `explicit` when a call gives one: a value for a constant, or a field of a column of `data`,
+/// which `fields` names, for another expression. `None` for a bare `NULL`, which leaves the
+/// channel unset.
+#[allow(clippy::too_many_arguments)]
+fn channel_arg(
+    value: &Expr,
+    explicit: Option<Kind>,
+    channel: &str,
+    name: &str,
+    data: &mut Vec<Expr>,
+    fields: &mut Vec<FieldRef>,
+    schema: &DFSchema,
+) -> Result<Option<ChannelArg>> {
+    if let Some(inner) = contained_wrapper(value) {
+        return plan_err!(
+            "{inner}() is the whole value of a channel of {name}(), or the value of its channel \
+             function, and `{channel}` holds one inside an expression"
+        );
+    }
+    // A bare value takes the default kind of its channel, which the mark call gives it.
+    Ok(Some(match value {
+        // A `NULL` in a channel function means what it means bare.
+        Expr::Literal(value, _) if value.is_null() && explicit.is_none() => return Ok(None),
+        Expr::Literal(value, _) if value.data_type() == DataType::Null => {
+            let kind = explicit
+                .expect("a bare NULL leaves its channel unset")
+                .name();
+            return plan_err!(
+                "{kind}(NULL) of `{channel}` has no type: cast the NULL, or leave out the channel"
+            );
+        }
+        Expr::Literal(value, _) => ChannelArg::Value(value.to_array_of_size(1)?),
+        argument => {
+            let column = match data.iter().position(|known| known == argument) {
+                Some(index) => fields[index].name().clone(),
+                None => {
+                    let column = column_name(argument);
+                    fields.push(data_field(argument, &column, schema)?);
+                    data.push(argument.clone());
+                    column
+                }
+            };
+            ChannelArg::Field(column)
+        }
+    }))
 }
 
 /// The arguments of `exprs`, which are literals after folding, as the options of `what` of the
