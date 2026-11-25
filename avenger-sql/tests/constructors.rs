@@ -967,7 +967,7 @@ async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
               y => flipper_length_mm,
               tools => [
                 navigate(modes => ['pan']),
-                select(brush, type => interval(channels => ['x']), modes => ['box']),
+                select(brush, type => interval(channels => ['x']), modes => ['box'], throttle => 100),
                 tooltip(
                   nearest => TRUE,
                   max_radius => 20,
@@ -982,6 +982,7 @@ async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
     let navigate = Navigate::builder().modes(["pan"]).to_fragment().unwrap();
     let select = Select::interval("brush", IntervalSelect::builder().channels([Channel::X]))
         .modes(["box"])
+        .throttle(100)
         .to_fragment()
         .unwrap();
     let tooltip = Tooltip::builder()
