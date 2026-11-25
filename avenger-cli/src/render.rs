@@ -31,12 +31,12 @@ use avenger_sql_project::{
     charts::label_engine,
     find_root,
     qmd::{is_document, Cell, Qmd},
-    Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
+    Analysis, ChartError, ChartQuery, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
 };
 use avenger_style::{Cascade, ColorScheme, HostInputs, ParseOptions, Sheet, SourceId};
 use avenger_typst_label::{LabelEngine, LabelOptions, LabelWidth, TextStyle};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
-use datafusion::{common::DataFusionError, dataframe::DataFrame};
+use datafusion::{arrow::array::RecordBatch, common::DataFusionError, dataframe::DataFrame};
 
 use crate::{
     cells,
@@ -536,22 +536,56 @@ pub(crate) async fn run_target(target: &Target) -> Result<QueryResult, Failure> 
     collect_target(target, plan_target(target).await?).await
 }
 
-/// Runs the frame `frame` of the target's chart script, and gives its result, or the reports of
-/// its errors.
+/// The rows of a target, planned and unrun: the query of a chart script, which collects through
+/// the project's store of results, or the frame of a step of a data script, which builds its
+/// tables again on each run, so it collects directly.
+#[derive(Clone, Debug)]
+pub(crate) enum Planned {
+    Query(Box<ChartQuery>),
+    Step(DataFrame),
+}
+
+impl Planned {
+    /// The rows as a frame, unrun, which a host reads to limit, explain, or stream them.
+    pub(crate) fn frame(&self) -> &DataFrame {
+        match self {
+            Planned::Query(query) => query.frame(),
+            Planned::Step(frame) => frame,
+        }
+    }
+
+    pub(crate) fn into_frame(self) -> DataFrame {
+        match self {
+            Planned::Query(query) => (*query).into_frame(),
+            Planned::Step(frame) => frame,
+        }
+    }
+
+    /// The rows, collected through the project's store for a chart script's query.
+    pub(crate) async fn collect(&self) -> datafusion::common::Result<Vec<RecordBatch>> {
+        match self {
+            Planned::Query(query) => query.collect().await,
+            Planned::Step(frame) => frame.clone().collect().await,
+        }
+    }
+}
+
+/// Runs the planned rows `planned` of the target, and gives its result, or the reports of its
+/// errors.
 pub(crate) async fn collect_target(
     target: &Target,
-    frame: DataFrame,
+    planned: Planned,
 ) -> Result<QueryResult, Failure> {
     // The columns come from the query's schema, so a result without rows still has its header.
-    let schema = frame.schema().inner().clone();
-    let batches = (frame.collect().await).map_err(|error| target.failure(error))?;
+    let schema = planned.frame().schema().inner().clone();
+    let batches = (planned.collect().await).map_err(|error| target.failure(error))?;
     QueryResult::new(schema, batches)
         .map_err(|error| Failure::Reports(vec![target.report(error.to_string())]))
 }
 
-/// Checks the target as `check` does, and gives the frame of its chart script, unrun, or the
-/// reports of its errors. [`Target::failure`] gives the reports of an error of the frame's run.
-pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
+/// Checks the target as `check` does, and gives the rows of its chart script, unrun, or the
+/// reports of its errors. [`Target::failure`] gives the reports of an error of their run.
+pub(crate) async fn plan_target(target: &Target) -> Result<Planned, Failure> {
     let (analysis, loader) = (&target.analysis, &target.loader);
     // A data script's errors, such as of its load, keep its tables from showing.
     if target.data {
@@ -570,7 +604,8 @@ pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
         ) = &target.statement
         {
             let step = loader.step(&target.script, statement.start).await;
-            return step.map_err(|errors| step_failure(target, file.text, errors));
+            return (step.map(Planned::Step))
+                .map_err(|errors| step_failure(target, file.text, errors));
         }
     }
     plan_chart(target, &target.path, &target.text, &Overrides::new()).await
@@ -608,24 +643,20 @@ fn step_failure(
 /// The table of the target's data script after its statement at the offset `at` of `text`, a
 /// text of the script in place of its own, such as its statement with its query cut short before
 /// an operator, as the loader's step builds it, or the reports of its errors.
-pub(crate) async fn step_text(
-    target: &Target,
-    text: &str,
-    at: usize,
-) -> Result<DataFrame, Failure> {
+pub(crate) async fn step_text(target: &Target, text: &str, at: usize) -> Result<Planned, Failure> {
     let step = target.loader.step_text(&target.script, text, at).await;
-    step.map_err(|errors| step_failure(target, &target.script_text(), errors))
+    (step.map(Planned::Step)).map_err(|errors| step_failure(target, &target.script_text(), errors))
 }
 
 /// Checks `text`, a chart script that runs a part of the target's script, such as the rows that
-/// enter an operator of its query, and gives its frame, unrun, or the reports of its errors. The
+/// enter an operator of its query, and gives its rows, unrun, or the reports of its errors. The
 /// text keeps the offsets of the target's script, so its reports have their places in the file.
 /// The variables that `overrides` names take its values in place of their own.
 pub(crate) async fn plan_text(
     target: &mut Target,
     text: &str,
     overrides: &Overrides,
-) -> Result<DataFrame, Failure> {
+) -> Result<Planned, Failure> {
     let project = target.analysis.project_mut();
     project.add(PART_PATH, FileRole::Chart, text);
     plan_chart(target, PART_PATH, text, overrides).await
@@ -646,13 +677,13 @@ pub(crate) async fn text_variables(
 }
 
 /// Checks the chart script `text` at `path` of the target's analysis, as `check` does, and gives
-/// its frame, unrun, or the reports of its errors.
+/// its rows, unrun, or the reports of its errors.
 async fn plan_chart(
     target: &Target,
     path: &str,
     text: &str,
     overrides: &Overrides,
-) -> Result<DataFrame, Failure> {
+) -> Result<Planned, Failure> {
     // The script's errors, as `check` reports them, keep it from running.
     let place = |offset| target.to_file(offset);
     let file = target.on_disk(&place);
@@ -661,7 +692,7 @@ async fn plan_chart(
         return Err(Failure::Reports(target.earlier(reports)));
     }
     match target.loader.run_chart_with(path, text, overrides).await {
-        Ok(frame) => Ok(frame),
+        Ok(query) => Ok(Planned::Query(Box::new(query))),
         Err(ChartError::Run(error)) | Err(ChartError::Unloaded { error, .. }) => {
             Err(target.failure(error))
         }

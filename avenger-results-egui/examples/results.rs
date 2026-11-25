@@ -76,12 +76,12 @@ impl Results {
                 ("charts/origins.av.sql", origins.as_str()),
                 ("charts/by-origin.av.sql", TABLE),
             ] {
-                let frame = loader
+                let query = loader
                     .run_chart(path, text)
                     .await
                     .map_err(|e| e.to_string())?;
-                let schema = Arc::new(frame.schema().as_arrow().clone());
-                let batches = frame.collect().await.map_err(|e| e.to_string())?;
+                let batches = query.collect().await.map_err(|e| e.to_string())?;
+                let schema = query.schema();
                 results.push(Arc::new(
                     QueryResult::new(schema, batches).map_err(|e| e.to_string())?,
                 ));

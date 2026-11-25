@@ -8,6 +8,7 @@ mod manifest;
 mod path;
 mod project;
 pub mod qmd;
+mod query;
 mod source;
 mod style;
 #[cfg(not(target_arch = "wasm32"))]
@@ -26,5 +27,6 @@ pub use manifest::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use project::find_root;
 pub use project::{ModuleConflict, ModuleFile, ProjectError, ProjectFiles};
+pub use query::ChartQuery;
 pub use source::{FileSource, Listing, Skipped, SourceError};
 pub use style::ProjectStylesheet;

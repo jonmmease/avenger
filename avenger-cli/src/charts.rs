@@ -104,7 +104,7 @@ pub async fn run(project: Option<&Path>, output: &Output) -> Result<Status, Stri
 /// frame's schema, unrun, or the first line of the error that keeps it from planning.
 async fn chart_columns(loader: &Loader, path: &str, text: &str) -> Result<Vec<String>, String> {
     match loader.run_chart(path, text).await {
-        Ok(frame) => Ok((frame.schema().fields().iter())
+        Ok(query) => Ok((query.schema().fields().iter())
             .filter(|field| is_chart_field(field))
             .map(|field| field.name().clone())
             .collect()),

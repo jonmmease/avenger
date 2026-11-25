@@ -30,6 +30,7 @@ use crate::{
     load::{ChartError, FilesReload, LoadedProject, ProjectDiagnostic, ScriptStatus, TableChange},
     project::{ProjectError, ProjectFiles},
     qmd::{role, set_script, Qmd},
+    query::ChartQuery,
 };
 
 /// The loaded project, which a tool's background work shares. A chart run reads it and a load
@@ -183,9 +184,9 @@ impl Loader {
         Ok((changes, LoadState::of(&project)))
     }
 
-    /// The rows of the chart script at `path`, whose text is `text`, as
-    /// [`LoadedProject::run_chart`] runs it.
-    pub async fn run_chart(&self, path: &str, text: &str) -> Result<DataFrame, ChartError> {
+    /// The query of the chart script at `path`, whose text is `text`, as
+    /// [`LoadedProject::run_chart`] plans it.
+    pub async fn run_chart(&self, path: &str, text: &str) -> Result<ChartQuery, ChartError> {
         self.project.read().await.run_chart(path, text).await
     }
 
@@ -202,14 +203,14 @@ impl Loader {
             .await
     }
 
-    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart_with`] runs it with
-    /// `overrides`.
+    /// The query of the chart script at `path`, as [`LoadedProject::run_chart_with`] plans it
+    /// with `overrides`.
     pub async fn run_chart_with(
         &self,
         path: &str,
         text: &str,
         overrides: &avenger_sql::analysis::Overrides,
-    ) -> Result<DataFrame, ChartError> {
+    ) -> Result<ChartQuery, ChartError> {
         (self.project.read().await)
             .run_chart_with(path, text, overrides)
             .await
