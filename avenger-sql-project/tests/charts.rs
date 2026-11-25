@@ -1,10 +1,9 @@
 //! What the charts of a project share: the order of the base stylesheet, the project's, and an
 //! extra one in the cascade, the reader's color scheme, and the background of the scheme.
 
-use avenger_sql_project::charts::preferences;
-use avenger_style::chart_cascade;
 use avenger_style::{
-    ColorScheme, Element, HostInputs, ParseOptions, Property, Sheet, SourceId, StyleTree,
+    chart_cascade, ColorScheme, Element, HostInputs, ParseOptions, Property, Sheet, SourceId,
+    StyleTree,
 };
 
 fn sheet(css: &str) -> Sheet {
@@ -29,7 +28,7 @@ fn bar_color(scheme: ColorScheme, sheets: &[&Sheet]) -> String {
     let bar = tree.add(plot, Element::Mark);
     tree.set_attribute_forms(bar, "type", "bar", "bar");
     let host = HostInputs {
-        preferences: preferences(scheme),
+        preferences: scheme.preferences(),
         ..HostInputs::default()
     };
     let cascade = chart_cascade(scheme.background(), false, sheets.iter().copied());

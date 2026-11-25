@@ -10,7 +10,6 @@ use avenger_chart::Chart;
 use avenger_chart_eval::{ChartEvaluator, EvalError, Registry};
 use avenger_image::{ImageCache, ImageCacheOptions, ImageResolver};
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_sql_project::charts::preferences;
 use avenger_style::{Cascade, ColorScheme, HostInputs, Preferences, Sheet};
 use avenger_typst_label::LabelEngine;
 use eframe::egui;
@@ -88,7 +87,7 @@ impl Surface {
 
     /// The preferences of the charts' reader: the color scheme.
     pub fn preferences(&self) -> Preferences {
-        preferences(self.color_scheme)
+        self.color_scheme.preferences()
     }
 
     /// The cascade of the base stylesheet, `std:base.css`, and the author stylesheets `sheets`

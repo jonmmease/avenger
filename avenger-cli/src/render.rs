@@ -28,12 +28,12 @@ use avenger_scenegraph::{
 };
 use avenger_sql_language::FileRole;
 use avenger_sql_project::{
-    charts::{label_engine, preferences},
+    charts::label_engine,
     find_root,
     qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
 };
-use avenger_style::{Cascade, ColorScheme, HostInputs, ParseOptions, Sheet, SourceId};
+use avenger_style::{table::LAST_FREE, Cascade, ColorScheme, HostInputs, ParseOptions, Sheet};
 use avenger_typst_label::{LabelEngine, LabelOptions, LabelWidth, TextStyle};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::{common::DataFusionError, dataframe::DataFrame};
@@ -236,8 +236,7 @@ fn load_sheet(path: &Path) -> Result<Sheet, String> {
         allow_import: true,
         ..Default::default()
     };
-    let (sheet, diagnostics) =
-        Sheet::load(&text, None, SourceId(u32::MAX - 1), options, &mut no_files);
+    let (sheet, diagnostics) = Sheet::load(&text, None, LAST_FREE, options, &mut no_files);
     if let Some(error) = diagnostics.first() {
         return Err(format!("{}: {}", path.display(), error.message));
     }
@@ -1148,7 +1147,7 @@ fn natural_size(
     let host = HostInputs {
         width: size[0],
         height: size[1],
-        preferences: preferences(options.color_scheme),
+        preferences: options.color_scheme.preferences(),
         theme: None,
     };
     let evaluated = evaluator
@@ -1185,7 +1184,7 @@ async fn chart_marks(
         }
     }
     let updates = ChartUpdates::new();
-    updates.set_preferences(preferences(options.color_scheme));
+    updates.set_preferences(options.color_scheme.preferences());
     for mode in &options.modes {
         updates.set_mode(mode.clone(), true);
     }
@@ -1442,7 +1441,7 @@ async fn draw(
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Vec<u8>, String> {
-    let background = (!options.transparent).then(|| color(options.color_scheme.background()));
+    let background = (!options.transparent).then(|| options.color_scheme.background_rgba());
     let images: Arc<dyn ImageResolver> = Arc::new(renderer.images.clone());
     match format {
         Format::Png => {
@@ -1484,15 +1483,4 @@ async fn draw(
             .render_scene_graph(scene, &renderer.engine)
             .map_err(|e| e.to_string()),
     }
-}
-
-/// The sRGB RGBA of a CSS color `#rrggbb`.
-fn color(css: &str) -> [f32; 4] {
-    let hex = css.trim_start_matches('#');
-    let channel = |at: usize| {
-        (hex.get(at..at + 2))
-            .and_then(|digits| u8::from_str_radix(digits, 16).ok())
-            .map_or(1.0, |value| f32::from(value) / 255.0)
-    };
-    [channel(0), channel(2), channel(4), 1.0]
 }

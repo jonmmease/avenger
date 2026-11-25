@@ -62,6 +62,25 @@ impl ColorScheme {
             ColorScheme::Dark => "#1e1e1e",
         }
     }
+
+    /// The [`background`](Self::background) of this scheme as sRGB RGBA from 0 to 1, as the colors
+    /// of marks are.
+    pub fn background_rgba(self) -> [f32; 4] {
+        let gray = match self {
+            ColorScheme::Light => 1.0,
+            ColorScheme::Dark => 30.0 / 255.0,
+        };
+        [gray, gray, gray, 1.0]
+    }
+
+    /// The preferences of a reader who prefers this scheme, which the stylesheets'
+    /// `prefers-color-scheme` conditions test, with the defaults of the others.
+    pub fn preferences(self) -> Preferences {
+        Preferences {
+            color_scheme: self,
+            ..Preferences::default()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -120,5 +139,23 @@ impl Preferences {
         let channel =
             |at: usize| u8::from_str_radix(&hex[at..at + 2], 16).expect("hex") as f32 / 255.0;
         [channel(0), channel(2), channel(4), 1.0]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ColorScheme;
+
+    #[test]
+    fn a_scheme_s_background_is_one_color_in_both_forms() {
+        for scheme in [ColorScheme::Light, ColorScheme::Dark] {
+            let hex = scheme.background().trim_start_matches('#');
+            let rgba = scheme.background_rgba();
+            for channel in 0..3 {
+                let value = u8::from_str_radix(&hex[channel * 2..channel * 2 + 2], 16).unwrap();
+                assert_eq!((rgba[channel] * 255.0).round() as u8, value, "{scheme:?}");
+            }
+            assert_eq!(rgba[3], 1.0);
+        }
     }
 }

@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use avenger_style::{
-    resolve_import as resolve, Diagnostic, Loaded, ParseOptions, Sheet, SourceId, Stylesheet,
+    resolve_import, Diagnostic, Loaded, ParseOptions, Sheet, SourceId, Stylesheet,
 };
 
 use crate::{
@@ -80,7 +80,7 @@ impl ProjectFiles {
         while let Some((path, text)) = pending.pop() {
             let (stylesheet, _) = Stylesheet::parse(&text, SourceId(0), options);
             for import in &stylesheet.imports {
-                let Ok(import) = resolve(&import.url, &path) else {
+                let Ok(import) = resolve_import(&import.url, &path) else {
                     continue;
                 };
                 if texts.contains_key(&import) || !indices.contains_key(import.as_str()) {
@@ -96,7 +96,7 @@ impl ProjectFiles {
         }
         let mut reached = BTreeSet::new();
         let mut loader = |url: &str, base: Option<&str>| -> Result<Loaded, String> {
-            let path = resolve(url, base.unwrap_or(entry))?;
+            let path = resolve_import(url, base.unwrap_or(entry))?;
             let index = (indices.get(path.as_str()))
                 .ok_or_else(|| format!("the project has no stylesheet '{path}'"))?;
             let text = (texts.get(&path))

@@ -3,12 +3,10 @@
 
 use std::sync::Arc;
 
-use crate::{Cascade, Env, ParseOptions, Sheet, SourceId, StyleTable};
-
-/// The source of the base stylesheet.
-const BASE: SourceId = SourceId(u32::MAX);
-/// The source of the rule of a transparent chart.
-const TRANSPARENT: SourceId = SourceId(u32::MAX - 1);
+use crate::{
+    table::{CHART_BASE, CHART_TRANSPARENT},
+    Cascade, Env, ParseOptions, Sheet, SourceId, StyleTable,
+};
 
 /// The cascade of a chart: the base stylesheet, `std:base.css`, then, for a `transparent` chart,
 /// `chart { background: transparent; }`, which leaves the chart's own background to the surface
@@ -23,9 +21,9 @@ pub fn chart_cascade<'a>(
 ) -> Arc<Cascade> {
     let env = Env::from([("background".to_string(), background.to_string())]);
     let mut table =
-        StyleTable::new().with_author(builtin("@import 'std:base.css';", BASE), env.clone());
+        StyleTable::new().with_author(builtin("@import 'std:base.css';", CHART_BASE), env.clone());
     if transparent {
-        let rule = builtin("chart { background: transparent; }", TRANSPARENT);
+        let rule = builtin("chart { background: transparent; }", CHART_TRANSPARENT);
         table = table.with_author(rule, env.clone());
     }
     let table = (sheets.into_iter()).fold(table, |table, sheet| {
