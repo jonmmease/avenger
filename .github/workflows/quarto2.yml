@@ -14,9 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The CLI embeds the grammar of avenger-sql, a wasm module in Git LFS.
+      # The CLI embeds the grammar of avenger-sql and the runtime of interactive charts, wasm
+      # modules in Git LFS.
       - name: Pull the wasm modules from Git LFS
-        run: git lfs pull --include "*.wasm"
+        run: git lfs pull --include "*.wasm,*.wasm.gz"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -75,8 +76,12 @@ jobs:
           if "$avenger" quarto2-init; then exit 1; fi
           output=$("$avenger" quarto2-init --force)
           grep -q "extension: installed" <<< "$output"
-          # The example renders its chart to _output/, and the grammar highlights its code.
+          # The example renders its chart to _output/, the grammar highlights its code, and its chart,
+          # which has a tooltip, loads the runtime of interactive charts, which the project's
+          # resources copy to _output/.
           test -f _quarto/grammars/avenger-sql/avenger-sql.wasm
           PATH="$GITHUB_WORKSPACE/target/release:$PATH" q2 render index.av.qmd
           ls _output/index.av_files/figure-html/*.svg
           grep -q 'class="hl-keyword"' _output/index.av.html
+          grep -q 'id="avenger-runtime"' _output/index.av.html
+          ls _output/_avenger/*/avenger_chart_web_bg.wasm.gz

@@ -49,17 +49,21 @@ const GRAMMAR_FOLDER: &str = "_quarto/grammars/avenger-sql";
 const SOURCE: &str = ".quarto/avenger-extension";
 
 /// The `_quarto.yml` of a project without one: a Quarto 2 project, which q2 presumes a project to
-/// be only when it says so, whose renders go to `_output/`, and whose preview runs the engine on
-/// every edit.
-const QUARTO_YML: &str = "quarto-required: \"^2\"\nproject:\n  type: default\n  output-dir: _output\npreview:\n  engine: auto\n";
+/// be only when it says so, whose renders go to `_output/` with the runtime of interactive charts
+/// that the engine writes to `_avenger/`, and whose preview runs the engine on every edit. The
+/// resource is a glob, since a pattern that matches nothing only warns where a missing folder
+/// stops the render of `q2 preview --static`, and the engine writes the folder, which Git ignores,
+/// during a render.
+const QUARTO_YML: &str = "quarto-required: \"^2\"\nproject:\n  type: default\n  output-dir: _output\n  resources:\n    - \"_avenger/**\"\npreview:\n  engine: auto\n";
 
 /// The lines that `.gitignore` takes, each with the lines that ignore the same paths, and the
-/// comment above it: q2's working folder, the renders of `_output/`, and the figures that q2
-/// writes beside each document, in `<stem>_files/`, and leaves there after copying them to the
-/// renders.
+/// comment above it: q2's working folder, the renders of `_output/`, the runtime of interactive
+/// charts that the engine writes to `_avenger/`, and the figures that q2 writes beside each
+/// document, in `<stem>_files/`, and leaves there after copying them to the renders.
 const IGNORED: &[(&str, &[&str], Option<&str>)] = &[
     ("/.quarto/", &[".quarto/", "/.quarto"], None),
     ("/_output/", &["_output/", "/_output"], None),
+    ("/_avenger/", &["_avenger/", "/_avenger"], None),
     (
         "*_files/",
         &["*_files"],
@@ -68,7 +72,7 @@ const IGNORED: &[(&str, &[&str], Option<&str>)] = &[
 ];
 
 /// The document of `--example`.
-const EXAMPLE: &str = "---\ntitle: Avenger and Quarto\n---\n\n```{avenger-sql}\nCREATE TEMP TABLE cars AS (\n  FROM UNNEST([STRUCT('Europe' AS origin, 3 AS count), STRUCT('Japan', 5), STRUCT('USA', 8)])\n)\n```\n\n```{avenger-sql}\n#| label: fig-cars\n#| fig-cap: Cars by origin\nFROM cars |> AGGREGATE mark_bar(x => origin, y => count) AS chart\n```\n\nThe cars by origin are in @fig-cars.\n";
+const EXAMPLE: &str = "---\ntitle: Avenger and Quarto\n---\n\n```{avenger-sql}\nCREATE TEMP TABLE cars AS (\n  FROM UNNEST([STRUCT('Europe' AS origin, 3 AS count), STRUCT('Japan', 5), STRUCT('USA', 8)])\n)\n```\n\n```{avenger-sql}\n#| label: fig-cars\n#| fig-cap: Cars by origin\nFROM cars |> AGGREGATE mark_bar(x => origin, y => count, tools => [tooltip()]) AS chart\n```\n\nThe cars by origin are in @fig-cars.\n";
 
 /// The options of a run.
 pub struct Options {
@@ -198,16 +202,28 @@ pub fn run(options: &Options) -> Result<Status, String> {
                 "{}",
                 done(
                     options.dry_run,
-                    "_quarto.yml: written, with `output-dir: _output` and `preview: engine: auto`"
+                    "_quarto.yml: written, with `output-dir: _output`, `resources: [\"_avenger/**\"]`, and \
+                     `preview: engine: auto`"
                 )
             );
         }
-        Ok(text) if has_preview_engine(&text) => {
-            println!("_quarto.yml: has `preview.engine` already")
+        Ok(text) => {
+            match has_preview_engine(&text) {
+                true => println!("_quarto.yml: has `preview.engine` already"),
+                false => println!(
+                    "_quarto.yml: unchanged; to redraw charts as you edit, add\n  preview:\n    engine: auto"
+                ),
+            }
+            // A project with `output-dir` copies the runtime of interactive charts to its renders
+            // only as a resource.
+            let resource = (text.lines())
+                .any(|line| !line.trim_start().starts_with('#') && line.contains("_avenger"));
+            if !resource {
+                println!(
+                    "_quarto.yml: to draw charts with tools interactively in the renders, add\n  project:\n    resources:\n      - \"_avenger/**\""
+                );
+            }
         }
-        Ok(_) => println!(
-            "_quarto.yml: unchanged; to redraw charts as you edit, add\n  preview:\n    engine: auto"
-        ),
     }
     let gitignore = dir.join(".gitignore");
     let ignored = std::fs::read_to_string(&gitignore).unwrap_or_default();
@@ -217,7 +233,9 @@ pub fn run(options: &Options) -> Result<Status, String> {
         })
         .collect();
     match missing.is_empty() {
-        true => println!(".gitignore: ignores `/.quarto/`, `/_output/`, and `*_files/` already"),
+        true => println!(
+            ".gitignore: ignores `/.quarto/`, `/_output/`, `/_avenger/`, and `*_files/` already"
+        ),
         false => {
             let mut text = ignored.clone();
             if !text.is_empty() && !text.ends_with('\n') {

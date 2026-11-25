@@ -1,6 +1,7 @@
 //! `avenger quarto2-engine` on copies of avenger-sql-project's fixture project: the cells of a
 //! document's text as q2 passes it, their outputs, their options, the policy of errors, a document
-//! outside every project, the color schemes of a document's themes, and the protocol.
+//! outside every project, the color schemes of a document's themes, interactive charts, and the
+//! protocol.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -264,6 +265,150 @@ fn a_transparent_png_keeps_the_colors_of_its_edges() {
         faint.iter().filter(|&&red| red > 150).count() * 2 > faint.len(),
         "{faint:?}"
     );
+}
+
+/// The configuration that the header `header` gives the page's loader.
+fn runtime_config(header: &str) -> Value {
+    let needle = "id=\"avenger-runtime\">";
+    let start = header.find(needle).expect("a configuration") + needle.len();
+    let end = start + header[start..].find("</script>").unwrap();
+    serde_json::from_str(&header[start..end].replace("<\\/", "</")).unwrap()
+}
+
+#[test]
+fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let document = root.join("reports/report.qmd");
+    std::fs::write(&document, "").unwrap();
+    std::fs::write(root.join("styles/main.css"), "@import 'theme.css';").unwrap();
+    std::fs::write(root.join("styles/theme.css"), "mark { opacity: 0.5; }").unwrap();
+    let text = "```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars, tools => [navigate(), tooltip()]) AS chart\n```\n\n```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n\n```{avenger-sql}\nFROM UNNEST([STRUCT(1 AS x, 1 AS y)]) |> AGGREGATE mark_image(x => x, y => y, image => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/eL9GtQAAAABJRU5ErkJggg==', tools => [tooltip()]) AS chart\n```\n";
+    let mut interactive = request(&document, text);
+    interactive["interactive"] = json!(true);
+    interactive["projectDir"] = json!(root);
+    interactive["autoStretch"] = json!(true);
+    let (status, response) = engine(&interactive);
+    assert_eq!(status, 0, "{response}");
+    // The chart with tools has its image, then its element at the image's size, and the chart
+    // without tools has its image alone.
+    let outputs = response["cells"][0]["outputs"].as_array().unwrap();
+    assert_eq!(outputs.len(), 2);
+    let html = outputs[1]["data"]["text/html"].as_str().unwrap();
+    let svg = svg_of(&response, 0, 0);
+    let width = svg
+        .split("width=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let width = width.parse::<f32>().unwrap().round();
+    assert!(
+        html.starts_with(&format!("<avenger-chart width=\"{width}\"")),
+        "{html}"
+    );
+    assert!(
+        html.contains("application/vnd.avenger.chart+base64"),
+        "{html}"
+    );
+    // The chart's image has its size, so revealjs's auto-stretch leaves it in its figure with
+    // the element.
+    assert_eq!(
+        outputs[0]["metadata"]["image/svg+xml"]["width"],
+        json!(width)
+    );
+    assert!(response.get("warnings").is_none(), "{response}");
+    assert_eq!(response["cells"][1]["outputs"].as_array().unwrap().len(), 1);
+    // A chart of image marks, which the browser's library does not fetch, stays an image.
+    assert_eq!(
+        response["cells"][2]["outputs"].as_array().unwrap().len(),
+        1,
+        "{response}"
+    );
+    // The runtime is in the project's `_avenger/runtime/`, with its hash and the fonts as gzip.
+    let folders: Vec<_> = std::fs::read_dir(root.join("_avenger"))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    let folder = &root.join("_avenger/runtime");
+    assert_eq!(folders, std::slice::from_ref(folder));
+    for file in [
+        "avenger_chart_web_bg.wasm.gz",
+        "avenger_chart_web.js",
+        "avenger-chart.js",
+        "fonts/Lato-Regular.ttf.gz",
+        "HASH",
+    ] {
+        assert!(folder.join(file).is_file(), "{file}");
+    }
+    // The header gives the runtime's URL relative to the document, the fonts, the project's
+    // stylesheets, and the color schemes.
+    let config = runtime_config(response["header"].as_str().unwrap());
+    assert_eq!(config["runtime"], "../_avenger/runtime/");
+    let hash = std::fs::read_to_string(folder.join("HASH")).unwrap();
+    assert_eq!(config["version"], json!(hash));
+    assert_eq!(config["fonts"][0], "Lato-Bold.ttf");
+    assert_eq!(config["styles"]["entry"], "styles/main.css");
+    assert_eq!(
+        config["styles"]["files"]["styles/theme.css"],
+        "mark { opacity: 0.5; }"
+    );
+    assert_eq!(config["colorSchemes"], json!(["light"]));
+    // A document with a dark theme gives both schemes.
+    let mut both = interactive.clone();
+    both["colorSchemes"] = json!(["light", "dark"]);
+    let (_, response) = engine(&both);
+    let config = runtime_config(response["header"].as_str().unwrap());
+    assert_eq!(config["colorSchemes"], json!(["light", "dark"]));
+    // A second request leaves the runtime as it is, since a preview renders again on a change.
+    let modified = std::fs::metadata(folder.join("avenger-chart.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let (status, _) = engine(&interactive);
+    assert_eq!(status, 0);
+    let again = std::fs::metadata(folder.join("avenger-chart.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(modified, again);
+    // A format that does not stretch figures leaves the images without a set size, so they shrink
+    // to a narrow page.
+    let mut page = interactive.clone();
+    page["autoStretch"] = json!(false);
+    let (_, response) = engine(&page);
+    let outputs = response["cells"][0]["outputs"].as_array().unwrap();
+    assert_eq!(outputs.len(), 2);
+    assert_eq!(outputs[0]["metadata"], json!({}));
+    // The runtime of another build, and a folder of an earlier layout, give way to this build's.
+    std::fs::write(folder.join("HASH"), "0000").unwrap();
+    std::fs::create_dir_all(root.join("_avenger/0123456789abcdef")).unwrap();
+    let (status, _) = engine(&interactive);
+    assert_eq!(status, 0);
+    assert_eq!(std::fs::read_to_string(folder.join("HASH")).unwrap(), hash);
+    assert!(!root.join("_avenger/0123456789abcdef").exists());
+    // A runtime that cannot be written leaves the charts as images, with a warning.
+    std::fs::remove_dir_all(root.join("_avenger")).unwrap();
+    std::fs::write(root.join("_avenger"), "").unwrap();
+    let (status, response) = engine(&interactive);
+    assert_eq!(status, 0, "{response}");
+    assert!(response.get("header").is_none(), "{response}");
+    assert!(
+        response["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("the charts stay images"),
+        "{response}"
+    );
+    std::fs::remove_file(root.join("_avenger")).unwrap();
+    // A request of a format that runs no scripts has no element, no header, and no runtime.
+    let (status, response) = engine(&request(&document, text));
+    assert_eq!(status, 0, "{response}");
+    assert_eq!(response["cells"][0]["outputs"].as_array().unwrap().len(), 1);
+    assert!(response.get("header").is_none(), "{response}");
+    assert!(!root.join("_avenger").exists());
 }
 
 #[test]

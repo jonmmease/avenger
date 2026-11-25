@@ -93,7 +93,9 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
         "{quarto_yml}"
     );
     assert!(
-        quarto_yml.contains("project:\n  type: default\n  output-dir: _output\n"),
+        quarto_yml.contains(
+            "project:\n  type: default\n  output-dir: _output\n  resources:\n    - \"_avenger/**\"\n"
+        ),
         "{quarto_yml}"
     );
     assert!(
@@ -102,15 +104,17 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
     );
     assert_eq!(
         read(dir.join(".gitignore")),
-        "/.quarto/\n/_output/\n# The figures that q2 leaves beside each document\n*_files/\n"
+        "/.quarto/\n/_output/\n/_avenger/\n# The figures that q2 leaves beside each document\n*_files/\n"
     );
     // A second run changes no file of the project, and takes the other forms of the ignores.
-    let ignores = "target\n.quarto/\n_output/\n*_files\n";
+    let ignores = "target\n.quarto/\n_output/\n_avenger/\n*_files\n";
     std::fs::write(dir.join(".gitignore"), ignores).unwrap();
     let (status, stdout, _) = init(dir, bin.path(), &[]);
     assert_eq!(status, 0);
     assert!(
-        stdout.contains(".gitignore: ignores `/.quarto/`, `/_output/`, and `*_files/` already"),
+        stdout.contains(
+            ".gitignore: ignores `/.quarto/`, `/_output/`, `/_avenger/`, and `*_files/` already"
+        ),
         "{stdout}"
     );
     assert!(stdout.contains("grammar: already current"), "{stdout}");
@@ -121,22 +125,28 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
 fn an_existing_quarto_yml_stays_and_the_lines_to_add_print() {
     let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
     let dir = project.path();
-    std::fs::write(dir.join("_quarto.yml"), "project:\n  type: website\n").unwrap();
+    // A comment that names the runtime's folder is not its resource.
+    let quarto_yml = "# _avenger/ holds the runtime\nproject:\n  type: website\n";
+    std::fs::write(dir.join("_quarto.yml"), quarto_yml).unwrap();
     std::fs::write(dir.join(".gitignore"), "target").unwrap();
     let (status, stdout, _) = init(dir, bin.path(), &["--force"]);
     assert_eq!(status, 0, "{stdout}");
-    assert_eq!(read(dir.join("_quarto.yml")), "project:\n  type: website\n");
+    assert_eq!(read(dir.join("_quarto.yml")), quarto_yml);
     assert!(
         stdout.contains("add\n  preview:\n    engine: auto"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("add\n  project:\n    resources:\n      - \"_avenger/**\""),
         "{stdout}"
     );
     // The ignores follow the file's own lines, which keep no final newline.
     assert_eq!(
         read(dir.join(".gitignore")),
-        "target\n/.quarto/\n/_output/\n# The figures that q2 leaves beside each document\n*_files/\n"
+        "target\n/.quarto/\n/_output/\n/_avenger/\n# The figures that q2 leaves beside each document\n*_files/\n"
     );
     assert!(
-        stdout.contains(".gitignore: `/.quarto/`, `/_output/`, `*_files/` added"),
+        stdout.contains(".gitignore: `/.quarto/`, `/_output/`, `/_avenger/`, `*_files/` added"),
         "{stdout}"
     );
     assert_eq!(

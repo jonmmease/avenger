@@ -740,11 +740,13 @@ dependencies = [
 name = "avenger-cli"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-chart",
  "avenger-chart-app",
  "avenger-chart-eval",
  "avenger-color",
  "avenger-common",
+ "avenger-fonts",
  "avenger-image",
  "avenger-pdf",
  "avenger-results-egui",
@@ -763,12 +765,14 @@ dependencies = [
  "datafusion",
  "eframe",
  "egui-wgpu",
+ "flate2",
  "futures",
  "image",
  "lsp-server",
  "lsp-types",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]

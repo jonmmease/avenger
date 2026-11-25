@@ -13,11 +13,20 @@
 //! asks for both, and each value then has an image of each scheme, on a transparent background,
 //! whose class, `light-content` or `dark-content`, shows it only in its scheme.
 //!
+//! An interactive request, of an HTML format that runs scripts, gives each chart that declares a
+//! tool, a widget, or a mode an `<avenger-chart>` element too, after its images, which draws the
+//! chart in a canvas with its tools. The engine then writes the runtime of interactive charts to
+//! the q2 project's `_avenger/` folder, and the response holds the page's `header`, which loads
+//! the runtime once, when the first chart nears the screen. A chart whose message is too large to
+//! hold in a page, or a runtime that does not write, leaves the charts as images, and the
+//! response's `warnings` say so.
+//!
 //! A request in another protocol, or one whose document or project doesn't load, writes an error
 //! and exits with status 1, as does a failing cell whose errors are no output.
 
 use std::path::PathBuf;
 
+use avenger_chart::{results::Shape, Chart};
 use avenger_sql_project::qmd::{FigFormat, Qmd};
 use avenger_style::ColorScheme;
 use base64::Engine as _;
@@ -25,7 +34,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    cells,
+    cells, quarto2_runtime,
     render::{
         result_image, run_target, Failure, Format, Image, Options, Project, Renderer, Target,
     },
@@ -52,7 +61,29 @@ struct Request {
     /// The document's `execute: error`.
     #[serde(default)]
     error: bool,
+    /// Whether the output format runs scripts, so charts with tools draw in canvases.
+    #[serde(default)]
+    interactive: bool,
+    /// The q2 project's folder, whose `_avenger/` holds the runtime of interactive charts.
+    #[serde(default)]
+    project_dir: Option<PathBuf>,
+    /// Whether the format stretches a figure that is alone on a slide, as revealjs does, which
+    /// lifts its image out and drops its other outputs unless the image has a set size.
+    #[serde(default)]
+    auto_stretch: bool,
 }
+
+/// The answer to a request: each cell's outputs, the header of a page with interactive charts,
+/// and warnings, such as of a chart that stays an image.
+struct Answer {
+    cells: Vec<Value>,
+    header: Option<String>,
+    warnings: Vec<String>,
+}
+
+/// The largest message of a chart that a page holds inline for its canvas. A larger chart, whose
+/// data would weigh the page down beside its images, stays an image.
+const MAX_INTERACTIVE_BYTES: usize = 4 * 1024 * 1024;
 
 /// The image of a cell without its own `fig-format`.
 #[derive(Debug, Deserialize)]
@@ -78,13 +109,26 @@ impl Default for ImageDefault {
 /// The response to the request on standard input, and whether it succeeded.
 pub(crate) fn answer() -> (Value, bool) {
     match serve() {
-        Ok(cells) => (json!({"protocol": PROTOCOL, "cells": cells}), true),
+        Ok(Answer {
+            cells,
+            header,
+            warnings,
+        }) => {
+            let mut response = json!({"protocol": PROTOCOL, "cells": cells});
+            if let Some(header) = header {
+                response["header"] = Value::String(header);
+            }
+            if !warnings.is_empty() {
+                response["warnings"] = json!(warnings);
+            }
+            (response, true)
+        }
         Err(error) => (json!({"protocol": PROTOCOL, "error": error}), false),
     }
 }
 
-/// The cells of the request on standard input.
-fn serve() -> Result<Vec<Value>, String> {
+/// The answer to the request on standard input.
+fn serve() -> Result<Answer, String> {
     use std::io::Read;
     let mut input = String::new();
     (std::io::stdin().read_to_string(&mut input)).map_err(|error| error.to_string())?;
@@ -103,7 +147,7 @@ fn serve() -> Result<Vec<Value>, String> {
     cells
 }
 
-async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>, String> {
+async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, String> {
     let value: Value =
         serde_json::from_str(input).map_err(|error| format!("the request is not JSON: {error}"))?;
     match value.get("protocol").and_then(Value::as_u64) {
@@ -150,6 +194,24 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
     };
     let renderer = Renderer::new(&options)?;
     let chart = file.to_string_lossy().into_owned();
+    let mut warnings = Vec::new();
+    // The q2 project that holds the runtime, for an interactive request. A folder that does not
+    // resolve leaves the charts as images.
+    let project_dir = match (request.interactive, &request.project_dir) {
+        (true, Some(dir)) if !dir.as_os_str().is_empty() => match std::fs::canonicalize(dir) {
+            Ok(dir) => Some(dir),
+            Err(error) => {
+                warnings.push(format!(
+                    "the charts stay images, since the project's folder {} does not resolve: \
+                     {error}",
+                    dir.display()
+                ));
+                None
+            }
+        },
+        _ => None,
+    };
+    let mut interactive = false;
     let mut responses = Vec::with_capacity(document.cells.len());
     for (index, cell) in document.cells.iter().enumerate() {
         let number = index + 1;
@@ -187,9 +249,10 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
             Err(failure) => Err(failure),
         };
         let outputs = match drawn {
-            Ok(images) => {
+            Ok((images, value)) => {
                 let tagged = images.len() > 1;
-                (images.into_iter().zip(&schemes))
+                let size = images.first().map(|image| image.size);
+                let mut outputs: Vec<Value> = (images.into_iter().zip(&schemes))
                     .map(|(drawn, scheme)| {
                         let mut output = display(format, drawn.bytes, drawn.size);
                         if tagged {
@@ -198,7 +261,43 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
                         }
                         output
                     })
-                    .collect()
+                    .collect();
+                let chart = value.filter(|chart| {
+                    project_dir.is_some() && chart.is_interactive() && browser_draws(chart.root())
+                });
+                let element = match (chart, size) {
+                    (Some(chart), Some(size)) => match element(&chart, size)? {
+                        Some(element) => Some(element),
+                        None => {
+                            warnings.push(format!(
+                                "cell {number} stays an image, since its chart's message is \
+                                 above {} MB, the most that a page holds for a canvas",
+                                MAX_INTERACTIVE_BYTES / (1024 * 1024)
+                            ));
+                            None
+                        }
+                    },
+                    _ => None,
+                };
+                if let (Some(element), Some(size)) = (element, size) {
+                    // An image of a set size is one that revealjs's auto-stretch leaves in its
+                    // figure, where it would otherwise lift the image out and drop the element.
+                    // Elsewhere an image keeps no set size, which would keep it from shrinking
+                    // to a narrow page. A PNG has its size already.
+                    if request.auto_stretch && format != Format::Png {
+                        for output in &mut outputs {
+                            if let Some(metadata) = output["metadata"].as_object_mut() {
+                                metadata.insert(
+                                    "image/svg+xml".to_string(),
+                                    json!({"width": size[0].round(), "height": size[1].round()}),
+                                );
+                            }
+                        }
+                    }
+                    outputs.push(element);
+                    interactive = true;
+                }
+                outputs
             }
             Err(failure) => {
                 let reports = match failure {
@@ -221,7 +320,28 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
         response["outputs"] = Value::Array(outputs);
         responses.push(response);
     }
-    Ok(responses)
+    // A runtime that does not write leaves the page without its loader, so the charts show their
+    // images.
+    let header = match (interactive, project_dir) {
+        (true, Some(dir)) => match quarto2_runtime::write(&dir) {
+            Ok(folder) => {
+                let entry = &project.files.manifest().style.stylesheet;
+                let styles = (project.root.as_deref())
+                    .and_then(|root| quarto2_runtime::styles(root, entry, &project.stylesheet));
+                Some(quarto2_runtime::header(&file, &folder, &schemes, styles))
+            }
+            Err(error) => {
+                warnings.push(format!("the charts stay images: {error}"));
+                None
+            }
+        },
+        _ => None,
+    };
+    Ok(Answer {
+        cells: responses,
+        header,
+        warnings,
+    })
 }
 
 /// The color schemes `names` of a request, at least one, each once.
@@ -252,21 +372,64 @@ fn content_class(scheme: ColorScheme) -> &'static str {
     }
 }
 
-/// The images of `target`, which runs once, drawn in each of `schemes`, in order.
+/// The images of `target`, which runs once, drawn in each of `schemes`, in order, and its chart,
+/// when its result is one chart.
 async fn images(
     target: &Target,
     format: Format,
     options: &mut Options,
     schemes: &[ColorScheme],
     renderer: &Renderer,
-) -> Result<Vec<Image>, Failure> {
+) -> Result<(Vec<Image>, Option<Chart>), Failure> {
     let result = run_target(target).await?;
     let mut images = Vec::with_capacity(schemes.len());
     for scheme in schemes {
         options.color_scheme = *scheme;
         images.push(result_image(target, &result, format, options, renderer).await?);
     }
-    Ok(images)
+    let chart = (result.shape() == Shape::Chart)
+        .then(|| result.chart(0, 0).cloned())
+        .flatten();
+    Ok((images, chart))
+}
+
+/// Whether the browser's library draws the node `node` as its image draws it: it leaves out geo
+/// plots, whose projections and tiles it does not build, and fetches no images, so a chart with
+/// either stays an image.
+fn browser_draws(node: &avenger_chart::proto::Node) -> bool {
+    use avenger_chart::proto::{cartesian_layer, node::Node, plot::Coord};
+    match &node.node {
+        Some(Node::Plot(plot)) => match &plot.coord {
+            Some(Coord::Geo(_)) => false,
+            Some(Coord::Cartesian(cartesian)) => (cartesian.layers.iter())
+                .all(|layer| !matches!(layer.mark, Some(cartesian_layer::Mark::Image(_)))),
+            Some(Coord::Polar(_)) | None => true,
+        },
+        Some(Node::Concat(concat)) => concat.children.iter().all(browser_draws),
+        Some(Node::Wrap(wrap)) => wrap.children.iter().all(browser_draws),
+        Some(Node::Empty(_)) | None => true,
+    }
+}
+
+/// The `display_data` output of the `<avenger-chart>` element of `chart`, at the natural size of
+/// its image, `size`, which holds the chart's bytes as base64, or none for a chart whose message
+/// is above [`MAX_INTERACTIVE_BYTES`].
+fn element(chart: &Chart, size: [f32; 2]) -> Result<Option<Value>, String> {
+    let bytes = chart.to_bytes().map_err(|error| error.to_string())?;
+    if bytes.len() > MAX_INTERACTIVE_BYTES {
+        return Ok(None);
+    }
+    let html = format!(
+        "<avenger-chart width=\"{}\" height=\"{}\">\n<script type=\"application/vnd.avenger.chart+base64\">{}</script>\n</avenger-chart>",
+        size[0].round(),
+        size[1].round(),
+        base64::engine::general_purpose::STANDARD.encode(bytes),
+    );
+    Ok(Some(json!({
+        "output_type": "display_data",
+        "data": {"text/html": html},
+        "metadata": {},
+    })))
 }
 
 /// The `display_data` output of an image in `format`, whose bytes are `bytes` and whose size in
@@ -309,4 +472,33 @@ fn traceback(reports: &[Report]) -> String {
     let mut text = Vec::new();
     Output::new(false).write_diagnostics(&mut text, reports.to_vec());
     String::from_utf8_lossy(&text).trim_end().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow::{array::Float64Array, record_batch::RecordBatch};
+    use avenger_chart::prelude::*;
+
+    use super::*;
+
+    /// A chart of symbols at `rows` points.
+    fn points(rows: usize) -> Chart {
+        let values = Arc::new(Float64Array::from_iter_values(
+            (0..rows).map(|row| row as f64),
+        ));
+        let table =
+            RecordBatch::try_from_iter([("x", values.clone() as _), ("y", values as _)]).unwrap();
+        let symbols = CartesianLayer::symbol(table, SymbolMark::builder().x("x").y("y"));
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    }
+
+    #[test]
+    fn a_chart_whose_message_is_too_large_for_a_page_has_no_element() {
+        assert!(element(&points(10), [300.0, 200.0]).unwrap().is_some());
+        let large = points(MAX_INTERACTIVE_BYTES / 8);
+        assert!(large.to_bytes().unwrap().len() > MAX_INTERACTIVE_BYTES);
+        assert!(element(&large, [300.0, 200.0]).unwrap().is_none());
+    }
 }
