@@ -18,7 +18,7 @@ use datafusion::{
 use futures::StreamExt;
 
 use super::stops::{Place, Stops};
-use crate::render::{plan_text, step_text, text_variables, Failure, Target};
+use crate::render::{plan_text, step_text, text_variables, Failure, Planned, Target};
 use crate::statement::Shows;
 use crate::view::{canonical, lines, outcome, Outcome, Session};
 
@@ -157,14 +157,14 @@ impl Debuggee {
     }
 
     /// Plans `text`, a part of the script, with the debugger's values of its variables.
-    async fn plan(&mut self, text: &str) -> Result<DataFrame, Failure> {
+    async fn plan(&mut self, text: &str) -> Result<Planned, Failure> {
         plan_text(self.session.target_mut(), text, &self.overrides).await
     }
 
     /// Plans the stop at `index`. A chart script's stop runs its text as a chart script. A data
     /// script's stage runs its statement with the query cut before the operator, through the
     /// loader's step, and its result is its table, from the project's session or from a step.
-    async fn plan_stop(&mut self, index: usize) -> Result<DataFrame, Failure> {
+    async fn plan_stop(&mut self, index: usize) -> Result<Planned, Failure> {
         if !self.target().data {
             let text = self.stops.text(index, &self.text);
             return self.plan(&text).await;
@@ -187,8 +187,8 @@ impl Debuggee {
             Failure::Usage(error) => vec![error],
             Failure::Reports(reports) => lines(&reports),
         };
-        let frame = match self.plan_stop(index).await {
-            Ok(frame) => frame,
+        let planned = match self.plan_stop(index).await {
+            Ok(planned) => planned,
             Err(failure) => {
                 let errors = failed(failure);
                 let ran = Ran {
@@ -207,13 +207,16 @@ impl Debuggee {
                 variables.map_err(failed)
             }
         };
-        let rows = Ok(Rows::new(frame.clone()));
-        (outcome(self.target(), frame).await, Ran { rows, variables })
+        let rows = Ok(Rows::new(planned.frame().clone()));
+        (
+            outcome(self.target(), planned).await,
+            Ran { rows, variables },
+        )
     }
 
-    /// What the window shows of `frame`, the frame of a part of the script.
-    pub(crate) async fn outcome(&self, frame: DataFrame) -> Outcome {
-        outcome(self.target(), frame).await
+    /// What the window shows of `planned`, the rows of a part of the script.
+    pub(crate) async fn outcome(&self, planned: Planned) -> Outcome {
+        outcome(self.target(), planned).await
     }
 
     /// Gives the variable `name`, of the type `ty`, the value that `value` writes, as a `SET`
@@ -251,7 +254,7 @@ impl Debuggee {
         &mut self,
         index: usize,
         expression: &str,
-    ) -> Result<DataFrame, String> {
+    ) -> Result<Planned, String> {
         let expression = expression.trim();
         let from = (expression.get(..4)).is_some_and(|word| word.eq_ignore_ascii_case("FROM"));
         let at = self.stops.staged(index).clone();
@@ -286,7 +289,7 @@ impl Debuggee {
             );
         };
         match self.plan(&text).await {
-            Ok(frame) => Ok(frame),
+            Ok(planned) => Ok(planned),
             Err(Failure::Reports(reports)) => {
                 let messages: Vec<String> =
                     reports.into_iter().map(|report| report.message).collect();

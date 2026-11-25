@@ -264,7 +264,7 @@ fn language_report(file: &File, diagnostic: &Diagnostic) -> Report {
 /// did not load has the project's error already, so it reports nothing more.
 async fn run_chart(loader: &Loader, path: &str, text: &str, file: &File<'_>) -> Vec<Report> {
     let error = match loader.run_chart(path, text).await {
-        Ok(frame) => match frame.collect().await {
+        Ok(query) => match query.collect().await {
             Ok(_) => return Vec::new(),
             Err(error) => error,
         },

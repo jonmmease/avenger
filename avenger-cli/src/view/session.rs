@@ -23,7 +23,7 @@ use avenger_results_egui::{RowSource, RowStream};
 use datafusion::{arrow::datatypes::SchemaRef, dataframe::DataFrame};
 use futures::{future::LocalBoxFuture, StreamExt};
 
-use crate::render::{cell_aim, collect_target, load, plan_target, Failure, Target};
+use crate::render::{cell_aim, collect_target, load, plan_target, Failure, Planned, Target};
 use crate::report::{Report, Severity};
 use crate::statement::split_line;
 
@@ -107,7 +107,7 @@ impl Session {
             Failure::Usage(error) => Outcome::Failed(vec![error]),
         };
         match plan_target(&self.target).await {
-            Ok(frame) => outcome(&self.target, frame).await,
+            Ok(planned) => outcome(&self.target, planned).await,
             Err(failure) => failed(failure),
         }
     }
@@ -270,15 +270,16 @@ impl Session {
     }
 }
 
-/// What the window shows of `frame`, a frame of `target`'s text, unrun: a result with charts
-/// collects, and a table without charts reads its rows as the window scrolls, so a large table
-/// never collects.
-pub(crate) async fn outcome(target: &Target, frame: DataFrame) -> Outcome {
-    let charts = (frame.schema().fields().iter()).any(|field| is_chart_field(field));
+/// What the window shows of `planned`, the rows of `target`'s text, unrun: a result with charts
+/// collects, through the project's store of results, and a table without charts reads its rows
+/// from their frame as the window scrolls, so a large table never collects.
+pub(crate) async fn outcome(target: &Target, planned: Planned) -> Outcome {
+    let charts = (planned.frame().schema().fields().iter()).any(|field| is_chart_field(field));
     if !charts {
+        let frame = planned.into_frame();
         return Outcome::Rows(Arc::new(FrameRows { frame }));
     }
-    match collect_target(target, frame).await {
+    match collect_target(target, planned).await {
         Ok(result) => Outcome::Ran(Arc::new(result)),
         Err(Failure::Reports(reports)) => Outcome::Failed(lines(&reports)),
         Err(Failure::Usage(error)) => Outcome::Failed(vec![error]),

@@ -1354,9 +1354,11 @@ dependencies = [
 name = "avenger-sql-project"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "avenger-chart",
  "avenger-format-datetime-googlesql",
  "avenger-format-number-googlesql",
+ "avenger-query-graph",
  "avenger-sql",
  "avenger-sql-language",
  "avenger-sql-syntax",

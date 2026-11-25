@@ -157,6 +157,21 @@ impl Analysis {
         ctx: &datafusion::prelude::SessionContext,
         overrides: &Overrides,
     ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
+        self.planned_query(ctx, overrides)
+            .await?
+            .dataframe(ctx)
+            .await
+    }
+
+    /// The last query of the script, ready to run: its plan, and the values of the variables
+    /// before it, each evaluated in `ctx` in order with the values before it bound, or the value
+    /// of `overrides` for a variable that it names, as [`Analysis::dataframe_with`] binds them. A
+    /// script without a query is an error.
+    pub async fn planned_query(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+        overrides: &Overrides,
+    ) -> datafusion::common::Result<PlannedQuery> {
         use datafusion::common::plan_err;
         let Some(last) = self.last_query() else {
             return plan_err!("The script has no query");
@@ -165,7 +180,10 @@ impl Analysis {
         let StatementPlan::Query(plan) = &self.statements[last].plan else {
             unreachable!("the last query");
         };
-        ctx.execute_logical_plan(bound(plan, &values)?).await
+        Ok(PlannedQuery {
+            plan: plan.clone(),
+            params: param_values(&values),
+        })
     }
 
     /// The variables of the script and their values as its last query reads them: each variable
@@ -222,7 +240,7 @@ impl Analysis {
                     continue;
                 }
                 let batches = ctx
-                    .execute_logical_plan(bound(plan, &values)?)
+                    .execute_logical_plan(plan.clone().with_param_values(param_values(&values))?)
                     .await?
                     .collect()
                     .await?;
@@ -251,17 +269,39 @@ impl Analysis {
     }
 }
 
-/// `plan` with the values `values` of the variables before it bound to their placeholders, by
-/// their ids.
-fn bound(
-    plan: &LogicalPlan,
+/// The last query of a script, ready to run, as [`Analysis::planned_query`] gives it: its plan,
+/// unoptimized, whose placeholders read the values of the variables before it, and those values.
+/// A host that runs the plan itself, such as a cache of results keyed by plans, binds `params`
+/// as the plan's parameters.
+#[derive(Clone, Debug)]
+pub struct PlannedQuery {
+    /// The plan of the query, with a placeholder for each variable that it reads.
+    pub plan: LogicalPlan,
+    /// The value of each variable before the query, by the name of its placeholder.
+    pub params: datafusion::common::ParamValues,
+}
+
+impl PlannedQuery {
+    /// The rows of the query, with the values of its variables bound, as a DataFrame of `ctx`,
+    /// unrun.
+    pub async fn dataframe(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
+        let plan = self.plan.clone().with_param_values(self.params.clone())?;
+        ctx.execute_logical_plan(plan).await
+    }
+}
+
+/// The values `values` of variables, by the ids of their placeholders, as the parameters of a
+/// plan.
+fn param_values(
     values: &std::collections::HashMap<String, datafusion::scalar::ScalarValue>,
-) -> datafusion::common::Result<LogicalPlan> {
+) -> datafusion::common::ParamValues {
     let map: std::collections::HashMap<String, _> = (values.iter())
         .map(|(id, value)| (id.trim_start_matches('$').to_string(), value.clone().into()))
         .collect();
-    plan.clone()
-        .with_param_values(datafusion::common::ParamValues::Map(map))
+    datafusion::common::ParamValues::Map(map)
 }
 
 /// Plans each query of the script `root`, a [`avenger_sql_syntax::SyntaxKind::SCRIPT`] node, and

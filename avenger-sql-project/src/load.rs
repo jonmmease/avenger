@@ -30,6 +30,7 @@ use datafusion::{
 use avenger_sql::analysis::Overrides;
 
 use crate::project::{ProjectError, ProjectFiles};
+use crate::query::ChartQuery;
 
 /// A project loaded into a DataFusion session: the tables that its data scripts register, the
 /// result of each data script, and the modules that its scripts import.
@@ -60,6 +61,8 @@ pub struct LoadedProject {
     scripts: BTreeMap<String, ScriptLoad>,
     /// The own tables of files of each chart script that ran, by path.
     charts: std::sync::Mutex<BTreeMap<String, ChartTables>>,
+    /// The results of the chart queries' runs, which later runs reuse.
+    store: avenger_query_graph::ResultStore,
 }
 
 /// The own tables of files of a chart script, as its last run read and built them: a run of the
@@ -243,6 +246,7 @@ impl LoadedProject {
             graph,
             scripts: BTreeMap::new(),
             charts: Default::default(),
+            store: crate::query::store(),
         };
         let all = project.texts.keys().cloned().collect();
         project.load_scripts(all).await;
@@ -362,12 +366,14 @@ impl LoadedProject {
         self.texts.get(path).map(String::as_str)
     }
 
-    /// The rows of the last query of the chart script at `path`, whose text is `text`, which
-    /// reads the tables of the session and its own tables of files, and imports the project's
-    /// modules: it analyzes the chart with a catalog of the tables that it reads, its tables of
-    /// files, and the modules that it imports, and plans its statements. An error of the script
-    /// is an [`avenger_sql::ScriptError`], and a statement of files that fails, such as a
-    /// `LOAD DATA` whose rows don't load, is an error at the statement.
+    /// The last query of the chart script at `path`, whose text is `text`, which reads the
+    /// tables of the session and its own tables of files, and imports the project's modules: it
+    /// analyzes the chart with a catalog of the tables that it reads, its tables of files, and
+    /// the modules that it imports, plans its statements, and evaluates its variables. The
+    /// [`ChartQuery`] gives the query's frame, unrun, and collects its rows through the
+    /// project's store of results, which keeps them for later runs of the project's charts. An
+    /// error of the script is an [`avenger_sql::ScriptError`], and a statement of files that
+    /// fails, such as a `LOAD DATA` whose rows don't load, is an error at the statement.
     ///
     /// The chart's tables of files are its own: they register in no session. The project keeps
     /// them by `path`, and builds them again when the chart's statements of files change, or
@@ -379,21 +385,21 @@ impl LoadedProject {
     /// [`ChartError::Unloaded`], with an error at each such read that names the script, and the
     /// error of the run. A read of a name of a pipe `WITH` reads the `WITH` query, and is not
     /// such a read.
-    pub async fn run_chart(&self, path: &str, text: &str) -> Result<DataFrame, ChartError> {
+    pub async fn run_chart(&self, path: &str, text: &str) -> Result<ChartQuery, ChartError> {
         self.run_chart_with(path, text, &Overrides::new()).await
     }
 
-    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart`] runs it, with the
-    /// values of `overrides` in place of the values of the variables that they name, as
-    /// [`avenger_sql::analysis::Analysis::dataframe_with`] binds them.
+    /// The query of the chart script at `path`, as [`LoadedProject::run_chart`] plans it, with
+    /// the values of `overrides` in place of the values of the variables that they name, as
+    /// [`avenger_sql::analysis::Analysis::planned_query`] binds them.
     pub async fn run_chart_with(
         &self,
         path: &str,
         text: &str,
         overrides: &Overrides,
-    ) -> Result<DataFrame, ChartError> {
-        let error = match self.chart_frame(path, text, overrides).await {
-            Ok(frame) => return Ok(frame),
+    ) -> Result<ChartQuery, ChartError> {
+        let error = match self.chart_query(path, text, overrides).await {
+            Ok(query) => return Ok(query),
             Err(error) => error,
         };
         let root = avenger_sql_syntax::parse(text).syntax();
@@ -427,15 +433,16 @@ impl LoadedProject {
         Ok(analysis.lift(text).expect("a script without errors lifts"))
     }
 
-    /// The rows of the chart script at `path`, as [`LoadedProject::run_chart_with`] runs it.
-    async fn chart_frame(
+    /// The query of the chart script at `path`, as [`LoadedProject::run_chart_with`] plans it.
+    async fn chart_query(
         &self,
         path: &str,
         text: &str,
         overrides: &Overrides,
-    ) -> Result<DataFrame, DataFusionError> {
+    ) -> Result<ChartQuery, DataFusionError> {
         let analysis = self.ready_chart(path, text).await?;
-        analysis.dataframe_with(&self.ctx, overrides).await
+        let query = analysis.planned_query(&self.ctx, overrides).await?;
+        ChartQuery::new(query, &self.ctx, &self.store).await
     }
 
     /// The variables of the chart script at `path`, whose text is `text`, and their values as its

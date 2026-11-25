@@ -579,20 +579,20 @@ impl<W: Write> Adapter<W> {
             self.out.fail(request, "the session is not stopped");
             return;
         };
-        let frame = match self.runtime.block_on(debuggee.evaluate(index, &expression)) {
-            Ok(frame) => frame,
+        let planned = match self.runtime.block_on(debuggee.evaluate(index, &expression)) {
+            Ok(planned) => planned,
             Err(error) => {
                 self.out.fail(request, &error);
                 return;
             }
         };
         if let Some(sink) = &self.sink {
-            let outcome = self.runtime.block_on(debuggee.outcome(frame.clone()));
+            let outcome = self.runtime.block_on(debuggee.outcome(planned.clone()));
             let name = debuggee.display_name();
             sink.send(Message::Title(format!("avenger dap {name}: {expression}")));
             sink.send(Message::Outcome(outcome));
         }
-        let mut rows = Rows::new(frame);
+        let mut rows = Rows::new(planned.into_frame());
         let columns = rows.schema().fields().len();
         let count = self.runtime.block_on(rows.count());
         let summary = match &count {

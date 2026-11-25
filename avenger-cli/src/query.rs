@@ -168,8 +168,9 @@ pub async fn run(source: Source, options: &Options, output: &Output) -> Result<S
         }
         Source::File(file) => file_target(&file).await?,
     };
+    // The rows read through the frame, so a limit reads no more of them than it keeps.
     let frame = match plan_target(&target).await {
-        Ok(frame) => frame,
+        Ok(planned) => planned.into_frame(),
         Err(failure) => return failure_status(failure, output),
     };
     if options.explain {
