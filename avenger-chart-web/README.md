@@ -35,7 +35,7 @@ start({
 - `wasm` and the font files load as they are, or as gzip when a URL ends in `.gz`, which the page decompresses with `DecompressionStream` while the module compiles.
 - An element holds its chart's bytes as base64 in its inner script, and its size in CSS pixels in `width` and `height`. On a narrower page its canvas takes the width it gets, and the chart lays out again at that width. It creates its view as it nears the screen and frees it as it leaves.
 - With one color scheme, a chart draws in it on its background. With two, a chart draws on a transparent canvas and follows the `quarto-light` and `quarto-dark` classes of `body`, as the light and dark themes of Quarto switch.
-- Until its canvas draws, an element takes no room. Inside a Quarto cell or figure, it then hides the cell's other outputs, the chart's images, and shows them again when its view goes away, so a page without WebGPU, or whose library fails to load, keeps its images.
+- Until its canvas draws, an element takes no room. Inside a Quarto figure or cell, it then hides the chart's images, each with the wrapper of its output, and shows them again when its view goes away, so a page without WebGPU, or whose library fails to load, keeps its images.
 
 ## The library
 

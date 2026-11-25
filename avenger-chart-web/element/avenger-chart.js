@@ -12,8 +12,8 @@
 //   </avenger-chart>
 //
 // An element creates its view as it nears the screen and frees it as it leaves. Inside a Quarto
-// cell, it hides the cell's other outputs, the chart's images, once its canvas draws, and shows
-// them again when the view goes away, so a page without WebGPU keeps its images.
+// figure or cell, it hides the chart's images once its canvas draws, and shows them again when
+// the view goes away, so a page without WebGPU keeps its images.
 
 const CHART_TYPE = "application/vnd.avenger.chart+base64";
 
@@ -211,13 +211,20 @@ class AvengerChart extends HTMLElement {
     this.showImages();
   }
 
-  /** Hides the other outputs of the element's Quarto cell or figure, which hold the chart's
-   * images. */
+  /**
+   * Hides the chart's images: each image of the element's figure, or of its Quarto cell, with the
+   * wrapper that holds it, the image's ancestor just below the one that holds the element too, so
+   * it hides the image's output whether q2 writes each output in its own `.cell-output-display`,
+   * as an HTML page does, or a figure's outputs in one, as a dashboard does.
+   */
   hideImages() {
-    const cell = this.closest(".cell") ?? this.closest("figure");
-    if (!cell) return;
-    for (const output of cell.querySelectorAll(".cell-output-display")) {
-      if (output.contains(this) || output.style.display === "none") continue;
+    const scope = this.closest("figure") ?? this.closest(".cell");
+    if (!scope) return;
+    for (const image of scope.querySelectorAll("img")) {
+      if (this.contains(image)) continue;
+      let output = image;
+      while (output.parentElement && !output.parentElement.contains(this)) output = output.parentElement;
+      if (output.style.display === "none") continue;
       output.style.display = "none";
       this.hiddenOutputs.push(output);
     }
