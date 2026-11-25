@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { colorSchemesFor, execute, imageFor, record } from "../_extensions/avenger/src/avenger-engine.ts";
+import { colorSchemesFor, execute, imageFor, interactiveFor, record } from "../_extensions/avenger/src/avenger-engine.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 process.env.AVENGER = join(here, "fake-avenger.mjs");
@@ -22,6 +22,8 @@ function options(markdown: string, units: unknown[], extra: Record<string, unkno
     units,
     presentedBy: "core",
     executeEnv: {},
+    projectDir: "/project",
+    tempDir: mkdtempSync(join(tmpdir(), "avenger-temp-")),
     ...extra,
   } as never;
 }
@@ -61,6 +63,24 @@ test("the record holds each cell's outputs by its unit's id", async () => {
     [1, "/project/report.qmd", "# Text", { format: "svg", scale: 1 }, false],
   );
   assert.deepEqual(request.colorSchemes, ["light"]);
+  assert.deepEqual([request.interactive, request.projectDir], [true, "/project"]);
+  // A response without a header adds nothing to the page's header, and the record asks for no
+  // page dependencies of Jupyter's.
+  assert.deepEqual((result as unknown as { includes: unknown }).includes, {});
+  assert.equal((result.recordInfo as unknown as { dependencyData?: string }).dependencyData, undefined);
+});
+
+test("the header of a page with interactive charts goes in the page's header once", async () => {
+  process.env.FAKE_REQUEST = join(mkdtempSync(join(tmpdir(), "avenger-")), "request.json");
+  process.env.FAKE_STATUS = "0";
+  const header = '<script type="module">/* the loader */</script>\n';
+  process.env.FAKE_RESPONSE = JSON.stringify({ protocol: 1, cells: [{ number: 1, line: 5, outputs: [] }], header });
+  const result = (await execute(options("# Text", [unit("a", 5)]))) as unknown as {
+    includes: Record<string, string[]>;
+  };
+  const files = result.includes["include-in-header"];
+  assert.equal(files.length, 1);
+  assert.equal(readFileSync(files[0], "utf8"), header);
 });
 
 test("a theme of a dark and a light variant asks for light, then dark", async () => {
@@ -150,6 +170,11 @@ test("a theme and an output format pick the color schemes of the charts", () => 
   // Formats without q2's toggle show one image.
   assert.deepEqual(colorSchemesFor(both, "revealjs"), ["light"]);
   assert.deepEqual(colorSchemesFor(both, "typst"), ["light"]);
+});
+
+test("an output format that runs scripts draws charts with tools interactively", () => {
+  for (const to of ["html", "html5", "dashboard", "revealjs"]) assert.ok(interactiveFor(to), to);
+  for (const to of ["epub", "typst", "docx", "gfm"]) assert.ok(!interactiveFor(to), to);
 });
 
 test("an output format picks the image of cells without their own", () => {

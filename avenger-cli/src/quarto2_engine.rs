@@ -13,11 +13,18 @@
 //! asks for both, and each value then has an image of each scheme, on a transparent background,
 //! whose class, `light-content` or `dark-content`, shows it only in its scheme.
 //!
+//! An interactive request, of an HTML format that runs scripts, gives each chart that declares a
+//! tool, a widget, or a mode an `<avenger-chart>` element too, after its images, which draws the
+//! chart in a canvas with its tools. The engine then writes the runtime of interactive charts to
+//! the q2 project's `_avenger/` folder, and the response holds the page's `header`, which loads
+//! the runtime once, when the first chart nears the screen.
+//!
 //! A request in another protocol, or one whose document or project doesn't load, writes an error
 //! and exits with status 1, as does a failing cell whose errors are no output.
 
 use std::path::PathBuf;
 
+use avenger_chart::{results::Shape, Chart};
 use avenger_sql_project::qmd::{FigFormat, Qmd};
 use avenger_style::ColorScheme;
 use base64::Engine as _;
@@ -25,7 +32,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    cells,
+    cells, quarto2_runtime,
     render::{
         result_image, run_target, Failure, Format, Image, Options, Project, Renderer, Target,
     },
@@ -52,6 +59,19 @@ struct Request {
     /// The document's `execute: error`.
     #[serde(default)]
     error: bool,
+    /// Whether the output format runs scripts, so charts with tools draw in canvases.
+    #[serde(default)]
+    interactive: bool,
+    /// The q2 project's folder, whose `_avenger/` holds the runtime of interactive charts.
+    #[serde(default)]
+    project_dir: Option<PathBuf>,
+}
+
+/// The answer to a request: each cell's outputs, and the header of a page with interactive
+/// charts.
+struct Answer {
+    cells: Vec<Value>,
+    header: Option<String>,
 }
 
 /// The image of a cell without its own `fig-format`.
@@ -78,13 +98,19 @@ impl Default for ImageDefault {
 /// The response to the request on standard input, and whether it succeeded.
 pub(crate) fn answer() -> (Value, bool) {
     match serve() {
-        Ok(cells) => (json!({"protocol": PROTOCOL, "cells": cells}), true),
+        Ok(Answer { cells, header }) => {
+            let mut response = json!({"protocol": PROTOCOL, "cells": cells});
+            if let Some(header) = header {
+                response["header"] = Value::String(header);
+            }
+            (response, true)
+        }
         Err(error) => (json!({"protocol": PROTOCOL, "error": error}), false),
     }
 }
 
-/// The cells of the request on standard input.
-fn serve() -> Result<Vec<Value>, String> {
+/// The answer to the request on standard input.
+fn serve() -> Result<Answer, String> {
     use std::io::Read;
     let mut input = String::new();
     (std::io::stdin().read_to_string(&mut input)).map_err(|error| error.to_string())?;
@@ -103,7 +129,7 @@ fn serve() -> Result<Vec<Value>, String> {
     cells
 }
 
-async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>, String> {
+async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, String> {
     let value: Value =
         serde_json::from_str(input).map_err(|error| format!("the request is not JSON: {error}"))?;
     match value.get("protocol").and_then(Value::as_u64) {
@@ -150,6 +176,14 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
     };
     let renderer = Renderer::new(&options)?;
     let chart = file.to_string_lossy().into_owned();
+    // The q2 project that holds the runtime, for an interactive request.
+    let project_dir = match (request.interactive, &request.project_dir) {
+        (true, Some(dir)) if !dir.as_os_str().is_empty() => Some(
+            std::fs::canonicalize(dir).map_err(|error| format!("{}: {error}", dir.display()))?,
+        ),
+        _ => None,
+    };
+    let mut interactive = false;
     let mut responses = Vec::with_capacity(document.cells.len());
     for (index, cell) in document.cells.iter().enumerate() {
         let number = index + 1;
@@ -187,9 +221,10 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
             Err(failure) => Err(failure),
         };
         let outputs = match drawn {
-            Ok(images) => {
+            Ok((images, value)) => {
                 let tagged = images.len() > 1;
-                (images.into_iter().zip(&schemes))
+                let size = images.first().map(|image| image.size);
+                let mut outputs: Vec<Value> = (images.into_iter().zip(&schemes))
                     .map(|(drawn, scheme)| {
                         let mut output = display(format, drawn.bytes, drawn.size);
                         if tagged {
@@ -198,7 +233,13 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
                         }
                         output
                     })
-                    .collect()
+                    .collect();
+                let chart = value.filter(|chart| project_dir.is_some() && chart.is_interactive());
+                if let (Some(chart), Some(size)) = (chart, size) {
+                    outputs.push(element(&chart, size)?);
+                    interactive = true;
+                }
+                outputs
             }
             Err(failure) => {
                 let reports = match failure {
@@ -221,7 +262,20 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
         response["outputs"] = Value::Array(outputs);
         responses.push(response);
     }
-    Ok(responses)
+    let header = match (interactive, project_dir) {
+        (true, Some(dir)) => {
+            let folder = quarto2_runtime::write(&dir)?;
+            let entry = &project.files.manifest().style.stylesheet;
+            let styles = (project.root.as_deref())
+                .and_then(|root| quarto2_runtime::styles(root, entry, &project.stylesheet));
+            Some(quarto2_runtime::header(&file, &folder, &schemes, styles))
+        }
+        _ => None,
+    };
+    Ok(Answer {
+        cells: responses,
+        header,
+    })
 }
 
 /// The color schemes `names` of a request, at least one, each once.
@@ -252,21 +306,42 @@ fn content_class(scheme: ColorScheme) -> &'static str {
     }
 }
 
-/// The images of `target`, which runs once, drawn in each of `schemes`, in order.
+/// The images of `target`, which runs once, drawn in each of `schemes`, in order, and its chart,
+/// when its result is one chart.
 async fn images(
     target: &Target,
     format: Format,
     options: &mut Options,
     schemes: &[ColorScheme],
     renderer: &Renderer,
-) -> Result<Vec<Image>, Failure> {
+) -> Result<(Vec<Image>, Option<Chart>), Failure> {
     let result = run_target(target).await?;
     let mut images = Vec::with_capacity(schemes.len());
     for scheme in schemes {
         options.color_scheme = *scheme;
         images.push(result_image(target, &result, format, options, renderer).await?);
     }
-    Ok(images)
+    let chart = (result.shape() == Shape::Chart)
+        .then(|| result.chart(0, 0).cloned())
+        .flatten();
+    Ok((images, chart))
+}
+
+/// The `display_data` output of the `<avenger-chart>` element of `chart`, at the natural size of
+/// its image, `size`, which holds the chart's bytes as base64.
+fn element(chart: &Chart, size: [f32; 2]) -> Result<Value, String> {
+    let bytes = chart.to_bytes().map_err(|error| error.to_string())?;
+    let html = format!(
+        "<avenger-chart width=\"{}\" height=\"{}\">\n<script type=\"application/vnd.avenger.chart+base64\">{}</script>\n</avenger-chart>",
+        size[0].round(),
+        size[1].round(),
+        base64::engine::general_purpose::STANDARD.encode(bytes),
+    );
+    Ok(json!({
+        "output_type": "display_data",
+        "data": {"text/html": html},
+        "metadata": {},
+    }))
 }
 
 /// The `display_data` output of an image in `format`, whose bytes are `bytes` and whose size in

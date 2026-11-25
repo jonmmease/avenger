@@ -1,6 +1,7 @@
 //! `avenger quarto2-engine` on copies of avenger-sql-project's fixture project: the cells of a
 //! document's text as q2 passes it, their outputs, their options, the policy of errors, a document
-//! outside every project, the color schemes of a document's themes, and the protocol.
+//! outside every project, the color schemes of a document's themes, interactive charts, and the
+//! protocol.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -264,6 +265,100 @@ fn a_transparent_png_keeps_the_colors_of_its_edges() {
         faint.iter().filter(|&&red| red > 150).count() * 2 > faint.len(),
         "{faint:?}"
     );
+}
+
+/// The configuration that the header `header` gives the page's loader.
+fn runtime_config(header: &str) -> Value {
+    let needle = "id=\"avenger-runtime\">";
+    let start = header.find(needle).expect("a configuration") + needle.len();
+    let end = start + header[start..].find("</script>").unwrap();
+    serde_json::from_str(&header[start..end].replace("<\\/", "</")).unwrap()
+}
+
+#[test]
+fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let document = root.join("reports/report.qmd");
+    std::fs::write(&document, "").unwrap();
+    std::fs::write(root.join("styles/main.css"), "@import 'theme.css';").unwrap();
+    std::fs::write(root.join("styles/theme.css"), "mark { opacity: 0.5; }").unwrap();
+    let text = "```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars, tools => [navigate(), tooltip()]) AS chart\n```\n\n```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n";
+    let mut interactive = request(&document, text);
+    interactive["interactive"] = json!(true);
+    interactive["projectDir"] = json!(root);
+    let (status, response) = engine(&interactive);
+    assert_eq!(status, 0, "{response}");
+    // The chart with tools has its image, then its element at the image's size, and the chart
+    // without tools has its image alone.
+    let outputs = response["cells"][0]["outputs"].as_array().unwrap();
+    assert_eq!(outputs.len(), 2);
+    let html = outputs[1]["data"]["text/html"].as_str().unwrap();
+    let svg = svg_of(&response, 0, 0);
+    let width = svg
+        .split("width=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let width = width.parse::<f32>().unwrap().round();
+    assert!(
+        html.starts_with(&format!("<avenger-chart width=\"{width}\"")),
+        "{html}"
+    );
+    assert!(
+        html.contains("application/vnd.avenger.chart+base64"),
+        "{html}"
+    );
+    assert_eq!(response["cells"][1]["outputs"].as_array().unwrap().len(), 1);
+    // The runtime is in the project's `_avenger/`, once, with the fonts as gzip.
+    let folders: Vec<_> = std::fs::read_dir(root.join("_avenger"))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(folders.len(), 1, "{folders:?}");
+    let folder = &folders[0];
+    for file in [
+        "avenger_chart_web_bg.wasm.gz",
+        "avenger_chart_web.js",
+        "avenger-chart.js",
+        "fonts/Lato-Regular.ttf.gz",
+    ] {
+        assert!(folder.join(file).is_file(), "{file}");
+    }
+    // The header gives the runtime's URL relative to the document, the fonts, the project's
+    // stylesheets, and the color schemes.
+    let config = runtime_config(response["header"].as_str().unwrap());
+    let name = folder.file_name().unwrap().to_string_lossy();
+    assert_eq!(config["runtime"], format!("../_avenger/{name}/"));
+    assert_eq!(config["fonts"][0], "Lato-Bold.ttf");
+    assert_eq!(config["styles"]["entry"], "styles/main.css");
+    assert_eq!(
+        config["styles"]["files"]["styles/theme.css"],
+        "mark { opacity: 0.5; }"
+    );
+    assert_eq!(config["colorSchemes"], json!(["light"]));
+    // A second request leaves the runtime as it is, since a preview renders again on a change.
+    let modified = std::fs::metadata(folder.join("avenger-chart.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let (status, _) = engine(&interactive);
+    assert_eq!(status, 0);
+    let again = std::fs::metadata(folder.join("avenger-chart.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(modified, again);
+    // A request of a format that runs no scripts has no element, no header, and no runtime.
+    std::fs::remove_dir_all(root.join("_avenger")).unwrap();
+    let (status, response) = engine(&request(&document, text));
+    assert_eq!(status, 0, "{response}");
+    assert_eq!(response["cells"][0]["outputs"].as_array().unwrap().len(), 1);
+    assert!(response.get("header").is_none(), "{response}");
+    assert!(!root.join("_avenger").exists());
 }
 
 #[test]

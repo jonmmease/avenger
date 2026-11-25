@@ -26,6 +26,7 @@ pub mod lsp;
 mod project;
 mod quarto2_engine;
 mod quarto2_init;
+mod quarto2_runtime;
 mod query;
 mod render;
 mod report;

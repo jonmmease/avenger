@@ -1,0 +1,17 @@
+---
+title: Interactive
+---
+
+```{avenger-sql}
+#| label: fig-cars
+#| fig-cap: Cars by origin
+FROM UNNEST([STRUCT('Europe' AS origin, 3 AS cars), STRUCT('USA', 8)])
+|> AGGREGATE mark_bar(x => origin, y => cars, tools => [tooltip()]) AS chart
+```
+
+The cars by origin are in @fig-cars.
+
+```{avenger-sql}
+FROM UNNEST([STRUCT(1 AS x, 2 AS y), STRUCT(2, 3), STRUCT(3, 1)])
+|> AGGREGATE mark_symbol(x => x, y => y, tools => [navigate()]) AS chart
+```
