@@ -18,9 +18,10 @@ jobs:
       - uses: actions/checkout@v3
       # The geo-pan-zoom and movie-search tests embed their examples' data, the avenger-sql
       # project tests read the Vega datasets of their fixture project, and the CLI embeds the
-      # grammar of avenger-sql, a wasm module, which live in Git LFS.
+      # grammar of avenger-sql and the runtime of interactive charts, wasm modules, which live in Git
+      # LFS.
       - name: Pull the test data and the wasm modules from Git LFS
-        run: git lfs pull --include "avenger-guides-geo/examples/data/*,examples/movie-search/data/*,avenger-sql-project/tests/projects/vega/data/files/vega_datasets/*,*.wasm"
+        run: git lfs pull --include "avenger-guides-geo/examples/data/*,examples/movie-search/data/*,avenger-sql-project/tests/projects/vega/data/files/vega_datasets/*,*.wasm,*.wasm.gz"
       - name: Install the validated Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
