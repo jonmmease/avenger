@@ -41,6 +41,14 @@ impl AppBuild<ChartAppState> for ChartBuild {
                 Applied::Styles(cascade) => state.evaluator.set_cascade(cascade),
                 Applied::Mode(mode, on) => state.evaluator.set_mode(mode, on),
                 Applied::Selection(name, selection) => state.set_selection(&name, selection),
+                Applied::Clauses(name, clauses) => state.set_clauses(&name, clauses),
+                Applied::ModesOn(names) => state.set_modes_on(&names),
+                Applied::Views(views) => {
+                    for (identity, domain) in views {
+                        state.evaluator.set_scale_view(&identity, domain);
+                    }
+                }
+                Applied::ResetViews => state.evaluator.clear_scale_views(),
                 Applied::Preferences(preferences) => state.preferences = preferences,
             }
         }

@@ -11,11 +11,13 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+arrow = { workspace = true }
 avenger-app = { path = "../avenger-app" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream", default-features = false }
+avenger-selection = { path = "../avenger-selection" }
 avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googlesql" }
 avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-style = { path = "../avenger-style" }

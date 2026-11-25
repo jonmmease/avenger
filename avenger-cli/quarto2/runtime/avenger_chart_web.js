@@ -22,6 +22,15 @@ export class ChartView {
         wasm.__wbg_chartview_free(ptr, 0);
     }
     /**
+     * Clears the selection `name`, as a click outside a brush does.
+     * @param {string} name
+     */
+    clearSelection(name) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.chartview_clearSelection(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Decodes the chart message `bytes`, builds its app at the canvas's CSS size and the
      * display's pixel ratio, and draws it into `canvas`, with the fonts that the page added.
      * `options` gives the project's `styles`, the `colorScheme`, light by default, whether the
@@ -48,17 +57,25 @@ export class ChartView {
         return ret;
     }
     /**
-     * Replaces the chart with the chart message `bytes`, and keeps the views of its scales and
-     * its selections where the new chart has the same structure. Throws the decoder's error for
-     * an invalid message.
-     * @param {Uint8Array | number[]} bytes
+     * Returns every scale to its fit, as a double click does.
      */
-    setChart(bytes) {
+    resetViews() {
+        wasm.chartview_resetViews(this.__wbg_ptr);
+    }
+    /**
+     * Replaces the chart with the chart message `bytes`. By default it fits each scale to the
+     * new rows, and keeps the views of the scales and the selections where the new chart has the
+     * same structure; `options` says otherwise, with `fit`, `views`, and `selections`. Throws the
+     * decoder's error for an invalid message.
+     * @param {Uint8Array | number[]} bytes
+     * @param {UpdateOptions} [options]
+     */
+    setChart(bytes, options) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
             const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
             const len0 = WASM_VECTOR_LEN;
-            wasm.chartview_setChart(retptr, this.__wbg_ptr, ptr0, len0);
+            wasm.chartview_setChart(retptr, this.__wbg_ptr, ptr0, len0, isLikeNone(options) ? 0 : addToExternrefTable0(options));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -87,6 +104,44 @@ export class ChartView {
         }
     }
     /**
+     * Turns the chart's mode `name` on or off, as a mode widget does.
+     * @param {string} name
+     * @param {boolean} on
+     */
+    setMode(name, on) {
+        const val2 = +on;
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.chartview_setMode(this.__wbg_ptr, ptr0, len0, val2);
+    }
+    /**
+     * Applies a change message, such as `state()` or an `onChange` change, or the parts of it
+     * that `parts` names. Each selection that it holds takes its clauses, with the resolution that
+     * the chart gives the selection, and one without clauses clears. Its modes, when it holds
+     * them, turn on and turn off the chart's other toggles. Each scale whose domain it holds shows
+     * that domain, as a pan or a zoom leaves it. What the message does not hold stays as it is,
+     * and a selection, a mode, or a scale that the chart does not declare is left out, so a page
+     * can send one chart's changes to another. Throws for bytes that are not a change message of
+     * this format version.
+     * @param {Uint8Array | number[]} bytes
+     * @param {ApplyParts} [parts]
+     */
+    setState(bytes, parts) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.chartview_setState(retptr, this.__wbg_ptr, ptr0, len0, isLikeNone(parts) ? 0 : addToExternrefTable0(parts));
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            if (r1) {
+                throw takeFromExternrefTable0(r0);
+            }
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Styles the chart with the project's stylesheets `styles`, or with the base stylesheet
      * alone for `null`, and keeps its views and selections. Returns the diagnostics of the
      * stylesheets.
@@ -97,6 +152,30 @@ export class ChartView {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
             wasm.chartview_setStyles(retptr, this.__wbg_ptr, styles);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeFromExternrefTable0(r1);
+            }
+            return takeFromExternrefTable0(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * The bytes of a change message of the chart's state: the clauses of each of its selections,
+     * the modes that are on, and the domain of each scale that a pan or a zoom moved, or the
+     * parts of `parts`. `setState` applies it, such as to the view of the same chart after a
+     * reload. A chart that declares no modes gives no modes. It reads the state after the view's
+     * last step, so a call that changes the state shows in it once the view has applied it.
+     * @param {StateParts} [parts]
+     * @returns {Uint8Array}
+     */
+    state(parts) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            wasm.chartview_state(retptr, this.__wbg_ptr, isLikeNone(parts) ? 0 : addToExternrefTable0(parts));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -143,6 +222,10 @@ function __wbg_get_imports() {
             const ret = Error(getStringFromWasm0(arg0, arg1));
             return ret;
         },
+        __wbg_Number_ff192a72a0dcdf6d: function(arg0) {
+            const ret = Number(arg0);
+            return ret;
+        },
         __wbg_Window_113a2714ede0e1b0: function(arg0) {
             const ret = arg0.Window;
             return ret;
@@ -150,6 +233,12 @@ function __wbg_get_imports() {
         __wbg_WorkerGlobalScope_3099b3a1f65e307c: function(arg0) {
             const ret = arg0.WorkerGlobalScope;
             return ret;
+        },
+        __wbg___wbindgen_bigint_get_as_i64_11da4b52cd0aedef: function(arg0, arg1) {
+            const v = arg1;
+            const ret = typeof(v) === 'bigint' ? v : undefined;
+            getDataViewMemory0().setBigInt64((arg0 >>> 0) + 8 * 1, isLikeNone(ret) ? BigInt(0) : ret, true);
+            getDataViewMemory0().setInt32((arg0 >>> 0) + 4 * 0, !isLikeNone(ret), true);
         },
         __wbg___wbindgen_boolean_get_4f1baf9a00be3c74: function(arg0) {
             const v = arg0;
@@ -165,6 +254,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_in_3f58a9d3b3a7eed2: function(arg0, arg1) {
             const ret = arg0 in arg1;
+            return ret;
+        },
+        __wbg___wbindgen_is_bigint_5fa10641e039d3ef: function(arg0) {
+            const ret = typeof(arg0) === 'bigint';
             return ret;
         },
         __wbg___wbindgen_is_function_741ff2bb612836f5: function(arg0) {
@@ -186,6 +279,10 @@ function __wbg_get_imports() {
         },
         __wbg___wbindgen_is_undefined_be5b34249ff1fc15: function(arg0) {
             const ret = arg0 === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_jsval_eq_38d7bfbe4cc84039: function(arg0, arg1) {
+            const ret = arg0 === arg1;
             return ret;
         },
         __wbg___wbindgen_jsval_loose_eq_b2f214e2e4b30e36: function(arg0, arg1) {
@@ -399,6 +496,9 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_export3(deferred0_0, deferred0_1, 1);
             }
         },
+        __wbg_error_9b95f63d905893d2: function(arg0, arg1) {
+            console.error(arg0, arg1);
+        },
         __wbg_error_d1fc0193610e0e39: function(arg0) {
             console.error(arg0);
         },
@@ -560,6 +660,16 @@ function __wbg_get_imports() {
             const ret = result;
             return ret;
         },
+        __wbg_instanceof_Map_0b4fc8b62e73f163: function(arg0) {
+            let result;
+            try {
+                result = arg0 instanceof Map;
+            } catch (_) {
+                result = false;
+            }
+            const ret = result;
+            return ret;
+        },
         __wbg_instanceof_PointerEvent_cfcc1acd3e7efc24: function(arg0) {
             let result;
             try {
@@ -628,6 +738,14 @@ function __wbg_get_imports() {
                 result = false;
             }
             const ret = result;
+            return ret;
+        },
+        __wbg_isArray_bcf1376d0d732d08: function(arg0) {
+            const ret = Array.isArray(arg0);
+            return ret;
+        },
+        __wbg_isSafeInteger_1a35ba4d31e71d38: function(arg0) {
+            const ret = Number.isSafeInteger(arg0);
             return ret;
         },
         __wbg_is_2248ff2b575d60c7: function(arg0, arg1) {
@@ -823,7 +941,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_49446(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_50480(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -857,7 +975,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_49446(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_50480(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1619,28 +1737,28 @@ function __wbg_get_imports() {
             arg0.writeTexture(arg1, arg2, arg3, arg4);
         }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 315, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2516);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 334, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2802);
             return ret;
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 6868, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_49436);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 6907, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_50470);
             return ret;
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("Array<any>")], shim_idx: 2, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_694);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_744);
             return ret;
         },
         __wbindgen_generic_0000000000000004: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("Event")], shim_idx: 2, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_694_11);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_744_16);
             return ret;
         },
         __wbindgen_generic_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 2941, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_23347);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 2980, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_24373);
             return ret;
         },
         __wbindgen_generic_0000000000000006: function(arg0) {
@@ -1648,14 +1766,24 @@ function __wbg_get_imports() {
             const ret = arg0;
             return ret;
         },
-        __wbindgen_generic_0000000000000007: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000007: function(arg0) {
+            // Cast intrinsic for `I64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_generic_0000000000000008: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
             const ret = getArrayU8FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000008: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000009: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
+        __wbindgen_generic_000000000000000a: function(arg0) {
+            // Cast intrinsic for `U64 -> Externref`.
+            const ret = BigInt.asUintN(64, arg0);
             return ret;
         },
         __wbindgen_init_externref_table: function() {
@@ -1673,30 +1801,30 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_23347(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_23347(arg0, arg1);
+function __wasm_bindgen_func_elem_24373(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_24373(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_2516(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_2516(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_2802(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_2802(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_694(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_694(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_744(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_744(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_694_11(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_694_11(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_744_16(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_744_16(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_49446(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_49446(arg0, arg1, arg2, arg3);
+function __wasm_bindgen_func_elem_50480(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_50480(arg0, arg1, arg2, arg3);
 }
 
-function __wasm_bindgen_func_elem_49436(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_50470(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
-        wasm.__wasm_bindgen_func_elem_49436(retptr, arg0, arg1, arg2);
+        wasm.__wasm_bindgen_func_elem_50470(retptr, arg0, arg1, arg2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {

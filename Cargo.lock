@@ -715,6 +715,7 @@ dependencies = [
 name = "avenger-chart-web"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-app",
  "avenger-chart",
  "avenger-chart-app",
@@ -723,6 +724,7 @@ dependencies = [
  "avenger-fonts",
  "avenger-format-datetime-googlesql",
  "avenger-format-number-googlesql",
+ "avenger-selection",
  "avenger-style",
  "avenger-typst-label",
  "avenger-wgpu",

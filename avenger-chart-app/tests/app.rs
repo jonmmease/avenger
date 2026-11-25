@@ -703,6 +703,88 @@ async fn the_change_of_a_navigation_crosses_the_format_with_its_domains() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_clauses_of_one_app_s_change_apply_to_another_with_its_resolution() {
+    let select = || {
+        vec![ToolBuilder::from(Select::interval(
+            "brush",
+            IntervalSelect::builder(),
+        ))]
+    };
+    let (mut first, _, changes) = app_reporting(scatter(cars(), select()), Reports::Settled).await;
+    let [x, y, width, height] = first.state().plots()[0].rect;
+    let from = [x + width * 0.25, y + height * 0.1];
+    send(&mut first, drag(from, [x + width * 0.6, y + height * 0.9])).await;
+    let change = changes.lock().unwrap().last().unwrap().clone();
+
+    let (mut second, updates, _) = app(scatter(cars(), select())).await;
+    for (name, clauses) in change.selections {
+        updates.set_clauses(&name, clauses);
+    }
+    // A selection that the chart does not define stays undefined.
+    updates.set_clauses("elsewhere", Vec::new());
+    refresh_until(&mut second, |app| {
+        !app.state().evaluator().selections()["brush"]
+            .clauses
+            .is_empty()
+    })
+    .await;
+    let selections = second.state().evaluator().selections();
+    assert_eq!(
+        format!("{:?}", selections["brush"]),
+        format!("{:?}", first.state().evaluator().selections()["brush"])
+    );
+    assert!(!selections.contains_key("elsewhere"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_modes_on_of_a_state_turn_on_and_turn_off_toggles() {
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("plot"))
+        .modes([
+            Mode::new("pan").group("drag"),
+            Mode::new("box").group("drag"),
+            Mode::new("labels").on(true),
+        ])
+        .build()
+        .unwrap();
+    let (mut app, updates, _) = app(chart).await;
+    assert_eq!(app.state().modes(), ["pan", "labels"]);
+    updates.set_modes_on(vec!["box".to_string(), "elsewhere".to_string()]);
+    refresh_until(&mut app, |app| app.state().modes() == ["box"]).await;
+    updates.set_modes_on(vec!["pan".to_string(), "labels".to_string()]);
+    refresh_until(&mut app, |app| app.state().modes() == ["pan", "labels"]).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_views_of_one_app_s_change_apply_to_another_and_reset_to_the_fit() {
+    let (mut first, _, changes) =
+        app_reporting(scatter(cars(), navigate()), Reports::Settled).await;
+    let from = center(&first, 0);
+    send(&mut first, drag(from, [from[0] - 40.0, from[1] + 30.0])).await;
+    let change = changes.lock().unwrap().last().unwrap().clone();
+    assert!(!change.domains.is_empty());
+    assert_eq!(
+        first.state().evaluator().scale_views().len(),
+        change.domains.len()
+    );
+
+    let (mut second, updates, _) = app(scatter(cars(), navigate())).await;
+    let fitted = domains(&second, 0);
+    updates.set_views(change.domains.clone());
+    refresh_until(&mut second, |app| {
+        app.state().evaluator().scale_view(0, Channel::X).is_some()
+    })
+    .await;
+    assert_eq!(domains(&second, 0), domains(&first, 0));
+    updates.reset_views();
+    refresh_until(&mut second, |app| {
+        app.state().evaluator().scale_views().is_empty()
+    })
+    .await;
+    assert_eq!(domains(&second, 0), fitted);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
     let select = vec![ToolBuilder::from(Select::interval(
         "brush",

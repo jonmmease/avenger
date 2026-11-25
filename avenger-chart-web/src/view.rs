@@ -3,22 +3,28 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     rc::{Rc, Weak},
+    sync::{Arc, Mutex},
 };
 
+use arrow::array::ArrayRef;
 use avenger_app::app::{AvengerApp, Changes};
-use avenger_chart::Chart;
-use avenger_chart_app::{ChartApp, ChartAppState, ChartUpdate, ChartUpdates};
+use avenger_chart::{ChangeMessage, Chart};
+use avenger_chart_app::{
+    Carry, ChartApp, ChartAppState, ChartChange, ChartUpdate, ChartUpdates, Fit, Reports,
+    ScaleIdentity, Views,
+};
 use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::{ElementState, WindowEvent, WindowResizeEvent};
+use avenger_selection::Clause;
 use avenger_style::{ColorScheme, Sheet};
 use avenger_typst_label::{LabelEngine, RegisteredFont};
 use avenger_wgpu::{
     canvas::CanvasConfig,
     html_canvas::{BrowserGpu, HtmlCanvasCanvas},
 };
-use js_sys::{Array, Object, Promise};
+use js_sys::{Array, Function, Object, Promise, Reflect, Uint8Array};
 use serde::Deserialize;
 use serde_wasm_bindgen::{from_value, to_value};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
@@ -47,6 +53,49 @@ export interface ViewOptions {
   transparent?: boolean;
   /** When wheel events reach the chart: while its canvas has the focus, or always. */
   wheel?: "focus" | "always";
+  /** Hears each change of the chart by its reader, after the view applies it. */
+  onChange?: (change: ChartChange) => void;
+  /** Which changes `onChange` hears: each one, such as each move of a brush's drag, or the
+   * changes when a gesture settles, with the selections that the gesture wrote before it. */
+  reports?: "every" | "settled";
+}
+
+/** A change of a chart by its reader: the bytes of its change message, which a server reads
+ * with avenger-chart's `ChangeMessage` and `setState` applies, the names of the selections that
+ * it wrote, the modes that are on when it holds the modes, and whether its gesture ended. */
+export interface ChartChange {
+  bytes: Uint8Array;
+  selections: string[];
+  modes: string[] | null;
+  settled: boolean;
+}
+
+/** The parts of a chart's state that `state` writes. Each is `true` by default. */
+export interface StateParts {
+  /** The clauses of every selection. */
+  selections?: boolean;
+  /** The modes that are on, for a chart that declares modes. */
+  modes?: boolean;
+  /** The domains of the scales that a pan or a zoom moved. */
+  views?: boolean;
+}
+
+/** The parts of a change message that `setState` applies, each `true` by default. `selections`
+ * also takes the names of the selections to apply. */
+export interface ApplyParts {
+  selections?: boolean | string[];
+  modes?: boolean;
+  views?: boolean;
+}
+
+/** What a new chart of `setChart` carries over from the chart that it replaces. */
+export interface UpdateOptions {
+  /** The domains of the scales: fitted to the new rows, the old ones, or both. */
+  fit?: "refit" | "keep" | "extend";
+  /** The views of pans and zooms: kept, or dropped for the fitted domains. */
+  views?: "keep" | "drop";
+  /** The clauses of the selections: kept, or reset to the new chart's initial clauses. */
+  selections?: "keep" | "reset";
 }
 
 /** A project's stylesheets: the path of the entry stylesheet, and the text of each stylesheet
@@ -76,6 +125,103 @@ struct ViewOptions {
     color_scheme: Option<Scheme>,
     transparent: Option<bool>,
     wheel: Option<Wheel>,
+    #[serde(with = "serde_wasm_bindgen::preserve")]
+    on_change: JsValue,
+    reports: Option<ReportsOption>,
+}
+
+/// Which changes a view reports, as the page names them.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ReportsOption {
+    Every,
+    Settled,
+}
+
+/// The parts of `state`, as `StateParts` declares them.
+#[derive(Deserialize)]
+#[serde(default)]
+struct StateParts {
+    selections: bool,
+    modes: bool,
+    views: bool,
+}
+
+impl Default for StateParts {
+    fn default() -> Self {
+        Self {
+            selections: true,
+            modes: true,
+            views: true,
+        }
+    }
+}
+
+/// The parts of `setState`, as `ApplyParts` declares them.
+#[derive(Deserialize)]
+#[serde(default)]
+struct ApplyParts {
+    selections: SelectionsPart,
+    modes: bool,
+    views: bool,
+}
+
+impl Default for ApplyParts {
+    fn default() -> Self {
+        Self {
+            selections: SelectionsPart::All(true),
+            modes: true,
+            views: true,
+        }
+    }
+}
+
+/// The selections that `setState` applies: all of them or none, or those of the names.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SelectionsPart {
+    All(bool),
+    Names(Vec<String>),
+}
+
+impl SelectionsPart {
+    fn takes(&self, name: &str) -> bool {
+        match self {
+            SelectionsPart::All(all) => *all,
+            SelectionsPart::Names(names) => names.iter().any(|own| own == name),
+        }
+    }
+}
+
+/// The options of `setChart`, as `UpdateOptions` declares them.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct UpdateOptionsJs {
+    fit: Option<FitOption>,
+    views: Option<ViewsOption>,
+    selections: Option<CarryOption>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum FitOption {
+    Refit,
+    Keep,
+    Extend,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ViewsOption {
+    Keep,
+    Drop,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CarryOption {
+    Keep,
+    Reset,
 }
 
 /// A color scheme as the page names it, `"light"` or `"dark"`.
@@ -194,6 +340,13 @@ struct View {
     canvas: HtmlCanvasElement,
     wheel: Wheel,
     updates: ChartUpdates,
+    /// The changes that the app reported, which the driver passes to `on_change` after the step
+    /// that made them. The app's callback must be `Send`, so it queues them here.
+    changes: Arc<Mutex<Vec<ChartChange>>>,
+    on_change: Option<Function>,
+    /// The state of the app after its last step, which `state()` reads while the driver holds the
+    /// app.
+    state: RefCell<State>,
     /// The project's stylesheet, loaded once, the color scheme, and whether the view is
     /// transparent, which a change of the stylesheet or of the scheme styles the chart with again.
     sheet: RefCell<Option<Sheet>>,
@@ -209,6 +362,29 @@ struct View {
     touches: RefCell<Touches>,
     listeners: RefCell<Vec<Listener>>,
     observer: RefCell<Option<Observer>>,
+}
+
+/// What `state()` reads of an app: the clauses of each selection, the modes that are on, or none
+/// for a chart that declares no modes, whose state then turns off no toggle of another chart, and
+/// the domain of each scale that a pan or a zoom moved.
+#[derive(Default)]
+struct State {
+    selections: BTreeMap<String, Vec<Clause>>,
+    modes: Option<Vec<String>>,
+    views: Vec<(ScaleIdentity, ArrayRef)>,
+}
+
+impl State {
+    fn of(app: &ChartAppState) -> Self {
+        Self {
+            selections: (app.evaluator().selections().iter())
+                .map(|(name, state)| (name.clone(), state.clauses.clone()))
+                .collect(),
+            modes: (!app.chart().message().modes.is_empty())
+                .then(|| app.modes().into_iter().map(str::to_string).collect()),
+            views: app.evaluator().scale_views(),
+        }
+    }
 }
 
 /// The resize observer of a view's canvas, with the callback that it calls.
@@ -259,9 +435,21 @@ impl ChartView {
         let dimensions = fit(size, pixel_ratio(), gpu.max_texture_dimension());
         let updates = ChartUpdates::new();
         updates.set_preferences(scheme.preferences());
+        let changes = Arc::new(Mutex::new(Vec::new()));
+        let heard = changes.clone();
+        let reports = match options.reports {
+            Some(ReportsOption::Settled) => Reports::Settled,
+            Some(ReportsOption::Every) | None => Reports::Every,
+        };
         let app = ChartApp::new(chart, styles, engine)
             .size(size)
             .updates(&updates)
+            .reports(reports)
+            .on_change(move |change| {
+                if let Ok(mut changes) = heard.lock() {
+                    changes.push(change.clone());
+                }
+            })
             .build()
             .await
             .map_err(|error| JsError::new(&error.to_string()))?;
@@ -279,6 +467,9 @@ impl ChartView {
             canvas: canvas.clone(),
             wheel: options.wheel.unwrap_or_default(),
             updates,
+            changes,
+            on_change: options.on_change.dyn_into::<Function>().ok(),
+            state: RefCell::new(State::of(app.state())),
             sheet: RefCell::new(sheet),
             scheme: Cell::new(scheme),
             transparent,
@@ -323,14 +514,131 @@ impl ChartView {
         self.diagnostics.clone()
     }
 
-    /// Replaces the chart with the chart message `bytes`, and keeps the views of its scales and
-    /// its selections where the new chart has the same structure. Throws the decoder's error for
-    /// an invalid message.
+    /// Replaces the chart with the chart message `bytes`. By default it fits each scale to the
+    /// new rows, and keeps the views of the scales and the selections where the new chart has the
+    /// same structure; `options` says otherwise, with `fit`, `views`, and `selections`. Throws the
+    /// decoder's error for an invalid message.
     #[wasm_bindgen(js_name = setChart)]
-    pub fn set_chart(&self, bytes: Vec<u8>) -> Result<(), JsError> {
+    pub fn set_chart(
+        &self,
+        bytes: Vec<u8>,
+        #[wasm_bindgen(unchecked_optional_param_type = "UpdateOptions")] options: Option<Object>,
+    ) -> Result<(), JsValue> {
         let chart = Chart::from_bytes(bytes).map_err(|error| JsError::new(&error.to_string()))?;
-        self.view.updates.send(ChartUpdate::new(chart));
+        let options: UpdateOptionsJs = match options {
+            Some(options) => from_value(options.into())?,
+            None => UpdateOptionsJs::default(),
+        };
+        let mut update = ChartUpdate::new(chart);
+        if let Some(fit) = options.fit {
+            update = update.fit(match fit {
+                FitOption::Refit => Fit::Refit,
+                FitOption::Keep => Fit::Keep,
+                FitOption::Extend => Fit::Extend,
+            });
+        }
+        if let Some(views) = options.views {
+            update = update.views(match views {
+                ViewsOption::Keep => Views::Keep,
+                ViewsOption::Drop => Views::Drop,
+            });
+        }
+        if let Some(carry) = options.selections {
+            update = update.selections(match carry {
+                CarryOption::Keep => Carry::Keep,
+                CarryOption::Reset => Carry::Reset,
+            });
+        }
+        self.view.updates.send(update);
         Ok(())
+    }
+
+    /// The bytes of a change message of the chart's state: the clauses of each of its selections,
+    /// the modes that are on, and the domain of each scale that a pan or a zoom moved, or the
+    /// parts of `parts`. `setState` applies it, such as to the view of the same chart after a
+    /// reload. A chart that declares no modes gives no modes. It reads the state after the view's
+    /// last step, so a call that changes the state shows in it once the view has applied it.
+    pub fn state(
+        &self,
+        #[wasm_bindgen(unchecked_optional_param_type = "StateParts")] parts: Option<Object>,
+    ) -> Result<Uint8Array, JsValue> {
+        let parts: StateParts = match parts {
+            Some(parts) => from_value(parts.into())?,
+            None => StateParts::default(),
+        };
+        let state = self.view.state.borrow();
+        let change = ChartChange {
+            selections: match parts.selections {
+                true => (state.selections.iter())
+                    .map(|(name, clauses)| (name.clone(), clauses.clone()))
+                    .collect(),
+                false => Vec::new(),
+            },
+            modes: state.modes.clone().filter(|_| parts.modes),
+            domains: match parts.views {
+                true => state.views.clone(),
+                false => Vec::new(),
+            },
+            settled: true,
+            ..ChartChange::default()
+        };
+        let bytes = (change.to_message())
+            .and_then(|message| Ok(message.to_bytes()?))
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(Uint8Array::from(&bytes[..]))
+    }
+
+    /// Applies a change message, such as `state()` or an `onChange` change, or the parts of it
+    /// that `parts` names. Each selection that it holds takes its clauses, with the resolution that
+    /// the chart gives the selection, and one without clauses clears. Its modes, when it holds
+    /// them, turn on and turn off the chart's other toggles. Each scale whose domain it holds shows
+    /// that domain, as a pan or a zoom leaves it. What the message does not hold stays as it is,
+    /// and a selection, a mode, or a scale that the chart does not declare is left out, so a page
+    /// can send one chart's changes to another. Throws for bytes that are not a change message of
+    /// this format version.
+    #[wasm_bindgen(js_name = setState)]
+    pub fn set_state(
+        &self,
+        bytes: Vec<u8>,
+        #[wasm_bindgen(unchecked_optional_param_type = "ApplyParts")] parts: Option<Object>,
+    ) -> Result<(), JsValue> {
+        let parts: ApplyParts = match parts {
+            Some(parts) => from_value(parts.into())?,
+            None => ApplyParts::default(),
+        };
+        let error = |error: String| JsValue::from(JsError::new(&error));
+        let message = ChangeMessage::from_bytes(bytes).map_err(|e| error(e.to_string()))?;
+        let change = ChartChange::from_message(&message).map_err(|e| error(e.to_string()))?;
+        for (name, clauses) in change.selections {
+            if parts.selections.takes(&name) {
+                self.view.updates.set_clauses(&name, clauses);
+            }
+        }
+        if let (Some(on), true) = (change.modes, parts.modes) {
+            self.view.updates.set_modes_on(on);
+        }
+        if parts.views && !change.domains.is_empty() {
+            self.view.updates.set_views(change.domains);
+        }
+        Ok(())
+    }
+
+    /// Clears the selection `name`, as a click outside a brush does.
+    #[wasm_bindgen(js_name = clearSelection)]
+    pub fn clear_selection(&self, name: String) {
+        self.view.updates.set_clauses(&name, Vec::new());
+    }
+
+    /// Returns every scale to its fit, as a double click does.
+    #[wasm_bindgen(js_name = resetViews)]
+    pub fn reset_views(&self) {
+        self.view.updates.reset_views();
+    }
+
+    /// Turns the chart's mode `name` on or off, as a mode widget does.
+    #[wasm_bindgen(js_name = setMode)]
+    pub fn set_mode(&self, name: String, on: bool) {
+        self.view.updates.set_mode(name, on);
     }
 
     /// Styles the chart with the project's stylesheets `styles`, or with the base stylesheet
@@ -520,13 +828,68 @@ async fn drive(view: Rc<View>) {
         };
         if let Some(changes) = changes {
             apply(&view, &mut core, changes);
+            *view.state.borrow_mut() = State::of(core.app.state());
         }
         if view.destroyed.get() {
             break;
         }
         *view.core.borrow_mut() = Some(core);
+        report(&view);
     }
     view.driving.set(false);
+}
+
+/// Passes the changes that the app reported to the page's `onChange`, after the step that made
+/// them, when the view holds its app again, so the callback can call the view.
+fn report(view: &Rc<View>) {
+    let changes = match view.changes.lock() {
+        Ok(mut changes) => std::mem::take(&mut *changes),
+        Err(_) => return,
+    };
+    let Some(on_change) = &view.on_change else {
+        return;
+    };
+    for change in changes {
+        let bytes = match change
+            .to_message()
+            .and_then(|message| Ok(message.to_bytes()?))
+        {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log(&format!(
+                    "avenger-chart-web: a change has no message: {error}"
+                ));
+                continue;
+            }
+        };
+        let object = Object::new();
+        let set = |key: &str, value: JsValue| {
+            let _ = Reflect::set(&object, &JsValue::from_str(key), &value);
+        };
+        set("bytes", Uint8Array::from(&bytes[..]).into());
+        let names: Array = (change.selections.iter())
+            .map(|(name, _)| JsValue::from_str(name))
+            .collect();
+        set("selections", names.into());
+        let modes = (change.modes.as_ref()).map_or(JsValue::NULL, |modes| {
+            modes
+                .iter()
+                .map(|name| JsValue::from_str(name))
+                .collect::<Array>()
+                .into()
+        });
+        set("modes", modes);
+        set("settled", JsValue::from_bool(change.settled));
+        if let Err(error) = on_change.call1(&JsValue::NULL, &object) {
+            web_sys::console::error_2(
+                &JsValue::from_str("avenger-chart-web: onChange threw"),
+                &error,
+            );
+        }
+        if view.destroyed.get() {
+            return;
+        }
+    }
 }
 
 /// Installs the changed scenes, shows the cursor, and requests a frame when the canvas changed.

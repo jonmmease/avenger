@@ -1,4 +1,4 @@
-//! Each chart of the gallery decodes from its bytes and builds a chart app with the library's own
+//! Each chart of the gallery and of its linked page decodes from its bytes and builds a chart app with the library's own
 //! label engine and styles, over the bundled faces that the gallery's page adds, as the library
 //! does in the browser.
 
@@ -16,8 +16,10 @@ fn each_chart_round_trips_through_its_bytes_and_builds_an_app() {
         .flat_map(|(_, face)| read_fonts(&avenger_fonts::decompress(face)).unwrap())
         .collect();
     let engine = label_engine(faces);
-    let gallery = chart_web::gallery();
-    assert_eq!(gallery.len(), 6);
+    let gallery: Vec<_> = (chart_web::gallery().into_iter())
+        .chain(chart_web::linked())
+        .collect();
+    assert_eq!(gallery.len(), 8);
     for scheme in [ColorScheme::Light, ColorScheme::Dark] {
         let styles = cascade(None, scheme, true);
         for entry in &gallery {

@@ -11,9 +11,18 @@
 //     <script type="application/vnd.avenger.chart+base64">…</script>
 //   </avenger-chart>
 //
-// An element creates its view as it nears the screen and frees it as it leaves. Inside a Quarto
-// figure or cell, it hides the chart's images once its canvas draws, and shows them again when
-// the view goes away, so a page without WebGPU keeps its images.
+// An element creates its view as it nears the screen and frees it as it leaves, and keeps the
+// state of its selections and modes for its next view. Inside a Quarto figure or cell, it hides
+// the chart's images once its canvas draws, and shows them again when the view goes away, so a
+// page without WebGPU keeps its images.
+//
+// Once the element is defined, a page listens to the reader's changes as `avenger-change` events,
+// whose `detail` is the view's change, `{ bytes, selections, modes, settled }`, and updates the
+// element with `setChart(bytes, options)`, `setState(bytes, parts)`, `setMode(name, on)`,
+// `clearSelection(name)`, and `resetViews()`, which apply at once or when the element's next view
+// appears. `state(parts)` gives the bytes of the element's state: its selections, its modes, and
+// its views. The `reports` attribute picks the changes that the events carry: `settled`, by default,
+// the changes when a gesture ends, or `every`, such as each move of a brush's drag.
 
 const CHART_TYPE = "application/vnd.avenger.chart+base64";
 
@@ -107,6 +116,24 @@ function frame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/** Applies a call of `setState`, `setMode`, `clearSelection`, or `resetViews` to `view`. */
+function apply(view, call) {
+  if (call.state) view.setState(call.state, call.parts);
+  else if (call.mode !== undefined) view.setMode(call.mode, call.on);
+  else if (call.clear !== undefined) view.clearSelection(call.clear);
+  else if (call.reset) view.resetViews();
+}
+
+/** The base64 text of `bytes`. */
+function encodeBase64(bytes) {
+  if (bytes.toBase64) return bytes.toBase64();
+  let text = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(text);
+}
+
 /** The bytes of the base64 text `text`. */
 function decodeBase64(text) {
   const clean = text.replace(/\s+/g, "");
@@ -125,6 +152,17 @@ class AvengerChart extends HTMLElement {
     /** Whether the element wants a view: near the screen, and on the present slide of a deck. */
     this.wanted = false;
     this.hiddenOutputs = [];
+    /** The bytes of the state of the last view, which the next view applies. */
+    this.saved = undefined;
+    /**
+     * The calls of `setState` and `setMode` since, in order, which the next view applies after it,
+     * until a view has drawn and holds them in its state.
+     */
+    this.pending = [];
+    /** Whether `setChart` replaced the chart, whose images then show another chart. */
+    this.replaced = false;
+    /** Whether the view drew its first frame, after it applied the saved state and the calls. */
+    this.drawn = false;
   }
 
   connectedCallback() {
@@ -195,6 +233,9 @@ class AvengerChart extends HTMLElement {
         styles: config.styles ?? undefined,
         colorScheme: transparent ? pageScheme() : schemes[0],
         transparent,
+        reports: this.getAttribute("reports") ?? "settled",
+        onChange: (change) =>
+          this.dispatchEvent(new CustomEvent("avenger-change", { detail: change, bubbles: true })),
       });
     } catch (error) {
       canvas.remove();
@@ -209,10 +250,20 @@ class AvengerChart extends HTMLElement {
     }
     this.view = view;
     this.canvas = canvas;
+    // The state of the last view, and the calls since, apply before the first frame shows.
+    try {
+      if (this.saved) view.setState(this.saved);
+      for (const call of this.pending) apply(view, call);
+    } catch (error) {
+      console.warn("avenger-chart: the saved state did not apply", error);
+    }
     // The view's first frame draws before the images give way to the canvas.
     await frame();
     await frame();
     if (this.view !== view) return;
+    // The view has applied the saved state and the calls, which its state now holds.
+    this.drawn = true;
+    this.pending = [];
     this.style.height = "";
     this.style.overflow = "";
     this.hideImages();
@@ -226,13 +277,99 @@ class AvengerChart extends HTMLElement {
   leave() {
     this.wanted = false;
     if (!this.view) return;
+    // A view that has not drawn may not have applied the saved state and the calls yet, so they
+    // stay for the next view.
+    if (this.drawn) {
+      try {
+        this.saved = this.view.state();
+        this.pending = [];
+      } catch (error) {
+        console.warn("avenger-chart: the state did not save", error);
+      }
+    }
+    this.drawn = false;
     this.view.free();
     this.view = undefined;
     this.canvas?.remove();
     this.canvas = undefined;
-    this.style.height = "0";
+    if (this.replaced) {
+      this.reserve();
+    } else {
+      this.style.height = "0";
+      this.style.overflow = "hidden";
+      this.showImages();
+    }
+  }
+
+  /** Keeps the room of the element's chart while it has no view, in place of images of another chart. */
+  reserve() {
+    const [, height] = this.size();
+    this.style.height = `${height}px`;
     this.style.overflow = "hidden";
-    this.showImages();
+  }
+
+  /**
+   * Replaces the element's chart with the chart message `bytes`, which its view draws now, with
+   * `options` of `ChartView.setChart`, or its next view draws. The images of the first chart stay
+   * hidden after it.
+   */
+  setChart(bytes, options) {
+    // The view checks the bytes and the options first, so an error leaves the element as it was.
+    this.view?.setChart(bytes, options);
+    let script = this.querySelector(`script[type="${CHART_TYPE}"]`);
+    if (!script) {
+      script = document.createElement("script");
+      script.type = CHART_TYPE;
+      this.append(script);
+    }
+    script.textContent = encodeBase64(bytes);
+    this.replaced = true;
+    if (options?.selections === "reset") {
+      this.saved = undefined;
+      this.pending = this.pending.filter((call) => !call.state && call.clear === undefined);
+    }
+    if (!this.view) {
+      this.hideImages();
+      this.reserve();
+    }
+  }
+
+  /**
+   * The bytes of the state of the element's chart: its selections, the modes that are on, and its
+   * views, or the parts of `parts`, as `ChartView.state` takes them. Without a view, it is the whole
+   * state of the last view, without the calls since, or null before any view.
+   */
+  state(parts) {
+    return this.view ? this.view.state(parts) : (this.saved ?? null);
+  }
+
+  /**
+   * Applies a change message, such as `state()` or an event's `detail.bytes` of another chart, or
+   * the parts of it that `parts` names, as `ChartView.setState` takes them.
+   */
+  setState(bytes, parts) {
+    this.call({ state: bytes, parts });
+  }
+
+  /** Turns the chart's mode `name` on or off. */
+  setMode(name, on) {
+    this.call({ mode: name, on });
+  }
+
+  /** Clears the selection `name`. */
+  clearSelection(name) {
+    this.call({ clear: name });
+  }
+
+  /** Returns every scale of the chart to its fit. */
+  resetViews() {
+    this.call({ reset: true });
+  }
+
+  /** Applies `call` to the view, and keeps it for the next view until a view has drawn. */
+  call(call) {
+    if (this.view) apply(this.view, call);
+    if (!this.drawn) this.pending.push(call);
   }
 
   /**
