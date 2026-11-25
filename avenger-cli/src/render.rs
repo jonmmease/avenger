@@ -33,7 +33,7 @@ use avenger_sql_project::{
     qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
 };
-use avenger_style::{table::LAST_FREE, Cascade, ColorScheme, HostInputs, ParseOptions, Sheet};
+use avenger_style::{Cascade, ColorScheme, HostInputs, ParseOptions, Sheet, SourceId};
 use avenger_typst_label::{LabelEngine, LabelOptions, LabelWidth, TextStyle};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::{common::DataFusionError, dataframe::DataFrame};
@@ -236,7 +236,9 @@ fn load_sheet(path: &Path) -> Result<Sheet, String> {
         allow_import: true,
         ..Default::default()
     };
-    let (sheet, diagnostics) = Sheet::load(&text, None, LAST_FREE, options, &mut no_files);
+    // Below the source ids that avenger-style reserves for its own stylesheets.
+    let source = SourceId(u32::MAX - 5);
+    let (sheet, diagnostics) = Sheet::load(&text, None, source, options, &mut no_files);
     if let Some(error) = diagnostics.first() {
         return Err(format!("{}: {}", path.display(), error.message));
     }
