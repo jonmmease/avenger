@@ -87,8 +87,7 @@ impl ChartQuery {
         self.frame.schema().inner().clone()
     }
 
-    /// The rows of the query, run through the project's store, in the batches of the query's
-    /// schema, as [`ChartQuery`] describes.
+    /// The rows of the query, run through the project's store, as [`ChartQuery`] describes.
     pub async fn collect(&self) -> Result<Vec<RecordBatch>> {
         for table in listing_tables(&self.query.plan)? {
             let options = SourceOptions {
@@ -103,16 +102,7 @@ impl ChartQuery {
             ..Inputs::default()
         };
         let run = graph.run(&inputs).await?;
-        let schema = self.schema();
-        let batches = run.batches.into_iter().next().unwrap_or_default();
-        // The batches of a node's run can lack the metadata of the query's fields, such as the
-        // extension type of a chart's column.
-        (batches.into_iter())
-            .map(|batch| match batch.schema() == schema {
-                true => Ok(batch),
-                false => Ok(batch.with_schema(schema.clone())?),
-            })
-            .collect()
+        Ok(run.batches.into_iter().next().unwrap_or_default())
     }
 }
 
@@ -122,7 +112,7 @@ fn listing_tables(plan: &LogicalPlan) -> Result<Vec<String>> {
     let mut tables = Vec::new();
     plan.apply_with_subqueries(|node| {
         if let LogicalPlan::TableScan(scan) = node {
-            // A source of another kind than a provider's, which no table of files is, has no files.
+            // A scan whose source is not a provider reads no table of files.
             let provider = source_as_provider(&scan.source).ok();
             if provider.is_some_and(|provider| provider.downcast_ref::<ListingTable>().is_some()) {
                 tables.push(scan.table_name.to_quoted_string());
@@ -130,7 +120,5 @@ fn listing_tables(plan: &LogicalPlan) -> Result<Vec<String>> {
         }
         Ok(TreeNodeRecursion::Continue)
     })?;
-    tables.sort();
-    tables.dedup();
     Ok(tables)
 }

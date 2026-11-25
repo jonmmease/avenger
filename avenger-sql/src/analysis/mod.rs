@@ -240,7 +240,7 @@ impl Analysis {
                     continue;
                 }
                 let batches = ctx
-                    .execute_logical_plan(bound(plan, &values)?)
+                    .execute_logical_plan(plan.clone().with_param_values(param_values(&values))?)
                     .await?
                     .collect()
                     .await?;
@@ -282,17 +282,14 @@ pub struct PlannedQuery {
 }
 
 impl PlannedQuery {
-    /// The query's plan with the values of its variables bound.
-    pub fn bound(&self) -> datafusion::common::Result<LogicalPlan> {
-        self.plan.clone().with_param_values(self.params.clone())
-    }
-
-    /// The rows of the query, as a DataFrame of `ctx`, unrun.
+    /// The rows of the query, with the values of its variables bound, as a DataFrame of `ctx`,
+    /// unrun.
     pub async fn dataframe(
         &self,
         ctx: &datafusion::prelude::SessionContext,
     ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
-        ctx.execute_logical_plan(self.bound()?).await
+        let plan = self.plan.clone().with_param_values(self.params.clone())?;
+        ctx.execute_logical_plan(plan).await
     }
 }
 
@@ -305,15 +302,6 @@ fn param_values(
         .map(|(id, value)| (id.trim_start_matches('$').to_string(), value.clone().into()))
         .collect();
     datafusion::common::ParamValues::Map(map)
-}
-
-/// `plan` with the values `values` of the variables before it bound to their placeholders, by
-/// their ids.
-fn bound(
-    plan: &LogicalPlan,
-    values: &std::collections::HashMap<String, datafusion::scalar::ScalarValue>,
-) -> datafusion::common::Result<LogicalPlan> {
-    plan.clone().with_param_values(param_values(values))
 }
 
 /// Plans each query of the script `root`, a [`avenger_sql_syntax::SyntaxKind::SCRIPT`] node, and

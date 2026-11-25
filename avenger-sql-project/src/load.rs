@@ -370,10 +370,10 @@ impl LoadedProject {
     /// tables of the session and its own tables of files, and imports the project's modules: it
     /// analyzes the chart with a catalog of the tables that it reads, its tables of files, and
     /// the modules that it imports, plans its statements, and evaluates its variables. The
-    /// [`ChartQuery`] gives the query's frame, unrun, and collects its rows through the project's
-    /// store of results, which keeps them for later runs of the project's charts. An error of the script
-    /// is an [`avenger_sql::ScriptError`], and a statement of files that fails, such as a
-    /// `LOAD DATA` whose rows don't load, is an error at the statement.
+    /// [`ChartQuery`] gives the query's frame, unrun, and collects its rows through the
+    /// project's store of results, which keeps them for later runs of the project's charts. An
+    /// error of the script is an [`avenger_sql::ScriptError`], and a statement of files that
+    /// fails, such as a `LOAD DATA` whose rows don't load, is an error at the statement.
     ///
     /// The chart's tables of files are its own: they register in no session. The project keeps
     /// them by `path`, and builds them again when the chart's statements of files change, or

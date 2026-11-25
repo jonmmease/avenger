@@ -127,9 +127,7 @@ async fn collected(project: &LoadedProject, text: &str, overrides: &Overrides) -
 
 /// The rows of the chart script `text`, collected from its frame, without the store, as a table.
 async fn direct(project: &LoadedProject, text: &str) -> String {
-    let query = project.run_chart(CHART, text).await.unwrap();
-    let batches = query.into_frame().collect().await.unwrap();
-    pretty_format_batches(&batches).unwrap().to_string()
+    direct_with(project, text, &Overrides::new()).await
 }
 
 #[tokio::test]
