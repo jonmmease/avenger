@@ -703,6 +703,40 @@ async fn the_change_of_a_navigation_crosses_the_format_with_its_domains() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_clauses_of_one_app_s_change_apply_to_another_with_its_resolution() {
+    let select = || {
+        vec![ToolBuilder::from(Select::interval(
+            "brush",
+            IntervalSelect::builder(),
+        ))]
+    };
+    let (mut first, _, changes) = app_reporting(scatter(cars(), select()), Reports::Settled).await;
+    let [x, y, width, height] = first.state().plots()[0].rect;
+    let from = [x + width * 0.25, y + height * 0.1];
+    send(&mut first, drag(from, [x + width * 0.6, y + height * 0.9])).await;
+    let change = changes.lock().unwrap().last().unwrap().clone();
+
+    let (mut second, updates, _) = app(scatter(cars(), select())).await;
+    for (name, clauses) in change.selections {
+        updates.set_clauses(&name, clauses);
+    }
+    // A selection that the chart does not define stays undefined.
+    updates.set_clauses("elsewhere", Vec::new());
+    refresh_until(&mut second, |app| {
+        !app.state().evaluator().selections()["brush"]
+            .clauses
+            .is_empty()
+    })
+    .await;
+    let selections = second.state().evaluator().selections();
+    assert_eq!(
+        format!("{:?}", selections["brush"]),
+        format!("{:?}", first.state().evaluator().selections()["brush"])
+    );
+    assert!(!selections.contains_key("elsewhere"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
     let select = vec![ToolBuilder::from(Select::interval(
         "brush",

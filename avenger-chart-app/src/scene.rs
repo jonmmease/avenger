@@ -41,6 +41,7 @@ impl AppBuild<ChartAppState> for ChartBuild {
                 Applied::Styles(cascade) => state.evaluator.set_cascade(cascade),
                 Applied::Mode(mode, on) => state.evaluator.set_mode(mode, on),
                 Applied::Selection(name, selection) => state.set_selection(&name, selection),
+                Applied::Clauses(name, clauses) => state.set_clauses(&name, clauses),
                 Applied::Preferences(preferences) => state.preferences = preferences,
             }
         }

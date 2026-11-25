@@ -17,7 +17,7 @@ use avenger_chart::Chart;
 use avenger_chart_eval::{
     Carry, EvalError, Fit, Fitted, PreparedChart, Registry, UpdateOptions, Views,
 };
-use avenger_selection::SelectionState;
+use avenger_selection::{Clause, SelectionState};
 use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 
@@ -114,6 +114,8 @@ enum Command {
     Mode(String, bool),
     /// The state of a selection, or `None` to clear it.
     Selection(String, Option<SelectionState>),
+    /// The clauses of a selection, with the resolution that the chart gives it.
+    Clauses(String, Vec<Clause>),
     Preferences(Preferences),
 }
 
@@ -124,6 +126,7 @@ pub(crate) enum Applied {
     Styles(Arc<Cascade>),
     Mode(String, bool),
     Selection(String, Option<SelectionState>),
+    Clauses(String, Vec<Clause>),
     Preferences(Preferences),
 }
 
@@ -229,6 +232,15 @@ impl ChartUpdates {
         self.command(Command::Selection(name.to_string(), None));
     }
 
+    /// Sets the clauses of the selection `name`, with the resolution that the chart gives it, such
+    /// as the clauses of a [`ChartChange`](crate::ChartChange) from another app or a saved state.
+    /// No clauses clear the selection. A selection that the chart does not define stays undefined,
+    /// so a host can send one chart's selections to another that defines only some of them. The
+    /// app draws its brushes and styles its rows, and reports no change.
+    pub fn set_clauses(&self, name: &str, clauses: Vec<Clause>) {
+        self.command(Command::Clauses(name.to_string(), clauses));
+    }
+
     /// Sets the preferences of the reader, such as the color scheme, which `@media` conditions of
     /// the chart's styles test, and which the app's widgets, tooltips, and brushes follow. A
     /// host whose surface turns dark sends the dark color scheme with the styles of its new
@@ -311,6 +323,7 @@ impl ChartUpdates {
             match command {
                 Command::Mode(mode, on) => applied.push(Applied::Mode(mode, on)),
                 Command::Selection(name, state) => applied.push(Applied::Selection(name, state)),
+                Command::Clauses(name, clauses) => applied.push(Applied::Clauses(name, clauses)),
                 Command::Preferences(preferences) => {
                     applied.push(Applied::Preferences(preferences))
                 }

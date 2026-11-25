@@ -723,6 +723,7 @@ dependencies = [
  "avenger-fonts",
  "avenger-format-datetime-googlesql",
  "avenger-format-number-googlesql",
+ "avenger-selection",
  "avenger-style",
  "avenger-typst-label",
  "avenger-wgpu",

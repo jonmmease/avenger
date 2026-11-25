@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linked charts</title>
+<style>
+  :root {
+    --page: #f6f6f4;
+    --card: #ffffff;
+    --ink: #1d1d1f;
+    --muted: #5f6066;
+    --line: #dedede;
+    --accent: #2f6db5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header, main, footer { max-width: 1120px; margin: 0 auto; }
+  header { margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 16px; }
+  button {
+    font: inherit; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+  article { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+  h2 { margin: 0; font-size: 16px; }
+  article p { margin: 4px 0 10px; color: var(--muted); font-size: 14px; }
+  avenger-chart canvas { border-radius: 4px; }
+  avenger-chart canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  footer { margin-top: 16px; color: var(--muted); font-size: 14px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Linked charts</h1>
+  <p>Two charts of the penguins in separate <code>&lt;avenger-chart&gt;</code> elements. Drag a box in either one, and the page passes the change to the other, which fades the penguins outside it. The page keeps the brush and the mode in its address, so a reload or a copied link opens it as you left it. <a href="./">The gallery</a></p>
+</header>
+<div class="toolbar" role="group" aria-label="Mode">
+  <button type="button" data-mode="brush" aria-pressed="true">Brush</button>
+  <button type="button" data-mode="pan" aria-pressed="false">Pan</button>
+</div>
+<main id="charts"></main>
+<footer id="log">No change yet.</footer>
+<script type="module">
+  import { start } from "./avenger-chart.js";
+  // The build step rewrites the charts, so the page asks the server whether they changed.
+  const manifest = await (await fetch("./manifest.json", { cache: "no-cache" })).json();
+  start({
+    glue: "./lib/avenger_chart_web.js",
+    wasm: "./lib/avenger_chart_web_bg.wasm",
+    fonts: manifest.fonts,
+  });
+
+  /** The text of `bytes` as base64url, for the address, and back. */
+  const toHash = (bytes) =>
+    btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  const fromHash = (text) =>
+    Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (char) => char.charCodeAt(0));
+
+  const container = document.getElementById("charts");
+  const elements = manifest.linked.map((chart) => {
+    const article = document.createElement("article");
+    const title = document.createElement("h2");
+    title.textContent = chart.title;
+    const description = document.createElement("p");
+    description.textContent = chart.description;
+    article.append(title, description);
+    container.append(article);
+    const element = document.createElement("avenger-chart");
+    element.setAttribute("width", String(Math.floor(article.clientWidth - 28)));
+    element.setAttribute("height", "380");
+    const script = document.createElement("script");
+    script.type = "application/vnd.avenger.chart+base64";
+    script.textContent = chart.bytes;
+    element.append(script);
+    article.append(element);
+    return element;
+  });
+
+  // The element's methods are there once the library defines it.
+  await customElements.whenDefined("avenger-chart");
+
+  // The address holds the mode and the bytes of the state of the chart that changed last.
+  let mode = "brush";
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (params.get("state")) {
+    const state = fromHash(params.get("state"));
+    for (const element of elements) element.setState(state);
+  }
+  const setMode = (next) => {
+    mode = next;
+    for (const element of elements) element.setMode(mode, true);
+    for (const button of document.querySelectorAll("[data-mode]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
+    }
+  };
+  if (params.get("mode")) setMode(params.get("mode"));
+  const remember = (state) => {
+    const next = new URLSearchParams({ mode });
+    if (state) next.set("state", toHash(state));
+    history.replaceState(null, "", `#${next}`);
+  };
+  for (const button of document.querySelectorAll("[data-mode]")) {
+    button.addEventListener("click", () => {
+      setMode(button.dataset.mode);
+      remember(params.get("state") ? fromHash(params.get("state")) : null);
+    });
+  }
+
+  // A change of one chart goes to the other, as the reader drags, and to the address when the
+  // gesture settles.
+  const log = document.getElementById("log");
+  elements.forEach((element, index) => {
+    element.addEventListener("avenger-change", (event) => {
+      const change = event.detail;
+      for (const other of elements) if (other !== element) other.setState(change.bytes);
+      const what = change.selections.length ? change.selections.join(", ") : "no selection";
+      log.textContent = `Last change: ${manifest.linked[index].title}, ${what}, ${change.bytes.length} bytes${change.settled ? ", settled" : ""}.`;
+      if (change.settled) {
+        const state = element.state();
+        params.set("state", toHash(state));
+        remember(state);
+      }
+    });
+  });
+</script>
+</body>
+</html>

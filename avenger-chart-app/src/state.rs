@@ -462,6 +462,17 @@ impl ChartAppState {
     }
 
     /// Sets the state of the selection `name`, or removes it for `None`.
+    /// Sets the clauses of the selection `name` with the resolution that it has, and leaves a
+    /// selection that the chart does not define undefined.
+    pub(crate) fn set_clauses(&mut self, name: &str, clauses: Vec<Clause>) {
+        let Some(resolution) =
+            (self.evaluator.selections().get(name)).map(|state| state.resolution)
+        else {
+            return;
+        };
+        self.set_selection(name, Some(SelectionState::new(resolution, clauses)));
+    }
+
     pub(crate) fn set_selection(&mut self, name: &str, state: Option<SelectionState>) {
         let mut selections: BTreeMap<String, SelectionState> = self.evaluator.selections().clone();
         match state {

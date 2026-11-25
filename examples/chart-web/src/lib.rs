@@ -1,6 +1,7 @@
 //! The charts of the gallery of avenger-chart-web, built with the builders of avenger-chart over
 //! the movies, the penguins, and the iris flowers of the repository. Each plot declares a
-//! navigation and a tooltip, which the library runs in the browser.
+//! navigation and a tooltip, which the library runs in the browser. The linked page's two charts
+//! of the penguins share a selection, which the page passes between their elements.
 
 use std::{collections::BTreeMap, io::Cursor, sync::Arc};
 
@@ -62,6 +63,70 @@ pub fn gallery() -> Vec<Entry> {
             chart: build(iris()),
         },
     ]
+}
+
+/// The name of the selection that the linked charts share.
+const BRUSH: &str = "brush";
+
+/// The charts of the linked page: two plots of the penguins in separate charts, each with a box
+/// that writes the selection `brush`, a mode that pans instead, and a tooltip. Each fades the
+/// penguins outside the brush, whichever chart drew it.
+pub fn linked() -> Vec<Entry> {
+    let penguins = penguins();
+    vec![
+        Entry {
+            name: "linked-bills",
+            title: "Bills",
+            description: "The bill lengths and depths of the penguins.",
+            chart: linked_chart(
+                &penguins,
+                "bills",
+                measure("bill_length_mm", "Bill length (mm)"),
+                measure("bill_depth_mm", "Bill depth (mm)"),
+            ),
+        },
+        Entry {
+            name: "linked-sizes",
+            title: "Sizes",
+            description: "The flipper lengths and body masses of the penguins.",
+            chart: linked_chart(
+                &penguins,
+                "sizes",
+                measure("flipper_length_mm", "Flipper length (mm)"),
+                measure("body_mass_g", "Body mass (g)"),
+            ),
+        },
+    ]
+}
+
+/// A chart of the plot `id` of the penguins at `x` and `y`, with the linked page's tools.
+fn linked_chart(penguins: &RecordBatch, id: &str, x: EncodingBuilder, y: EncodingBuilder) -> Chart {
+    let brushed = Predicate::selected(Selected::new(BRUSH));
+    let opacity =
+        Encoding::direct_value(0.1).conditional([ConditionalValue::direct_value(brushed, 0.85)]);
+    let symbols = CartesianLayer::symbol(
+        penguins.clone(),
+        SymbolMark::builder()
+            .x(x)
+            .y(y)
+            .color(legend("species", "Species"))
+            .opacity(opacity),
+    );
+    let plot = Plot::cartesian([symbols]).id(id).tools([
+        ToolBuilder::from(Select::interval(BRUSH, IntervalSelect::builder()).modes(["brush"])),
+        Navigate::builder().modes(["pan"]).into(),
+        penguin_tooltip().into(),
+    ]);
+    Chart::builder(plot)
+        .number_format_syntax("googlesql")
+        .datetime_format_syntax("googlesql")
+        .selections([Selection::new(BRUSH, SelectionResolution::Global)])
+        .modes([
+            Mode::new("brush").group("tool"),
+            Mode::new("pan").group("tool"),
+        ])
+        .build()
+        .expect("a linked chart builds")
 }
 
 fn build(root: impl Into<NodeBuilder>) -> Chart {
