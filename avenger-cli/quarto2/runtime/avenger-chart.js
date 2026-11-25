@@ -39,6 +39,13 @@ export function start(options) {
   if (!start.started) {
     config = { colorSchemes: ["light"], fonts: [], ...options };
     start.started = load().then(() => {
+      // With two schemes, the charts follow the scheme of the page.
+      if (config.colorSchemes.length > 1) {
+        new MutationObserver(() => connected.forEach((element) => element.schemeChanged())).observe(
+          document.body,
+          { attributes: true, attributeFilter: ["class"] },
+        );
+      }
       if (!customElements.get("avenger-chart")) customElements.define("avenger-chart", AvengerChart);
     });
     start.started.catch((error) => console.warn("avenger-chart: the library did not load", error));
@@ -73,20 +80,6 @@ function pageScheme() {
   return document.body.classList.contains("quarto-dark") ? "dark" : "light";
 }
 
-/** The elements that follow the page's scheme, and the observer of `body`'s classes. */
-const followers = new Set();
-let schemeObserver;
-
-function follow(element) {
-  followers.add(element);
-  if (!schemeObserver) {
-    schemeObserver = new MutationObserver(() => {
-      for (const follower of followers) follower.schemeChanged();
-    });
-    schemeObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
-  }
-}
-
 /** The observers that mark an element near the screen as it nears it, and far as it leaves. */
 const near = new IntersectionObserver(
   (entries) =>
@@ -103,7 +96,7 @@ const far = new IntersectionObserver(
   { rootMargin: "600px" },
 );
 
-/** The connected elements, which a change of revealjs's slide updates. */
+/** The connected elements, which a change of revealjs's slide or of the page's scheme updates. */
 const connected = new Set();
 // revealjs lays every slide out in one place and shows one, so an element of another slide counts
 // as near the screen. A change of slide decides again which elements hold views.
@@ -210,14 +203,12 @@ class AvengerChart extends HTMLElement {
     }
     // The element left the screen, or the page, while its view was created.
     if (!this.wanted || !this.isConnected) {
-      view.destroy();
       view.free();
       canvas.remove();
       return;
     }
     this.view = view;
     this.canvas = canvas;
-    if (transparent) follow(this);
     // The view's first frame draws before the images give way to the canvas.
     await frame();
     await frame();
@@ -227,6 +218,7 @@ class AvengerChart extends HTMLElement {
     this.hideImages();
   }
 
+  /** Draws the element's chart in the page's scheme. */
   schemeChanged() {
     this.view?.setColorScheme(pageScheme());
   }
@@ -234,8 +226,6 @@ class AvengerChart extends HTMLElement {
   leave() {
     this.wanted = false;
     if (!this.view) return;
-    followers.delete(this);
-    this.view.destroy();
     this.view.free();
     this.view = undefined;
     this.canvas?.remove();

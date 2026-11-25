@@ -7,7 +7,7 @@
 # Usage: scripts/build-runtime.sh
 #
 # Rebuild after a change of avenger-chart-web or of the chart format. The build needs wasm-pack
-# and wasm-opt, as avenger-chart-web/scripts/size.sh finds them.
+# and wasm-opt, as avenger-chart-web/scripts/build.sh finds them.
 set -euo pipefail
 
 quarto2="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +16,7 @@ out="$quarto2/runtime"
 build="$(mktemp -d)"
 trap 'rm -rf "$build"' EXIT
 
-"$repo/avenger-chart-web/scripts/size.sh" "$build"
+"$repo/avenger-chart-web/scripts/build.sh" "$build"
 gzip -9n -c "$build/avenger_chart_web_bg.wasm" >"$out/avenger_chart_web_bg.wasm.gz"
 cp "$build/avenger_chart_web.js" "$out/avenger_chart_web.js"
 cp "$repo/avenger-chart-web/element/avenger-chart.js" "$out/avenger-chart.js"
