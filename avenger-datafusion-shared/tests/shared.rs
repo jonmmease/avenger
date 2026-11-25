@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use avenger_datafusion_shared::{InlineShared, SharedExtensionPlanner, shared};
+use avenger_datafusion_shared::{InlineShared, PruneShared, SharedExtensionPlanner, shared};
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::catalog::Session;
 use datafusion::common::Result;
@@ -38,6 +38,7 @@ async fn context() -> Result<SessionContext> {
         .build();
     let ctx = SessionContext::new_with_state(state);
     ctx.add_optimizer_rule(Arc::new(InlineShared));
+    ctx.add_optimizer_rule(Arc::new(PruneShared));
     ctx.sql("CREATE TABLE t AS VALUES (1), (2), (3)")
         .await?
         .collect()
@@ -119,5 +120,96 @@ async fn equal_inputs_give_equal_ids_and_volatile_inputs_ids_of_their_own() -> R
     let sql = "SELECT random() AS r FROM t";
     let (a, b) = (shared(plan(sql).await?), shared(plan(sql).await?));
     assert_ne!(id(&a), id(&b));
+    Ok(())
+}
+
+/// The names of the columns of the input of each shared node of `plan`, optimized in `ctx`, and
+/// the rows of `plan`.
+async fn shared_columns(
+    ctx: &SessionContext,
+    plan: LogicalPlan,
+) -> Result<(Vec<Vec<String>>, String)> {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    let optimized = ctx.state().optimize(&plan)?;
+    let mut columns = Vec::new();
+    optimized.apply(|node| {
+        if let LogicalPlan::Extension(extension) = node {
+            let node = extension.node.as_any();
+            if let Some(node) = node.downcast_ref::<avenger_datafusion_shared::SharedNode>() {
+                let names = node
+                    .input
+                    .schema()
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().clone());
+                columns.push(names.collect());
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    let rows = ctx.execute_logical_plan(plan).await?.collect().await?;
+    Ok((columns, pretty_format_batches(&rows)?.to_string()))
+}
+
+/// A shared input of three columns, which an aggregate computes, so it stays shared.
+async fn three_columns(ctx: &SessionContext) -> Result<LogicalPlan> {
+    let sql = "SELECT column1 AS a, column1 * 2 AS b, column1 * 3 AS c FROM t GROUP BY column1";
+    Ok(shared(ctx.sql(sql).await?.into_unoptimized_plan()))
+}
+
+#[tokio::test]
+async fn a_shared_input_computes_the_columns_that_its_readers_read() -> Result<()> {
+    use datafusion::functions_aggregate::expr_fn::sum;
+    use datafusion::prelude::col;
+    let ctx = context().await?;
+    let input = three_columns(&ctx).await?;
+    // One reader takes `a`, and the other sums `b`, so no reader reads `c`.
+    let left = LogicalPlanBuilder::from(input.clone())
+        .project(vec![col("a")])?
+        .build()?;
+    let right = LogicalPlanBuilder::from(input)
+        .aggregate(
+            Vec::<datafusion::logical_expr::Expr>::new(),
+            vec![sum(col("b")).alias("total")],
+        )?
+        .build()?;
+    let plan = LogicalPlanBuilder::from(left)
+        .cross_join(right)?
+        .sort(vec![col("a").sort(true, false)])?
+        .build()?;
+    let (columns, rows) = shared_columns(&ctx, plan).await?;
+    assert!(!columns.is_empty());
+    for names in &columns {
+        assert_eq!(names, &["a", "b"]);
+    }
+    let expected = "\
++---+-------+
+| a | total |
++---+-------+
+| 1 | 12    |
+| 2 | 12    |
+| 3 | 12    |
++---+-------+";
+    assert_eq!(rows, expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reader_that_passes_its_columns_up_keeps_every_column() -> Result<()> {
+    use datafusion::optimizer::{OptimizerContext, OptimizerRule};
+    use datafusion::prelude::{col, lit};
+    let ctx = context().await?;
+    let input = three_columns(&ctx).await?;
+    // A filter passes every column up, so the rule can't tell what the plan above it reads.
+    let left = LogicalPlanBuilder::from(input.clone())
+        .filter(col("b").gt(lit(2)))?
+        .project(vec![col("a")])?
+        .build()?;
+    let right = LogicalPlanBuilder::from(input)
+        .project(vec![col("a").alias("other")])?
+        .build()?;
+    let plan = LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
+    let pruned = PruneShared.rewrite(plan, &OptimizerContext::new())?;
+    assert!(!pruned.transformed, "{}", pruned.data.display_indent());
     Ok(())
 }
