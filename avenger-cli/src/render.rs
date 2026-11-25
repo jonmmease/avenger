@@ -28,7 +28,7 @@ use avenger_scenegraph::{
 };
 use avenger_sql_language::FileRole;
 use avenger_sql_project::{
-    charts::{background, cascade, label_engine, preferences},
+    charts::{cascade, label_engine, preferences},
     find_root,
     qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
@@ -732,7 +732,7 @@ pub(crate) async fn result_image(
         .into_iter())
     .chain(&target.stylesheet.sheet)
     .chain(&renderer.extra);
-    let cascade = cascade(background(options.color_scheme), sheets);
+    let cascade = cascade(options.color_scheme.background(), sheets);
     let single = (result.shape() == Shape::Chart)
         .then(|| result.chart(0, 0))
         .flatten();
@@ -1462,7 +1462,7 @@ async fn draw(
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Vec<u8>, String> {
-    let background = (!options.transparent).then(|| color(background(options.color_scheme)));
+    let background = (!options.transparent).then(|| color(options.color_scheme.background()));
     let images: Arc<dyn ImageResolver> = Arc::new(renderer.images.clone());
     match format {
         Format::Png => {

@@ -52,6 +52,18 @@ pub enum ColorScheme {
     Dark,
 }
 
+impl ColorScheme {
+    /// The background that charts draw on for a reader who prefers this scheme: `#ffffff` for
+    /// light and `#1e1e1e` for dark. A host that draws charts on a surface of its own, such as an
+    /// editor's panel, gives that surface's color as the stylesheets' `env(background)` instead.
+    pub fn background(self) -> &'static str {
+        match self {
+            ColorScheme::Light => "#ffffff",
+            ColorScheme::Dark => "#1e1e1e",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Contrast {
     #[default]

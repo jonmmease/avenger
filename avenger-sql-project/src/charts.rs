@@ -21,16 +21,6 @@ pub fn label_engine() -> LabelEngine {
         .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()))
 }
 
-/// The background that charts draw on for a reader who prefers the color scheme `scheme`:
-/// `#ffffff` for light and `#1e1e1e` for dark. A host that draws charts on a surface of its own,
-/// such as an editor's panel, passes that surface's color to [`cascade`] instead.
-pub fn background(scheme: ColorScheme) -> &'static str {
-    match scheme {
-        ColorScheme::Light => "#ffffff",
-        ColorScheme::Dark => "#1e1e1e",
-    }
-}
-
 /// The preferences of a reader who prefers the color scheme `scheme`, which the
 /// `prefers-color-scheme` conditions of the stylesheets test.
 pub fn preferences(scheme: ColorScheme) -> Preferences {

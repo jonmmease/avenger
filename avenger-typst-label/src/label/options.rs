@@ -43,6 +43,23 @@ pub struct FontOptions {
     pub default_math_family: Option<String>,
 }
 
+impl FontOptions {
+    /// Options over `fonts` whose default sans-serif, monospace, and math families are those of
+    /// the fonts that Avenger bundles: Lato, DejaVu Sans Mono, and Lete Sans Math. A host that
+    /// supplies the bundled faces itself, such as a page that fetches them, registers them in
+    /// `fonts`, Lato Bold and Light before Regular, so that weight ties resolve as CSS resolves
+    /// them.
+    pub fn bundled_families(fonts: Vec<RegisteredFont>) -> Self {
+        Self {
+            registered_fonts: fonts,
+            default_sans_serif_family: Some("Lato".to_string()),
+            default_monospace_family: Some("DejaVu Sans Mono".to_string()),
+            default_math_family: Some("Lete Sans Math".to_string()),
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for FontOptions {
     fn default() -> Self {
         Self {
