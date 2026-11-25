@@ -11,9 +11,16 @@
 //     <script type="application/vnd.avenger.chart+base64">…</script>
 //   </avenger-chart>
 //
-// An element creates its view as it nears the screen and frees it as it leaves. Inside a Quarto
-// figure or cell, it hides the chart's images once its canvas draws, and shows them again when
-// the view goes away, so a page without WebGPU keeps its images.
+// An element creates its view as it nears the screen and frees it as it leaves, and keeps the
+// state of its selections and modes for its next view. Inside a Quarto figure or cell, it hides
+// the chart's images once its canvas draws, and shows them again when the view goes away, so a
+// page without WebGPU keeps its images.
+//
+// Once the element is defined, a page listens to the reader's changes as `avenger-change` events,
+// whose `detail` is the view's change, `{ bytes, selections, modes, settled }`, and updates the
+// element with `setChart(bytes, options)`, `setState(bytes)`, and `setMode(name, on)`, which apply
+// at once or when the element's next view appears. `state()` gives the bytes of the element's
+// state. The `reports` attribute, `every` or `settled`, picks the changes that the events carry.
 
 const CHART_TYPE = "application/vnd.avenger.chart+base64";
 
@@ -107,6 +114,16 @@ function frame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/** The base64 text of `bytes`. */
+function encodeBase64(bytes) {
+  if (bytes.toBase64) return bytes.toBase64();
+  let text = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(text);
+}
+
 /** The bytes of the base64 text `text`. */
 function decodeBase64(text) {
   const clean = text.replace(/\s+/g, "");
@@ -125,6 +142,12 @@ class AvengerChart extends HTMLElement {
     /** Whether the element wants a view: near the screen, and on the present slide of a deck. */
     this.wanted = false;
     this.hiddenOutputs = [];
+    /** The bytes of the state that the next view applies, from the last view or from `setState`. */
+    this.saved = undefined;
+    /** The modes that `setMode` set while the element had no view. */
+    this.pendingModes = [];
+    /** Whether `setChart` replaced the chart, whose images then show another chart. */
+    this.replaced = false;
   }
 
   connectedCallback() {
@@ -195,6 +218,9 @@ class AvengerChart extends HTMLElement {
         styles: config.styles ?? undefined,
         colorScheme: transparent ? pageScheme() : schemes[0],
         transparent,
+        reports: this.getAttribute("reports") ?? undefined,
+        onChange: (change) =>
+          this.dispatchEvent(new CustomEvent("avenger-change", { detail: change, bubbles: true })),
       });
     } catch (error) {
       canvas.remove();
@@ -209,6 +235,15 @@ class AvengerChart extends HTMLElement {
     }
     this.view = view;
     this.canvas = canvas;
+    // The state of the last view, or of `setState`, and the modes set since, apply before the first
+    // frame shows.
+    try {
+      if (this.saved) view.setState(this.saved);
+      for (const [name, on] of this.pendingModes) view.setMode(name, on);
+    } catch (error) {
+      console.warn("avenger-chart: the saved state did not apply", error);
+    }
+    this.pendingModes = [];
     // The view's first frame draws before the images give way to the canvas.
     await frame();
     await frame();
@@ -226,13 +261,73 @@ class AvengerChart extends HTMLElement {
   leave() {
     this.wanted = false;
     if (!this.view) return;
+    try {
+      this.saved = this.view.state();
+    } catch (error) {
+      console.warn("avenger-chart: the state did not save", error);
+    }
     this.view.free();
     this.view = undefined;
     this.canvas?.remove();
     this.canvas = undefined;
-    this.style.height = "0";
+    if (this.replaced) {
+      this.reserve();
+    } else {
+      this.style.height = "0";
+      this.style.overflow = "hidden";
+      this.showImages();
+    }
+  }
+
+  /** Keeps the room of the element's chart while it has no view, in place of images of another chart. */
+  reserve() {
+    const [, height] = this.size();
+    this.style.height = `${height}px`;
     this.style.overflow = "hidden";
-    this.showImages();
+  }
+
+  /**
+   * Replaces the element's chart with the chart message `bytes`, which its view draws now, with
+   * `options` of `ChartView.setChart`, or its next view draws. The images of the first chart stay
+   * hidden after it.
+   */
+  setChart(bytes, options) {
+    let script = this.querySelector(`script[type="${CHART_TYPE}"]`);
+    if (!script) {
+      script = document.createElement("script");
+      script.type = CHART_TYPE;
+      this.append(script);
+    }
+    script.textContent = encodeBase64(bytes);
+    this.replaced = true;
+    if (options?.selections === "reset") this.saved = undefined;
+    if (this.view) {
+      this.view.setChart(bytes, options);
+    } else {
+      this.hideImages();
+      this.reserve();
+    }
+  }
+
+  /** The bytes of the state of the element's chart: its selections and the modes that are on. */
+  state() {
+    return this.view ? this.view.state() : (this.saved ?? null);
+  }
+
+  /** Applies a change message, such as `state()` or an event's `detail.bytes` of another chart. */
+  setState(bytes) {
+    if (this.view) {
+      this.view.setState(bytes);
+    } else {
+      this.saved = bytes;
+      this.pendingModes = [];
+    }
+  }
+
+  /** Turns the chart's mode `name` on or off. */
+  setMode(name, on) {
+    if (this.view) this.view.setMode(name, on);
+    else this.pendingModes.push([name, on]);
   }
 
   /**
