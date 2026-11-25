@@ -1,0 +1,13 @@
+---
+title: Deck
+format: revealjs
+---
+
+## One chart
+
+```{avenger-sql}
+#| label: fig-deck
+#| fig-cap: Cars by origin
+FROM UNNEST([STRUCT('Europe' AS origin, 3 AS cars), STRUCT('USA', 8)])
+|> AGGREGATE mark_bar(x => origin, y => cars, tools => [tooltip()]) AS chart
+```

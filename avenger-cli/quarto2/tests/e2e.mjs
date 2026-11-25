@@ -3,7 +3,8 @@
 // tests/fixtures/, with `avenger` from AVENGER or PATH, writes the pages of their cells:
 // report.qmd's figure, cross-reference, errors, and code, themed.qmd's chart in the light and the
 // dark scheme of its themes, and interactive.qmd's charts with tools, which load the runtime of
-// interactive charts once. Run with `node tests/e2e.mjs`.
+// interactive charts once, and deck.qmd's chart alone on a slide, which revealjs's auto-stretch
+// leaves with its element. Run with `node tests/e2e.mjs`.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
@@ -22,9 +23,11 @@ cpSync(join(here, "..", "grammars"), join(project, "_quarto", "grammars"), { rec
 cpSync(join(here, "fixtures", "report.qmd"), join(project, "report.qmd"));
 cpSync(join(here, "fixtures", "themed.qmd"), join(project, "themed.qmd"));
 cpSync(join(here, "fixtures", "interactive.qmd"), join(project, "interactive.qmd"));
+cpSync(join(here, "fixtures", "deck.qmd"), join(project, "deck.qmd"));
 run("q2", ["render", "report.qmd"]);
 run("q2", ["render", "themed.qmd"]);
 run("q2", ["render", "interactive.qmd"]);
+run("q2", ["render", "deck.qmd"]);
 
 const page = readFileSync(join(project, "report.html"), "utf8");
 // The chart's figure, its caption, and the resolved cross-reference.
@@ -73,4 +76,9 @@ const config = JSON.parse(interactive.match(/id="avenger-runtime">([\s\S]*?)<\/s
 assert.equal(config.runtime, `_avenger/${runtimes[0]}/`);
 assert.ok(readdirSync(join(project, "_avenger", runtimes[0])).includes("avenger_chart_web_bg.wasm.gz"));
 assert.doesNotMatch(page, /avenger-runtime/);
+// A slide of one interactive chart keeps its element, since its image has a set size, which
+// revealjs's auto-stretch leaves in its figure.
+const deck = readFileSync(join(project, "deck.html"), "utf8");
+assert.match(deck, /<avenger-chart width="\d+" height="\d+">/);
+assert.doesNotMatch(deck, /r-stretch/);
 console.log(`ok: ${project}`);

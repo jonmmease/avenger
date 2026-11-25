@@ -311,6 +311,12 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
         html.contains("application/vnd.avenger.chart+base64"),
         "{html}"
     );
+    // The chart's image has its size, so revealjs's auto-stretch leaves it in its figure with
+    // the element.
+    assert_eq!(
+        outputs[0]["metadata"]["image/svg+xml"]["width"],
+        json!(width)
+    );
     assert_eq!(response["cells"][1]["outputs"].as_array().unwrap().len(), 1);
     // A chart of image marks, which the browser's library does not fetch, stays an image.
     assert_eq!(

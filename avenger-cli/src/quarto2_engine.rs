@@ -238,6 +238,18 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
                     project_dir.is_some() && chart.is_interactive() && browser_draws(chart.root())
                 });
                 if let (Some(chart), Some(size)) = (chart, size) {
+                    // An image of a set size is one that revealjs's auto-stretch leaves in its
+                    // figure, where it would otherwise lift the image out and drop the element.
+                    for output in &mut outputs {
+                        if let Some(metadata) = output["metadata"].as_object_mut() {
+                            if format != Format::Png {
+                                metadata.insert(
+                                    "image/svg+xml".to_string(),
+                                    json!({"width": size[0].round(), "height": size[1].round()}),
+                                );
+                            }
+                        }
+                    }
                     outputs.push(element(&chart, size)?);
                     interactive = true;
                 }
