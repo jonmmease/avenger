@@ -85,28 +85,36 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
             "{file}"
         );
     }
-    // A Quarto 2 project, whose preview runs the engine on every edit, and q2's working folder
-    // ignored.
+    // A Quarto 2 project, whose renders go to `_output/` and whose preview runs the engine on every
+    // edit, with q2's working folder, the renders, and the figures beside each document ignored.
     let quarto_yml = read(dir.join("_quarto.yml"));
     assert!(
         quarto_yml.starts_with("quarto-required: \"^2\"\n"),
         "{quarto_yml}"
     );
     assert!(
+        quarto_yml.contains("project:\n  type: default\n  output-dir: _output\n"),
+        "{quarto_yml}"
+    );
+    assert!(
         quarto_yml.contains("preview:\n  engine: auto\n"),
         "{quarto_yml}"
     );
-    assert_eq!(read(dir.join(".gitignore")), "/.quarto/\n");
-    // A second run changes no file of the project.
-    std::fs::write(dir.join(".gitignore"), "target\n/.quarto/\n").unwrap();
+    assert_eq!(
+        read(dir.join(".gitignore")),
+        "/.quarto/\n/_output/\n# The figures that q2 leaves beside each document\n*_files/\n"
+    );
+    // A second run changes no file of the project, and takes the other forms of the ignores.
+    let ignores = "target\n.quarto/\n_output/\n*_files\n";
+    std::fs::write(dir.join(".gitignore"), ignores).unwrap();
     let (status, stdout, _) = init(dir, bin.path(), &[]);
     assert_eq!(status, 0);
     assert!(
-        stdout.contains(".gitignore: ignores `/.quarto/` already"),
+        stdout.contains(".gitignore: ignores `/.quarto/`, `/_output/`, and `*_files/` already"),
         "{stdout}"
     );
     assert!(stdout.contains("grammar: already current"), "{stdout}");
-    assert_eq!(read(dir.join(".gitignore")), "target\n/.quarto/\n");
+    assert_eq!(read(dir.join(".gitignore")), ignores);
 }
 
 #[test]
@@ -122,7 +130,15 @@ fn an_existing_quarto_yml_stays_and_the_lines_to_add_print() {
         stdout.contains("add\n  preview:\n    engine: auto"),
         "{stdout}"
     );
-    assert_eq!(read(dir.join(".gitignore")), "target\n/.quarto/\n");
+    // The ignores follow the file's own lines, which keep no final newline.
+    assert_eq!(
+        read(dir.join(".gitignore")),
+        "target\n/.quarto/\n/_output/\n# The figures that q2 leaves beside each document\n*_files/\n"
+    );
+    assert!(
+        stdout.contains(".gitignore: `/.quarto/`, `/_output/`, `*_files/` added"),
+        "{stdout}"
+    );
     assert_eq!(
         calls(bin.path()),
         [

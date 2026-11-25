@@ -75,8 +75,8 @@ jobs:
           if "$avenger" quarto2-init; then exit 1; fi
           output=$("$avenger" quarto2-init --force)
           grep -q "extension: installed" <<< "$output"
-          # The example renders its chart, and the grammar highlights its code.
+          # The example renders its chart to _output/, and the grammar highlights its code.
           test -f _quarto/grammars/avenger-sql/avenger-sql.wasm
           PATH="$GITHUB_WORKSPACE/target/release:$PATH" q2 render index.av.qmd
-          ls index.av_files/figure-html/*.svg
-          grep -q 'class="hl-keyword"' index.av.html
+          ls _output/index.av_files/figure-html/*.svg
+          grep -q 'class="hl-keyword"' _output/index.av.html

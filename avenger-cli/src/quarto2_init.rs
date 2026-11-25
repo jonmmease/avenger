@@ -1,7 +1,9 @@
 //! `avenger quarto2-init`: a project set up for Quarto 2 and avenger. It installs the engine
 //! extension that the binary embeds, through `q2 add`, so q2 keeps its record of the extension's
 //! files, writes the grammar of avenger-sql that q2 highlights the cells' code with, writes
-//! `_quarto.yml` when the project has none, and adds q2's working folder to `.gitignore`. It installs nothing on the machine: q2, Node, and `avenger` are the user's.
+//! `_quarto.yml` when the project has none, with renders in `_output/`, and adds q2's working
+//! folder, the renders, and the figures that q2 leaves beside each document to `.gitignore`. It
+//! installs nothing on the machine: q2, Node, and `avenger` are the user's.
 //!
 //! The extension's `version` is avenger's, so a release of avenger moves the extension, as `q2 add`
 //! replaces an installed extension only for another version. An installed extension that is newer
@@ -47,9 +49,23 @@ const GRAMMAR_FOLDER: &str = "_quarto/grammars/avenger-sql";
 const SOURCE: &str = ".quarto/avenger-extension";
 
 /// The `_quarto.yml` of a project without one: a Quarto 2 project, which q2 presumes a project to
-/// be only when it says so, whose preview runs the engine on every edit.
-const QUARTO_YML: &str =
-    "quarto-required: \"^2\"\nproject:\n  type: default\npreview:\n  engine: auto\n";
+/// be only when it says so, whose renders go to `_output/`, and whose preview runs the engine on
+/// every edit.
+const QUARTO_YML: &str = "quarto-required: \"^2\"\nproject:\n  type: default\n  output-dir: _output\npreview:\n  engine: auto\n";
+
+/// The lines that `.gitignore` takes, each with the lines that ignore the same paths, and the
+/// comment above it: q2's working folder, the renders of `_output/`, and the figures that q2
+/// writes beside each document, in `<stem>_files/`, and leaves there after copying them to the
+/// renders.
+const IGNORED: &[(&str, &[&str], Option<&str>)] = &[
+    ("/.quarto/", &[".quarto/", "/.quarto"], None),
+    ("/_output/", &["_output/", "/_output"], None),
+    (
+        "*_files/",
+        &["*_files"],
+        Some("# The figures that q2 leaves beside each document"),
+    ),
+];
 
 /// The document of `--example`.
 const EXAMPLE: &str = "---\ntitle: Avenger and Quarto\n---\n\n```{avenger-sql}\nCREATE TEMP TABLE cars AS (\n  FROM UNNEST([STRUCT('Europe' AS origin, 3 AS count), STRUCT('Japan', 5), STRUCT('USA', 8)])\n)\n```\n\n```{avenger-sql}\n#| label: fig-cars\n#| fig-cap: Cars by origin\nFROM cars |> AGGREGATE mark_bar(x => origin, y => count) AS chart\n```\n\nThe cars by origin are in @fig-cars.\n";
@@ -180,7 +196,10 @@ pub fn run(options: &Options) -> Result<Status, String> {
             write(&quarto_yml, QUARTO_YML, options.dry_run)?;
             println!(
                 "{}",
-                done(options.dry_run, "_quarto.yml: written, with `preview: engine: auto`")
+                done(
+                    options.dry_run,
+                    "_quarto.yml: written, with `output-dir: _output` and `preview: engine: auto`"
+                )
             );
         }
         Ok(text) if has_preview_engine(&text) => {
@@ -192,17 +211,33 @@ pub fn run(options: &Options) -> Result<Status, String> {
     }
     let gitignore = dir.join(".gitignore");
     let ignored = std::fs::read_to_string(&gitignore).unwrap_or_default();
-    match (ignored.lines()).any(|line| matches!(line.trim(), "/.quarto/" | ".quarto/" | "/.quarto"))
-    {
-        true => println!(".gitignore: ignores `/.quarto/` already"),
+    let missing: Vec<_> = (IGNORED.iter())
+        .filter(|(line, same, _)| {
+            !(ignored.lines()).any(|have| have.trim() == *line || same.contains(&have.trim()))
+        })
+        .collect();
+    match missing.is_empty() {
+        true => println!(".gitignore: ignores `/.quarto/`, `/_output/`, and `*_files/` already"),
         false => {
             let mut text = ignored.clone();
             if !text.is_empty() && !text.ends_with('\n') {
                 text.push('\n');
             }
-            text.push_str("/.quarto/\n");
+            for (line, _, comment) in &missing {
+                if let Some(comment) = comment {
+                    text.push_str(comment);
+                    text.push('\n');
+                }
+                text.push_str(line);
+                text.push('\n');
+            }
             write(&gitignore, &text, options.dry_run)?;
-            println!("{}", done(options.dry_run, ".gitignore: `/.quarto/` added"));
+            let added: Vec<String> = missing
+                .iter()
+                .map(|(line, ..)| format!("`{line}`"))
+                .collect();
+            let line = format!(".gitignore: {} added", added.join(", "));
+            println!("{}", done(options.dry_run, &line));
         }
     }
     let example = dir.join("index.av.qmd");
