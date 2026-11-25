@@ -66,6 +66,28 @@ pub fn button(button: i16) -> MouseButton {
     }
 }
 
+/// The position, in the canvas's own CSS pixels, of a pointer at `client`, a point of the page's
+/// viewport, for a canvas whose border box starts at `origin` on the screen and measures `shown`
+/// there, `layout` in the page's layout, and whose border is `border` wide. A CSS transform, as a
+/// slide of revealjs scales its content, makes the screen's pixels differ from the canvas's, which
+/// the chart lays out in.
+pub fn canvas_position(
+    client: [f64; 2],
+    origin: [f64; 2],
+    shown: [f64; 2],
+    layout: [f64; 2],
+    border: [f64; 2],
+) -> [f32; 2] {
+    let axis = |index: usize| {
+        let scale = match (shown[index], layout[index]) {
+            (shown, layout) if shown > 0.0 && layout > 0.0 => shown / layout,
+            _ => 1.0,
+        };
+        ((client[index] - origin[index]) / scale - border[index]) as f32
+    };
+    [axis(0), axis(1)]
+}
+
 pub fn moved(position: [f32; 2]) -> WindowEvent {
     WindowEvent::CursorMoved(WindowCursorMoved { position })
 }

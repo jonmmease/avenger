@@ -481,10 +481,10 @@ fn diagnostics_array(diagnostics: &[PageDiagnostic]) -> Array {
         .collect()
 }
 
-/// The canvas's size in CSS pixels, or the default size of a canvas before the page lays it out.
+/// The canvas's size in its own CSS pixels, which a CSS transform of the page does not change, or
+/// the default size of a canvas before the page lays it out.
 fn css_size(canvas: &HtmlCanvasElement) -> [f32; 2] {
-    let rect = canvas.get_bounding_client_rect();
-    let (width, height) = (rect.width() as f32, rect.height() as f32);
+    let (width, height) = (canvas.client_width() as f32, canvas.client_height() as f32);
     if width >= 1.0 && height >= 1.0 {
         [width, height]
     } else {
@@ -646,10 +646,19 @@ fn position(canvas: &HtmlCanvasElement, event: &Event) -> [f32; 2] {
             .unwrap_or(0.0)
     };
     let rect = canvas.get_bounding_client_rect();
-    [
-        (client("clientX") - rect.left() - f64::from(canvas.client_left())) as f32,
-        (client("clientY") - rect.top() - f64::from(canvas.client_top())) as f32,
-    ]
+    input::canvas_position(
+        [client("clientX"), client("clientY")],
+        [rect.left(), rect.top()],
+        [rect.width(), rect.height()],
+        [
+            f64::from(canvas.offset_width()),
+            f64::from(canvas.offset_height()),
+        ],
+        [
+            f64::from(canvas.client_left()),
+            f64::from(canvas.client_top()),
+        ],
+    )
 }
 
 fn focused(canvas: &HtmlCanvasElement) -> bool {

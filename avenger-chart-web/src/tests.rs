@@ -63,6 +63,37 @@ fn the_engine_takes_the_bundled_families_and_googlesql_formats_from_the_page_fon
 }
 
 #[test]
+fn a_pointer_on_a_scaled_canvas_lands_in_the_canvas_s_own_pixels() {
+    // Without a transform, the position is the offset from the box, less the border.
+    let plain = input::canvas_position(
+        [110.0, 70.0],
+        [10.0, 20.0],
+        [200.0, 100.0],
+        [200.0, 100.0],
+        [1.0, 1.0],
+    );
+    assert_eq!(plain, [99.0, 49.0]);
+    // A slide that shows the canvas at half its size: 50 screen pixels are 100 of the canvas's.
+    let half = input::canvas_position(
+        [60.0, 45.0],
+        [10.0, 20.0],
+        [100.0, 50.0],
+        [200.0, 100.0],
+        [0.0, 0.0],
+    );
+    assert_eq!(half, [100.0, 50.0]);
+    // A canvas that the page has not laid out keeps the screen's pixels.
+    let unlaid = input::canvas_position(
+        [15.0, 25.0],
+        [10.0, 20.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+        [0.0, 0.0],
+    );
+    assert_eq!(unlaid, [5.0, 5.0]);
+}
+
+#[test]
 fn wheel_deltas_point_as_winit_deltas_do() {
     let delta = |event: WindowEvent| match event {
         WindowEvent::MouseWheel(WindowMouseWheel { delta }) => delta,
