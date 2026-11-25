@@ -98,6 +98,12 @@ impl Chart {
         (self.message.root.as_ref()).expect("a valid chart has a root")
     }
 
+    /// Whether the chart declares what a reader acts on: a tool of a plot or of a layer, a widget,
+    /// or a mode. A chart without one draws the same however a host shows it, as its image does.
+    pub fn is_interactive(&self) -> bool {
+        !self.message.modes.is_empty() || node_is_interactive(self.root())
+    }
+
     /// The selections of the chart, in the order of their names.
     pub fn selections(&self) -> &[proto::Selection] {
         &self.message.selections
@@ -147,5 +153,28 @@ impl Chart {
     /// The message, the tables, and the values of the chart.
     pub fn into_parts(self) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
         (self.message, self.tables, self.values)
+    }
+}
+
+/// Whether `node` or a node below it declares a tool or a widget.
+fn node_is_interactive(node: &proto::Node) -> bool {
+    use proto::{node::Node, plot::Coord};
+    match &node.node {
+        Some(Node::Plot(plot)) => {
+            let acts = |tools: usize, widgets: usize| tools + widgets > 0;
+            !plot.tools.is_empty()
+                || match &plot.coord {
+                    Some(Coord::Cartesian(cartesian)) => (cartesian.layers.iter())
+                        .any(|layer| acts(layer.tools.len(), layer.widgets.len())),
+                    Some(Coord::Polar(polar)) => (polar.layers.iter())
+                        .any(|layer| acts(layer.tools.len(), layer.widgets.len())),
+                    Some(Coord::Geo(geo)) => (geo.layers.iter())
+                        .any(|layer| acts(layer.tools.len(), layer.widgets.len())),
+                    None => false,
+                }
+        }
+        Some(Node::Concat(concat)) => concat.children.iter().any(node_is_interactive),
+        Some(Node::Wrap(wrap)) => wrap.children.iter().any(node_is_interactive),
+        Some(Node::Empty(_)) | None => false,
     }
 }
