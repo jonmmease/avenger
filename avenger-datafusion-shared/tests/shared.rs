@@ -83,3 +83,41 @@ async fn a_filtered_scan_of_a_memory_table_is_computed_again() -> Result<()> {
     assert!(rows.contains("| 4 | 2        |"), "{rows}");
     Ok(())
 }
+
+/// The id of the shared node `plan`.
+fn id(plan: &LogicalPlan) -> u64 {
+    let LogicalPlan::Extension(extension) = plan else {
+        panic!("a shared node, not {plan}");
+    };
+    let node = extension.node.as_any();
+    node.downcast_ref::<avenger_datafusion_shared::SharedNode>()
+        .expect("a shared node")
+        .id
+}
+
+#[tokio::test]
+async fn equal_inputs_give_equal_ids_and_volatile_inputs_ids_of_their_own() -> Result<()> {
+    let ctx = context().await?;
+    let plan = |sql: &'static str| {
+        let ctx = ctx.clone();
+        async move {
+            Ok::<_, datafusion::error::DataFusionError>(ctx.sql(sql).await?.into_unoptimized_plan())
+        }
+    };
+    // Two plans of one query, as two analyses of one script make them, share an id.
+    let sql = "SELECT column1 * 2 AS r FROM t WHERE column1 > 1";
+    let (a, b) = (shared(plan(sql).await?), shared(plan(sql).await?));
+    assert_eq!(id(&a), id(&b));
+    assert_eq!(
+        format!("{}", a.display_indent()),
+        format!("{}", b.display_indent())
+    );
+    // Another input has another id.
+    let other = shared(plan("SELECT column1 * 3 AS r FROM t").await?);
+    assert_ne!(id(&a), id(&other));
+    // Two copies of a volatile input never share a run.
+    let sql = "SELECT random() AS r FROM t";
+    let (a, b) = (shared(plan(sql).await?), shared(plan(sql).await?));
+    assert_ne!(id(&a), id(&b));
+    Ok(())
+}
