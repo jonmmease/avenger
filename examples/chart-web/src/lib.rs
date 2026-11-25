@@ -66,8 +66,8 @@ pub fn gallery() -> Vec<Entry> {
 
 fn build(root: impl Into<NodeBuilder>) -> Chart {
     Chart::builder(root)
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
+        .number_format_syntax("googlesql")
+        .datetime_format_syntax("googlesql")
         .build()
         .expect("the gallery's charts build")
 }
@@ -165,7 +165,7 @@ fn movie_ratings(movies: &RecordBatch) -> PlotBuilder {
                 Encoding::scaled_field("year").legend(
                     Legend::builder()
                         .title("Year")
-                        .labels(Labels::builder().format("d")),
+                        .labels(Labels::builder().format("%d")),
                 ),
             )
             .opacity(0.6),
@@ -174,7 +174,7 @@ fn movie_ratings(movies: &RecordBatch) -> PlotBuilder {
         .title(TooltipTitle::builder().column("title"))
         .fields([
             field("genre", "Genre"),
-            field("year", "Year").format("d"),
+            field("year", "Year").format("%d"),
             field("imdb_rating", "IMDB"),
             field("rotten_tomatoes_rating", "Rotten Tomatoes"),
         ]);
@@ -264,7 +264,7 @@ fn ratings_by_year(movies: &RecordBatch) -> PlotBuilder {
             .axis(
                 Axis::builder()
                     .title("Year")
-                    .labels(Labels::builder().format("d")),
+                    .labels(Labels::builder().format("%d")),
             )
     };
     let line = CartesianLayer::line(
@@ -280,11 +280,9 @@ fn ratings_by_year(movies: &RecordBatch) -> PlotBuilder {
             .y(measure("mean_rating", "Mean IMDB rating")),
     );
     let tooltip = nearest(16.0)
-        .title(
-            TooltipTitle::builder().column("year").format("d"),
-        )
+        .title(TooltipTitle::builder().column("year").format("%d"))
         .fields([
-            field("mean_rating", "Mean rating").format(".2f"),
+            field("mean_rating", "Mean rating").format("%.2f"),
             field("movies", "Movies"),
         ]);
     Plot::cartesian([line, points])

@@ -1,6 +1,8 @@
-//! Writes the charts of the gallery into `site/`: each chart's bytes as `charts/<NAME>.bin`, and
-//! `manifest.json`, the name, the title, and the description of each chart in the gallery's
-//! order.
+//! Writes the charts of the gallery into `site/`: each chart's bytes as `charts/<NAME>.bin`, the
+//! faces that `avenger-fonts` bundles as `fonts/<FILE>`, which the page adds, since the library
+//! embeds no fonts, and `manifest.json`: the name, the title, and the description of each chart in
+//! the gallery's order, and the fonts' files in the order that the page adds them. It copies the
+//! library's `<avenger-chart>` element beside them, as `avenger-chart.js`.
 //!
 //! Usage: `build-charts [SITE_DIR]`, where `SITE_DIR` is the example's `site` by default.
 
@@ -25,6 +27,20 @@ fn main() {
             "description": entry.description,
         }));
     }
+    let fonts = site.join("fonts");
+    std::fs::create_dir_all(&fonts).expect("the fonts directory");
+    let mut font_files = Vec::new();
+    for (file, face) in avenger_fonts::FACES {
+        std::fs::write(fonts.join(file), avenger_fonts::decompress(face))
+            .expect("the font's file writes");
+        font_files.push(format!("fonts/{file}"));
+    }
+    let manifest = serde_json::json!({ "charts": manifest, "fonts": font_files });
+    std::fs::write(
+        site.join("avenger-chart.js"),
+        include_str!("../../../avenger-chart-web/element/avenger-chart.js"),
+    )
+    .expect("the element writes");
     let manifest = serde_json::to_string_pretty(&manifest).expect("the manifest encodes");
     std::fs::write(site.join("manifest.json"), manifest).expect("the manifest writes");
 }

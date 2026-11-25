@@ -10,13 +10,12 @@ path = "src/main.rs"
 
 [dependencies]
 avenger-chart = { path = "../../avenger-chart" }
+avenger-fonts = { path = "../../avenger-fonts" }
 arrow = { workspace = true, features = ["csv"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]
 avenger-chart-app = { path = "../../avenger-chart-app" }
-avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+avenger-chart-web = { path = "../../avenger-chart-web" }
 avenger-style = { path = "../../avenger-style" }
-avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
 pollster = "0.3"

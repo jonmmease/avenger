@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>avenger-chart-web gallery</title>
+<style>
+  :root {
+    --page: #f6f6f4;
+    --card: #ffffff;
+    --ink: #1d1d1f;
+    --muted: #5f6066;
+    --line: #dedede;
+    --accent: #2f6db5;
+  }
+  body.quarto-dark {
+    --page: #141416;
+    --card: #1e1e21;
+    --ink: #ececee;
+    --muted: #a3a3aa;
+    --line: #333338;
+    --accent: #7fb0ea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header, main { max-width: 1120px; margin: 0 auto; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  button {
+    font: inherit; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+  article { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+  article.wide { grid-column: 1 / -1; }
+  h2 { margin: 0; font-size: 16px; }
+  article p { margin: 4px 0 10px; color: var(--muted); font-size: 14px; }
+  avenger-chart canvas { border-radius: 4px; }
+  avenger-chart canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body class="quarto-light">
+<header>
+  <div>
+    <h1>avenger-chart-web gallery</h1>
+    <p>Charts that a build step wrote as chart messages, drawn with WebGPU by <code>&lt;avenger-chart&gt;</code> elements. Each chart loads as it nears the screen. Click a chart before you scroll to zoom it.</p>
+  </div>
+  <button id="theme" type="button">Dark</button>
+</header>
+<main id="gallery"></main>
+<script type="module">
+  import { start } from "./avenger-chart.js";
+  // `?font=lobster`, `?font=inter`, or `?font=roboto-slab` draws the charts in a Google font: its
+  // full file from the google/fonts repository, at a pinned commit, through jsDelivr, after the
+  // bundled faces, and a project stylesheet that names it.
+  const GOOGLE_FONTS = "https://cdn.jsdelivr.net/gh/google/fonts@c30b221beb0c1da59d563feb91ec8656a1fa972a";
+  const FONTS = {
+    lobster: ["Lobster", "ofl/lobster/Lobster-Regular.ttf"],
+    inter: ["Inter", "ofl/inter/Inter%5Bopsz,wght%5D.ttf"],
+    "roboto-slab": ["Roboto Slab", "apache/robotoslab/RobotoSlab%5Bwght%5D.ttf"],
+  };
+  const [family, file] = FONTS[new URLSearchParams(location.search).get("font")] ?? [];
+  // The build step rewrites the charts, so the page asks the server whether they changed.
+  const manifest = await (await fetch("./manifest.json", { cache: "no-cache" })).json();
+  start({
+    glue: "./lib/avenger_chart_web.js",
+    wasm: "./lib/avenger_chart_web_bg.wasm",
+    fonts: [...manifest.fonts, ...(file ? [`${GOOGLE_FONTS}/${file}`] : [])],
+    styles: family
+      ? { entry: "chart.css", files: { "chart.css": `chart { font-family: "${family}", sans-serif; }` } }
+      : undefined,
+    colorSchemes: ["light", "dark"],
+  });
+  /** The base64 text of `bytes`. */
+  function base64(bytes) {
+    if (bytes.toBase64) return bytes.toBase64();
+    let text = "";
+    for (let at = 0; at < bytes.length; at += 0x8000) {
+      text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+    }
+    return btoa(text);
+  }
+  const gallery = document.getElementById("gallery");
+  for (const chart of manifest.charts) {
+    const article = document.createElement("article");
+    if (chart.name === "penguin-islands") article.className = "wide";
+    const title = document.createElement("h2");
+    title.textContent = chart.title;
+    const description = document.createElement("p");
+    description.textContent = chart.description;
+    article.append(title, description);
+    gallery.append(article);
+    const bytes = new Uint8Array(await (await fetch(`./charts/${chart.name}.bin`, { cache: "no-cache" })).arrayBuffer());
+    const element = document.createElement("avenger-chart");
+    element.setAttribute("width", String(Math.floor(article.clientWidth - 28)));
+    element.setAttribute("height", "340");
+    const script = document.createElement("script");
+    script.type = "application/vnd.avenger.chart+base64";
+    script.textContent = base64(bytes);
+    element.append(script);
+    article.append(element);
+  }
+  const toggle = document.getElementById("theme");
+  toggle.addEventListener("click", () => {
+    const dark = document.body.classList.toggle("quarto-dark");
+    document.body.classList.toggle("quarto-light", !dark);
+    toggle.textContent = dark ? "Light" : "Dark";
+  });
+</script>
+</body>
+</html>
