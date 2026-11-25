@@ -10,6 +10,10 @@
 //! projections, filters, and aliases. An inlined input keeps the pushdown into each reader. A
 //! volatile input is never inlined, so its readers see one set of values.
 //!
+//! [`PruneShared`] narrows each node's input to the union of the columns that its readers read,
+//! after DataFusion's pushdown of projections, so the input computes and buffers no column that
+//! no reader reads.
+//!
 //! [`SharedExtensionPlanner`] plans the references to one node as [`SharedExec`]s of one shared
 //! state, which holds the input, optimized once. The first reader of an output partition to run
 //! drives the input partition, and the state buffers its batches, under a memory reservation, for
@@ -17,7 +21,7 @@
 
 use std::any::Any;
 use std::cmp::Ordering;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
@@ -26,13 +30,13 @@ use async_trait::async_trait;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::catalog::{MemTable, Session};
 use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
-use datafusion::common::{DFSchemaRef, Result};
+use datafusion::common::{Column, DFSchemaRef, Result};
 use datafusion::datasource::source_as_provider;
 use datafusion::execution::memory_pool::{MemoryConsumer, MemoryReservation};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
 use datafusion::logical_expr::{
-    Expr, Extension, LogicalPlan, UserDefinedLogicalNode, UserDefinedLogicalNodeCore,
+    Expr, Extension, LogicalPlan, Projection, UserDefinedLogicalNode, UserDefinedLogicalNodeCore,
 };
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 use datafusion::physical_expr::PhysicalExpr;
@@ -180,6 +184,132 @@ fn cheap(plan: &LogicalPlan) -> Result<bool> {
         }
         _ => false,
     })
+}
+
+// ---------------------------------------------------------------------------------------
+// The rule that prunes the columns of shared inputs
+// ---------------------------------------------------------------------------------------
+
+/// Narrows the input of each shared node to the union of the columns that its references' readers
+/// read. DataFusion's pushdown of projections stops at a shared node, since each reference sees
+/// only its own reader, so without this rule an input computes and buffers every column. The rule
+/// reads the readers that the pushdown leaves directly above each reference: a projection or an
+/// aggregate reads the columns of its expressions, and any other reader, or a reference at the
+/// root of a plan or a subquery, reads every column, so its node keeps its input. Each pruned
+/// input is a projection of the original, so every reference of a node keeps one input, and the
+/// next pushdown carries the projection into the input.
+///
+/// Place it after DataFusion's `optimize_projections`.
+#[derive(Debug, Default)]
+pub struct PruneShared;
+
+impl OptimizerRule for PruneShared {
+    fn name(&self) -> &str {
+        "prune_shared"
+    }
+
+    fn rewrite(
+        &self,
+        plan: LogicalPlan,
+        _config: &dyn OptimizerConfig,
+    ) -> Result<Transformed<LogicalPlan>> {
+        let kept = kept_columns(&plan)?;
+        if kept.is_empty() {
+            return Ok(Transformed::no(plan));
+        }
+        plan.transform_up_with_subqueries(|plan| {
+            let Some(node) = as_shared(&plan) else {
+                return Ok(Transformed::no(plan));
+            };
+            let Some(columns) = kept.get(&node.id) else {
+                return Ok(Transformed::no(plan));
+            };
+            let schema = node.input.schema();
+            let exprs = (columns.iter())
+                .map(|index| Expr::Column(Column::from(schema.qualified_field(*index))))
+                .collect();
+            let input = Projection::try_new(exprs, Arc::new(node.input.clone()))?;
+            let input = LogicalPlan::Projection(input);
+            Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(SharedNode {
+                    id: node.id,
+                    schema: Arc::clone(input.schema()),
+                    input,
+                }),
+            })))
+        })
+    }
+}
+
+/// The shared node that `plan` is, if it is one.
+fn as_shared(plan: &LogicalPlan) -> Option<&SharedNode> {
+    let LogicalPlan::Extension(extension) = plan else {
+        return None;
+    };
+    extension.node.as_any().downcast_ref::<SharedNode>()
+}
+
+/// The columns, by position, that the readers of each shared node of `plan` read, for each node
+/// whose readers all read known columns and leave some unread.
+fn kept_columns(plan: &LogicalPlan) -> Result<HashMap<u64, BTreeSet<usize>>> {
+    // For each node: its references, its width, and the references whose reader reads known
+    // columns, with those columns.
+    let mut nodes: HashMap<u64, (usize, usize, usize, BTreeSet<usize>)> = HashMap::new();
+    plan.apply_with_subqueries(|parent| {
+        if let Some(node) = as_shared(parent) {
+            let width = node.schema.fields().len();
+            nodes
+                .entry(node.id)
+                .or_insert((0, width, 0, BTreeSet::new()))
+                .0 += 1;
+        }
+        for child in parent.inputs() {
+            let Some(node) = as_shared(child) else {
+                continue;
+            };
+            if let Some(columns) = columns_read(parent, child) {
+                let width = node.schema.fields().len();
+                let entry = nodes
+                    .entry(node.id)
+                    .or_insert((0, width, 0, BTreeSet::new()));
+                entry.2 += 1;
+                entry.3.extend(columns);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok((nodes.into_iter())
+        .filter(|(_, (references, width, known, columns))| {
+            known == references && columns.len() < *width
+        })
+        .map(|(id, (.., mut columns))| {
+            // An input of no columns would lose its rows, which a count reads.
+            if columns.is_empty() {
+                columns.insert(0);
+            }
+            (id, columns)
+        })
+        .collect())
+}
+
+/// The columns of `child`, by position, that its reader `parent` reads, or `None` when the
+/// reader can read every column, such as a filter, which passes them all up.
+fn columns_read(parent: &LogicalPlan, child: &LogicalPlan) -> Option<BTreeSet<usize>> {
+    let exprs: Vec<&Expr> = match parent {
+        LogicalPlan::Projection(projection) => projection.expr.iter().collect(),
+        LogicalPlan::Aggregate(aggregate) => (aggregate.group_expr.iter())
+            .chain(&aggregate.aggr_expr)
+            .collect(),
+        _ => return None,
+    };
+    let schema = child.schema();
+    let mut columns = BTreeSet::new();
+    for expr in exprs {
+        for column in expr.column_refs() {
+            columns.insert(schema.maybe_index_of_column(column)?);
+        }
+    }
+    Some(columns)
 }
 
 // ---------------------------------------------------------------------------------------

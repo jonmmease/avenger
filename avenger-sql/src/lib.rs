@@ -56,11 +56,12 @@ pub use pipeline::{
 
 /// Registers in `ctx` what the plans of avenger-sql need to run: [`QueryPlanner`], which plans the
 /// extension nodes of avenger, so `ctx` must have DataFusion's default query planner, the rule that
-/// computes cheap shared inputs again in place of sharing them, the rule that groups by the
+/// computes cheap shared inputs again in place of sharing them, the rule that narrows a shared
+/// input to the columns that its readers read, the rule that groups by the
 /// fields of a struct, such as a bin, and the rule that plans an aggregate grouped by a lump
 /// without joining the lump to its rows. Registering two times adds the rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
-    use avenger_datafusion_shared::InlineShared;
+    use avenger_datafusion_shared::{InlineShared, PruneShared};
     use avenger_datafusion_transforms::{lump::LumpAggregateFusion, StructGroupSplit};
     use datafusion::{
         common::plan_err,
@@ -82,6 +83,15 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
     if !rules.iter().any(|rule| rule.name() == InlineShared.name()) {
         // Before the rules that push filters and projections, which then reach an inlined input.
         rules.insert(0, Arc::new(InlineShared));
+    }
+    if !rules.iter().any(|rule| rule.name() == PruneShared.name()) {
+        // After the pushdown of projections, which leaves the columns of each reader above its
+        // reference, and before the next pass's pushdown, which carries the pruned columns into
+        // the input.
+        let Some(at) = (rules.iter()).position(|rule| rule.name() == "optimize_projections") else {
+            return plan_err!("the session has no optimizer rule optimize_projections");
+        };
+        rules.insert(at + 1, Arc::new(PruneShared));
     }
     if !rules
         .iter()
