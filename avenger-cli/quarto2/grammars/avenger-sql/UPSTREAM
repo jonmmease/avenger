@@ -1,4 +1,4 @@
 avenger-vis/tree-sitter-avenger-sql
-commit 225b35add21e8d73e17a85291d1ab786d097b6b7
-1ff44f31bf60dc0ab183bf55d4f9c8d1f03a3ed0f6de97dd80d54981fa642418  target/tree-sitter-avenger-sql.wasm
+commit aba152d7ed405ecbf5afa832a44c6aae2cf5dce3
+fc593c52a9731723eb6d02161b5ad2cd01a4c69882ba926860418a15db028678  target/tree-sitter-avenger-sql.wasm
 eae6ef69bbd88adee868b27ff0fa3a0a0f69c7819a213b5a0b53e3ecd764c1ed  queries/highlights.scm
