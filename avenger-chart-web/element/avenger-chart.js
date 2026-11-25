@@ -145,10 +145,15 @@ class AvengerChart extends HTMLElement {
     this.hiddenOutputs = [];
     /** The bytes of the state of the last view, which the next view applies. */
     this.saved = undefined;
-    /** The calls of `setState` and `setMode` since, in order, which the next view applies after it. */
+    /**
+     * The calls of `setState` and `setMode` since, in order, which the next view applies after it,
+     * until a view has drawn and holds them in its state.
+     */
     this.pending = [];
     /** Whether `setChart` replaced the chart, whose images then show another chart. */
     this.replaced = false;
+    /** Whether the view drew its first frame, after it applied the saved state and the calls. */
+    this.drawn = false;
   }
 
   connectedCallback() {
@@ -246,11 +251,13 @@ class AvengerChart extends HTMLElement {
     } catch (error) {
       console.warn("avenger-chart: the saved state did not apply", error);
     }
-    this.pending = [];
     // The view's first frame draws before the images give way to the canvas.
     await frame();
     await frame();
     if (this.view !== view) return;
+    // The view has applied the saved state and the calls, which its state now holds.
+    this.drawn = true;
+    this.pending = [];
     this.style.height = "";
     this.style.overflow = "";
     this.hideImages();
@@ -264,12 +271,17 @@ class AvengerChart extends HTMLElement {
   leave() {
     this.wanted = false;
     if (!this.view) return;
-    try {
-      this.saved = this.view.state();
-      this.pending = [];
-    } catch (error) {
-      console.warn("avenger-chart: the state did not save", error);
+    // A view that has not drawn may not have applied the saved state and the calls yet, so they
+    // stay for the next view.
+    if (this.drawn) {
+      try {
+        this.saved = this.view.state();
+        this.pending = [];
+      } catch (error) {
+        console.warn("avenger-chart: the state did not save", error);
+      }
     }
+    this.drawn = false;
     this.view.free();
     this.view = undefined;
     this.canvas?.remove();
@@ -296,6 +308,8 @@ class AvengerChart extends HTMLElement {
    * hidden after it.
    */
   setChart(bytes, options) {
+    // The view checks the bytes and the options first, so an error leaves the element as it was.
+    this.view?.setChart(bytes, options);
     let script = this.querySelector(`script[type="${CHART_TYPE}"]`);
     if (!script) {
       script = document.createElement("script");
@@ -308,9 +322,7 @@ class AvengerChart extends HTMLElement {
       this.saved = undefined;
       this.pending = this.pending.filter((call) => !call.state);
     }
-    if (this.view) {
-      this.view.setChart(bytes, options);
-    } else {
+    if (!this.view) {
       this.hideImages();
       this.reserve();
     }
@@ -326,14 +338,14 @@ class AvengerChart extends HTMLElement {
 
   /** Applies a change message, such as `state()` or an event's `detail.bytes` of another chart. */
   setState(bytes) {
-    if (this.view) this.view.setState(bytes);
-    else this.pending.push({ state: bytes });
+    this.view?.setState(bytes);
+    if (!this.drawn) this.pending.push({ state: bytes });
   }
 
   /** Turns the chart's mode `name` on or off. */
   setMode(name, on) {
-    if (this.view) this.view.setMode(name, on);
-    else this.pending.push({ mode: name, on });
+    this.view?.setMode(name, on);
+    if (!this.drawn) this.pending.push({ mode: name, on });
   }
 
   /**

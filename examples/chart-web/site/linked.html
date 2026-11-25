@@ -63,8 +63,13 @@
   });
 
   /** The text of `bytes` as base64url, for the address, and back. */
-  const toHash = (bytes) =>
-    btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  const toHash = (bytes) => {
+    let text = "";
+    for (let at = 0; at < bytes.length; at += 0x8000) {
+      text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+    }
+    return btoa(text).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  };
   const fromHash = (text) =>
     Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (char) => char.charCodeAt(0));
 

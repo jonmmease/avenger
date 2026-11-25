@@ -289,11 +289,12 @@ struct View {
     observer: RefCell<Option<Observer>>,
 }
 
-/// What `state()` reads of an app: the clauses of each selection, and the modes that are on.
+/// What `state()` reads of an app: the clauses of each selection, and the modes that are on, or
+/// none for a chart that declares no modes, whose state then turns off no toggle of another chart.
 #[derive(Default)]
 struct State {
     selections: BTreeMap<String, Vec<Clause>>,
-    modes: Vec<String>,
+    modes: Option<Vec<String>>,
 }
 
 impl State {
@@ -302,7 +303,8 @@ impl State {
             selections: (app.evaluator().selections().iter())
                 .map(|(name, state)| (name.clone(), state.clauses.clone()))
                 .collect(),
-            modes: app.modes().into_iter().map(str::to_string).collect(),
+            modes: (!app.chart().message().modes.is_empty())
+                .then(|| app.modes().into_iter().map(str::to_string).collect()),
         }
     }
 }
@@ -475,14 +477,15 @@ impl ChartView {
 
     /// The bytes of a change message of the chart's state: the clauses of each of its selections
     /// and the modes that are on, which `setState` applies, such as to the view of the same chart
-    /// after a reload.
+    /// after a reload. A chart that declares no modes gives no modes. It reads the state after the
+    /// view's last step, so a `setState` or a `setMode` shows in it once the view has applied it.
     pub fn state(&self) -> Result<Uint8Array, JsValue> {
         let state = self.view.state.borrow();
         let change = ChartChange {
             selections: (state.selections.iter())
                 .map(|(name, clauses)| (name.clone(), clauses.clone()))
                 .collect(),
-            modes: Some(state.modes.clone()),
+            modes: state.modes.clone(),
             settled: true,
             ..ChartChange::default()
         };
