@@ -246,6 +246,10 @@ fn std_sheet(text: &str, source: u32, options: ParseOptions) -> Sheet {
 pub const STD_BASE: SourceId = SourceId(u32::MAX);
 pub const STD_RESET: SourceId = SourceId(u32::MAX - 1);
 pub const STD_VEGALITE: SourceId = SourceId(u32::MAX - 2);
+/// The source ids of the sheets that `chart_cascade` adds: the one that imports the base
+/// stylesheet, and the rule of a transparent chart.
+pub const CHART_BASE: SourceId = SourceId(u32::MAX - 3);
+pub const CHART_TRANSPARENT: SourceId = SourceId(u32::MAX - 4);
 
 /// The text of `std:base.css`.
 pub const BASE_CSS: &str = include_str!("std/base.css");

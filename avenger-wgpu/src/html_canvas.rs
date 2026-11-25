@@ -8,8 +8,8 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::LabelEngine;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-    Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, SurfaceTarget, TextureUsages,
-    TextureView, TextureViewDescriptor,
+    Adapter, CompositeAlphaMode, Device, Instance, Queue, Surface, SurfaceConfiguration,
+    SurfaceTarget, TextureUsages, TextureView, TextureViewDescriptor,
 };
 
 use crate::{
@@ -77,6 +77,8 @@ pub struct HtmlCanvasCanvas {
     surface_config: SurfaceConfiguration,
     layers: Layers,
     canvas: HtmlCanvasElement,
+    /// The color that each frame clears to, under the bottom layer.
+    background: wgpu::Color,
 
     // The order of properties determines the drop order, and the device must be dropped after
     // the buffers and textures of the marks.
@@ -111,7 +113,11 @@ impl HtmlCanvasCanvas {
             width,
             height,
             present_mode: caps.present_modes[0],
-            alpha_mode: caps.alpha_modes[0],
+            // The page composites a premultiplied canvas over itself, so a background that is not
+            // opaque shows the page through, as the marks' blending over a cleared frame leaves
+            // its colors premultiplied. Every WebGPU canvas takes `premultiplied`, which wgpu's
+            // capabilities of a web surface leave out but its configuration passes on.
+            alpha_mode: CompositeAlphaMode::PreMultiplied,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -136,6 +142,7 @@ impl HtmlCanvasCanvas {
             surface_config,
             layers,
             canvas,
+            background: wgpu::Color::WHITE,
             multisampled_framebuffer,
             surface,
             queue: gpu.queue.clone(),
@@ -145,6 +152,14 @@ impl HtmlCanvasCanvas {
 
     pub fn canvas(&self) -> &HtmlCanvasElement {
         &self.canvas
+    }
+
+    /// Sets the color that each frame clears to, under the bottom layer, as sRGB RGBA from 0 to
+    /// 1, as the colors of marks are. It is white until set, and a color that is not opaque shows
+    /// the page through.
+    pub fn set_background(&mut self, color: [f32; 4]) {
+        let [r, g, b, a] = color.map(f64::from);
+        self.background = wgpu::Color { r, g, b, a };
     }
 
     /// Install `scene` at `index` without reinstalling other layers. Index 0 is the bottom layer.
@@ -195,6 +210,7 @@ impl HtmlCanvasCanvas {
             [self.surface_config.width, self.surface_config.height],
             self.layers.bottom().texture_format(),
             self.layers.bottom().sample_count(),
+            self.background,
         );
         let commands = (self.layers).frame_commands(&self.device, &self.queue, target, None)?;
         self.queue.submit(commands);

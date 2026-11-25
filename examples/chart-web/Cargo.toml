@@ -1,0 +1,22 @@
+[package]
+name = "chart-web"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "build-charts"
+path = "src/main.rs"
+
+[dependencies]
+avenger-chart = { path = "../../avenger-chart" }
+avenger-fonts = { path = "../../avenger-fonts" }
+arrow = { workspace = true, features = ["csv"] }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+avenger-chart-app = { path = "../../avenger-chart-app" }
+avenger-chart-web = { path = "../../avenger-chart-web" }
+avenger-style = { path = "../../avenger-style" }
+pollster = "0.3"

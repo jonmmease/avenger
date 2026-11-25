@@ -2,11 +2,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use avenger_style::{Diagnostic, Loaded, ParseOptions, Sheet, SourceId, Stylesheet};
+use avenger_style::{
+    resolve_import, Diagnostic, Loaded, ParseOptions, Sheet, SourceId, Stylesheet,
+};
 
 use crate::{
     manifest::ManifestError,
-    path::relative,
     project::{ProjectError, ProjectFiles},
 };
 
@@ -79,7 +80,7 @@ impl ProjectFiles {
         while let Some((path, text)) = pending.pop() {
             let (stylesheet, _) = Stylesheet::parse(&text, SourceId(0), options);
             for import in &stylesheet.imports {
-                let Ok(import) = resolve(&import.url, &path) else {
+                let Ok(import) = resolve_import(&import.url, &path) else {
                     continue;
                 };
                 if texts.contains_key(&import) || !indices.contains_key(import.as_str()) {
@@ -95,7 +96,7 @@ impl ProjectFiles {
         }
         let mut reached = BTreeSet::new();
         let mut loader = |url: &str, base: Option<&str>| -> Result<Loaded, String> {
-            let path = resolve(url, base.unwrap_or(entry))?;
+            let path = resolve_import(url, base.unwrap_or(entry))?;
             let index = (indices.get(path.as_str()))
                 .ok_or_else(|| format!("the project has no stylesheet '{path}'"))?;
             let text = (texts.get(&path))
@@ -126,30 +127,4 @@ impl ProjectFiles {
             unreached,
         })
     }
-}
-
-/// The path, relative to the project root, of the import `url` of the stylesheet at `importer`:
-/// its names after the directory of `importer`, where `..` leaves a directory, as a path
-/// relative to the root.
-fn resolve(url: &str, importer: &str) -> Result<String, String> {
-    let scheme = url.split_once(':').map(|(scheme, _)| scheme);
-    let not_relative =
-        || "an import is a path relative to the stylesheet that holds it".to_string();
-    if url.starts_with('/') || scheme.is_some_and(|scheme| !scheme.contains('/')) {
-        return Err(not_relative());
-    }
-    let mut names: Vec<&str> = importer.split('/').collect();
-    names.pop();
-    for name in url.split('/') {
-        match name {
-            "" | "." => {}
-            ".." => {
-                names.pop().ok_or("the path goes above the project root")?;
-            }
-            name => names.push(name),
-        }
-    }
-    relative(&names.join("/"))
-        .filter(|path| !path.is_empty())
-        .ok_or_else(not_relative)
 }

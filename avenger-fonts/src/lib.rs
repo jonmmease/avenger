@@ -25,6 +25,19 @@ pub const LETE_SANS_MATH: &[u8] = include_bytes!("../fonts/Lete_Sans_Math/LeteSa
 pub const LETE_SANS_MATH_BOLD: &[u8] =
     include_bytes!("../fonts/Lete_Sans_Math/LeteSansMath-Bold.otf.br");
 
+/// Every bundled face, Brotli-compressed, by the name of its file, in the order that a host
+/// registers them: Lato Bold and Light before Regular, so that weight ties resolve as CSS resolves
+/// them, 350 to Light and 550 to Bold.
+pub const FACES: &[(&str, &[u8])] = &[
+    ("Lato-Bold.ttf", LATO_BOLD),
+    ("Lato-Light.ttf", LATO_LIGHT),
+    ("Lato-Regular.ttf", LATO_REGULAR),
+    ("Lato-Italic.ttf", LATO_ITALIC),
+    ("DejaVuSansMono.ttf", DEJAVU_SANS_MONO),
+    ("LeteSansMath.otf", LETE_SANS_MATH),
+    ("LeteSansMath-Bold.otf", LETE_SANS_MATH_BOLD),
+];
+
 /// Decompresses one of the fonts, or other Brotli data. Panics if the data is corrupt, which
 /// bundled data can't be.
 pub fn decompress(compressed: &[u8]) -> Vec<u8> {

@@ -10,7 +10,6 @@ use avenger_chart::Chart;
 use avenger_chart_eval::{ChartEvaluator, EvalError, Registry};
 use avenger_image::{ImageCache, ImageCacheOptions, ImageResolver};
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_sql_project::charts::{cascade, preferences};
 use avenger_style::{Cascade, ColorScheme, HostInputs, Preferences, Sheet};
 use avenger_typst_label::LabelEngine;
 use eframe::egui;
@@ -88,14 +87,14 @@ impl Surface {
 
     /// The preferences of the charts' reader: the color scheme.
     pub fn preferences(&self) -> Preferences {
-        preferences(self.color_scheme)
+        self.color_scheme.preferences()
     }
 
     /// The cascade of the base stylesheet, `std:base.css`, and the author stylesheets `sheets`
     /// after it, such as a project's entry stylesheet, on the surface's background.
     pub fn cascade<'a>(&self, sheets: impl IntoIterator<Item = &'a Sheet>) -> Arc<Cascade> {
         let [r, g, b, _] = self.background.to_array();
-        cascade(&format!("#{r:02x}{g:02x}{b:02x}"), sheets)
+        avenger_style::chart_cascade(&format!("#{r:02x}{g:02x}{b:02x}"), false, sheets)
     }
 }
 

@@ -2,40 +2,18 @@
 
 use std::sync::{Arc, OnceLock};
 
-use avenger_fonts::{
-    DEJAVU_SANS_MONO, LATO_BOLD, LATO_ITALIC, LATO_LIGHT, LATO_REGULAR, LETE_SANS_MATH,
-    LETE_SANS_MATH_BOLD,
-};
-
 use super::engine::LabelEngine;
 use super::options::{EngineOptions, FontOptions, RegisteredFont};
-
-// Font selection breaks weight ties by registration order. Bold and Light come before Regular,
-// so that ties resolve as CSS does: 350 picks Light, and 550 picks Bold.
-const BUNDLED_FONTS: &[&[u8]] = &[
-    LATO_BOLD,
-    LATO_LIGHT,
-    LATO_REGULAR,
-    LATO_ITALIC,
-    DEJAVU_SANS_MONO,
-    LETE_SANS_MATH,
-    LETE_SANS_MATH_BOLD,
-];
 
 /// The bundled Lato, DejaVu Sans Mono and Lete Sans Math faces, as the default sans-serif,
 /// monospace and math families, with the system's fonts.
 pub fn bundled_font_options() -> FontOptions {
-    FontOptions {
-        load_system_fonts: true,
-        registered_fonts: decompressed()
+    FontOptions::bundled_families(
+        decompressed()
             .iter()
             .map(|data| RegisteredFont::new(data.clone()))
             .collect(),
-        default_sans_serif_family: Some("Lato".to_string()),
-        default_monospace_family: Some("DejaVu Sans Mono".to_string()),
-        default_math_family: Some("Lete Sans Math".to_string()),
-        ..Default::default()
-    }
+    )
 }
 
 /// An engine with the bundled fonts, which every caller shares.
@@ -49,9 +27,8 @@ pub fn bundled_label_engine() -> LabelEngine {
 fn decompressed() -> &'static [Arc<[u8]>] {
     static DECOMPRESSED: OnceLock<Vec<Arc<[u8]>>> = OnceLock::new();
     DECOMPRESSED.get_or_init(|| {
-        BUNDLED_FONTS
-            .iter()
-            .map(|font| Arc::from(avenger_fonts::decompress(font)))
+        (avenger_fonts::FACES.iter())
+            .map(|(_, face)| Arc::from(avenger_fonts::decompress(face)))
             .collect()
     })
 }
