@@ -58,6 +58,7 @@ image = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 
 [dev-dependencies]
+arrow = { workspace = true }
 image = { workspace = true }
 lsp-server = "0.7"
 lsp-types = "0.95"

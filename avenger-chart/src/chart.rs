@@ -98,10 +98,11 @@ impl Chart {
         (self.message.root.as_ref()).expect("a valid chart has a root")
     }
 
-    /// Whether the chart declares what a reader acts on: a tool of a plot or of a layer, a widget,
-    /// or a mode. A chart without one draws the same however a host shows it, as its image does.
+    /// Whether the chart declares what a reader acts on: a tool of a plot or of a layer, or a
+    /// widget, such as a mode widget. A chart without one draws the same however a host shows it,
+    /// as its image does, since its modes change only by a widget or by its host.
     pub fn is_interactive(&self) -> bool {
-        !self.message.modes.is_empty() || node_is_interactive(self.root())
+        node_is_interactive(self.root())
     }
 
     /// The selections of the chart, in the order of their names.

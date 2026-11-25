@@ -1,5 +1,5 @@
-//! Whether a chart declares what a reader acts on: a tool of a plot or of a layer, a widget, or a
-//! mode, anywhere in its tree.
+//! Whether a chart declares what a reader acts on: a tool of a plot or of a layer, or a widget,
+//! anywhere in its tree.
 
 use std::sync::Arc;
 
@@ -41,4 +41,10 @@ fn a_chart_with_a_tool_anywhere_in_its_tree_is_interactive() {
     assert!(chart(row).is_interactive());
     let still = Concat::new(Direction::Row).children([NodeBuilder::from(bars()), bars().into()]);
     assert!(!chart(still).is_interactive());
+    // Modes without a widget or a tool give the reader nothing to act on.
+    let modes = Chart::builder(bars())
+        .modes([Mode::new("pan")])
+        .build()
+        .unwrap();
+    assert!(!modes.is_interactive());
 }

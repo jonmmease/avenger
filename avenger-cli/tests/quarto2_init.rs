@@ -125,11 +125,13 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
 fn an_existing_quarto_yml_stays_and_the_lines_to_add_print() {
     let (bin, project) = (fake_q2(), tempfile::tempdir().unwrap());
     let dir = project.path();
-    std::fs::write(dir.join("_quarto.yml"), "project:\n  type: website\n").unwrap();
+    // A comment that names the runtime's folder is not its resource.
+    let quarto_yml = "# _avenger/ holds the runtime\nproject:\n  type: website\n";
+    std::fs::write(dir.join("_quarto.yml"), quarto_yml).unwrap();
     std::fs::write(dir.join(".gitignore"), "target").unwrap();
     let (status, stdout, _) = init(dir, bin.path(), &["--force"]);
     assert_eq!(status, 0, "{stdout}");
-    assert_eq!(read(dir.join("_quarto.yml")), "project:\n  type: website\n");
+    assert_eq!(read(dir.join("_quarto.yml")), quarto_yml);
     assert!(
         stdout.contains("add\n  preview:\n    engine: auto"),
         "{stdout}"

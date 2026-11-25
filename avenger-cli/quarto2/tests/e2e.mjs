@@ -70,11 +70,13 @@ const interactiveFigure = interactive.match(/<div id="fig-cars"[\s\S]*?<\/figure
 assert.match(interactiveFigure, /<img src="interactive_files\/figure-html\/[^"]+\.svg"[\s\S]*<avenger-chart width="\d+" height="\d+">/);
 assert.equal(interactiveFigure.match(/<figcaption/g)?.length, 1);
 assert.doesNotMatch(interactive, /quarto-unresolved-ref|requirejs|jquery/i);
-const runtimes = readdirSync(join(project, "_avenger"));
-assert.equal(runtimes.length, 1);
+assert.deepEqual(readdirSync(join(project, "_avenger")), ["runtime"]);
 const config = JSON.parse(interactive.match(/id="avenger-runtime">([\s\S]*?)<\/script>/)[1].replaceAll("<\\/", "</"));
-assert.equal(config.runtime, `_avenger/${runtimes[0]}/`);
-assert.ok(readdirSync(join(project, "_avenger", runtimes[0])).includes("avenger_chart_web_bg.wasm.gz"));
+assert.equal(config.runtime, "_avenger/runtime/");
+assert.equal(config.version, readFileSync(join(project, "_avenger", "runtime", "HASH"), "utf8"));
+assert.ok(readdirSync(join(project, "_avenger", "runtime")).includes("avenger_chart_web_bg.wasm.gz"));
+// A page's image keeps no set size, so it shrinks to a narrow page as other images do.
+assert.match(interactiveFigure, /<img src="interactive_files\/figure-html\/[^"]+\.svg"[^>]*class="img-fluid"/);
 assert.doesNotMatch(page, /avenger-runtime/);
 // A slide of one interactive chart keeps its element, since its image has a set size, which
 // revealjs's auto-stretch leaves in its figure.

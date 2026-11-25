@@ -740,6 +740,7 @@ dependencies = [
 name = "avenger-cli"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-chart",
  "avenger-chart-app",
  "avenger-chart-eval",

@@ -62,12 +62,17 @@ export interface Request {
   error: boolean;
   interactive: boolean;
   projectDir?: string;
+  autoStretch: boolean;
 }
 
-/** avenger's answer: each cell's outputs, and the header of a page with interactive charts. */
+/**
+ * avenger's answer: each cell's outputs, the header of a page with interactive charts, and
+ * warnings, such as of a chart that stays an image.
+ */
 export interface Answer {
   cells: ResponseCell[];
   header?: string;
+  warnings?: string[];
 }
 
 /** The output formats whose images are SVG. Others, such as docx and pptx, take PNG. */
@@ -99,6 +104,14 @@ const INTERACTIVE_FORMATS = new Set(["html", "html4", "html5", "dashboard", "rev
 /** Whether the output format `to` draws charts with tools interactively. */
 export function interactiveFor(to: string): boolean {
   return INTERACTIVE_FORMATS.has(to.split(/[+-]/)[0]);
+}
+
+/**
+ * Whether the output format `to` stretches a figure that is alone on a slide, as revealjs does,
+ * which lifts its image out and drops its other outputs unless the image has a set size.
+ */
+export function autoStretchFor(to: string): boolean {
+  return to.split(/[+-]/)[0] === "revealjs";
 }
 
 /** The output formats whose pages switch between a light and a dark theme with q2's toggle. */
@@ -235,7 +248,7 @@ export function runAvenger(request: Request, env: Record<string, string> = {}): 
       if (failed) {
         return;
       }
-      let response: { cells?: ResponseCell[]; header?: string; error?: string };
+      let response: { cells?: ResponseCell[]; header?: string; warnings?: string[]; error?: string };
       try {
         response = JSON.parse(stdout);
       } catch {
@@ -246,7 +259,7 @@ export function runAvenger(request: Request, env: Record<string, string> = {}): 
         reject(new Error(response.error ?? "avenger answered no cells"));
         return;
       }
-      resolve({ cells: response.cells, header: response.header });
+      resolve({ cells: response.cells, header: response.header, warnings: response.warnings });
     });
     child.stdin.end(JSON.stringify(request));
   });
@@ -275,9 +288,11 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
     interactive: interactiveFor(to),
     // A file that q2 renders alone, outside a project, has its outputs beside it.
     projectDir: options.projectDir || dirname(options.target.input),
+    autoStretch: autoStretchFor(to),
   };
   const env = (options as ExecuteOptions & { executeEnv?: Record<string, string> }).executeEnv;
-  const { cells, header } = await runAvenger(request, env ?? {});
+  const { cells, header, warnings } = await runAvenger(request, env ?? {});
+  for (const warning of warnings ?? []) console.warn(`avenger: ${options.target.input}: ${warning}`);
   // q2 reads an include from a file, and puts it in the page's header once. Each document has a
   // file of its own, since the documents of a project can share q2's temporary folder.
   const includes: Record<string, string[]> = {};

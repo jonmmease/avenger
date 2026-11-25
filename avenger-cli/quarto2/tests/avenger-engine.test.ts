@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { colorSchemesFor, execute, imageFor, interactiveFor, record } from "../_extensions/avenger/src/avenger-engine.ts";
+import { autoStretchFor, colorSchemesFor, execute, imageFor, interactiveFor, record } from "../_extensions/avenger/src/avenger-engine.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 process.env.AVENGER = join(here, "fake-avenger.mjs");
@@ -63,7 +63,7 @@ test("the record holds each cell's outputs by its unit's id", async () => {
     [1, "/project/report.qmd", "# Text", { format: "svg", scale: 1 }, false],
   );
   assert.deepEqual(request.colorSchemes, ["light"]);
-  assert.deepEqual([request.interactive, request.projectDir], [true, "/project"]);
+  assert.deepEqual([request.interactive, request.projectDir, request.autoStretch], [true, "/project", false]);
   // A response without a header adds nothing to the page's header, and the record asks for no
   // page dependencies of Jupyter's.
   assert.deepEqual((result as unknown as { includes: unknown }).includes, {});
@@ -81,6 +81,19 @@ test("the header of a page with interactive charts goes in the page's header onc
   const files = result.includes["include-in-header"];
   assert.equal(files.length, 1);
   assert.equal(readFileSync(files[0], "utf8"), header);
+});
+
+test("avenger's warnings print with the document's path", async (t) => {
+  process.env.FAKE_REQUEST = join(mkdtempSync(join(tmpdir(), "avenger-")), "request.json");
+  process.env.FAKE_STATUS = "0";
+  const warnings = ["cell 1 stays an image"];
+  process.env.FAKE_RESPONSE = JSON.stringify({ protocol: 1, cells: [{ number: 1, line: 5, outputs: [] }], warnings });
+  const warn = t.mock.method(console, "warn", () => {});
+  await execute(options("# Text", [unit("a", 5)]));
+  assert.deepEqual(
+    warn.mock.calls.map((call) => call.arguments[0]),
+    ["avenger: /project/report.qmd: cell 1 stays an image"],
+  );
 });
 
 test("a theme of a dark and a light variant asks for light, then dark", async () => {
@@ -175,6 +188,9 @@ test("a theme and an output format pick the color schemes of the charts", () => 
 test("an output format that runs scripts draws charts with tools interactively", () => {
   for (const to of ["html", "html5", "dashboard", "revealjs"]) assert.ok(interactiveFor(to), to);
   for (const to of ["epub", "typst", "docx", "gfm"]) assert.ok(!interactiveFor(to), to);
+  // Only revealjs stretches a figure alone on a slide.
+  assert.ok(autoStretchFor("revealjs"));
+  for (const to of ["html", "dashboard"]) assert.ok(!autoStretchFor(to), to);
 });
 
 test("an output format picks the image of cells without their own", () => {

@@ -63,12 +63,17 @@ const PROTOCOL = 1;
                  
                        
                       
+                       
  
 
-/** avenger's answer: each cell's outputs, and the header of a page with interactive charts. */
+/**
+ * avenger's answer: each cell's outputs, the header of a page with interactive charts, and
+ * warnings, such as of a chart that stays an image.
+ */
                          
                         
                   
+                      
  
 
 /** The output formats whose images are SVG. Others, such as docx and pptx, take PNG. */
@@ -100,6 +105,14 @@ const INTERACTIVE_FORMATS = new Set(["html", "html4", "html5", "dashboard", "rev
 /** Whether the output format `to` draws charts with tools interactively. */
 function interactiveFor(to        )          {
   return INTERACTIVE_FORMATS.has(to.split(/[+-]/)[0]);
+}
+
+/**
+ * Whether the output format `to` stretches a figure that is alone on a slide, as revealjs does,
+ * which lifts its image out and drops its other outputs unless the image has a set size.
+ */
+function autoStretchFor(to        )          {
+  return to.split(/[+-]/)[0] === "revealjs";
 }
 
 /** The output formats whose pages switch between a light and a dark theme with q2's toggle. */
@@ -236,7 +249,7 @@ function runAvenger(request         , env                         = {})         
       if (failed) {
         return;
       }
-      let response                                                             ;
+      let response                                                                                  ;
       try {
         response = JSON.parse(stdout);
       } catch {
@@ -247,7 +260,7 @@ function runAvenger(request         , env                         = {})         
         reject(new Error(response.error ?? "avenger answered no cells"));
         return;
       }
-      resolve({ cells: response.cells, header: response.header });
+      resolve({ cells: response.cells, header: response.header, warnings: response.warnings });
     });
     child.stdin.end(JSON.stringify(request));
   });
@@ -276,9 +289,11 @@ async function execute(options                )                         {
     interactive: interactiveFor(to),
     // A file that q2 renders alone, outside a project, has its outputs beside it.
     projectDir: options.projectDir || dirname(options.target.input),
+    autoStretch: autoStretchFor(to),
   };
   const env = (options                                                            ).executeEnv;
-  const { cells, header } = await runAvenger(request, env ?? {});
+  const { cells, header, warnings } = await runAvenger(request, env ?? {});
+  for (const warning of warnings ?? []) console.warn(`avenger: ${options.target.input}: ${warning}`);
   // q2 reads an include from a file, and puts it in the page's header once. Each document has a
   // file of its own, since the documents of a project can share q2's temporary folder.
   const includes                           = {};
@@ -350,4 +365,4 @@ const engine                           = {
   },
 };
 
-export { PROTOCOL, colorSchemesFor, engine as default, execute, imageFor, interactiveFor, record, runAvenger };
+export { PROTOCOL, autoStretchFor, colorSchemesFor, engine as default, execute, imageFor, interactiveFor, record, runAvenger };

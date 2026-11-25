@@ -216,7 +216,9 @@ pub fn run(options: &Options) -> Result<Status, String> {
             }
             // A project with `output-dir` copies the runtime of interactive charts to its renders
             // only as a resource.
-            if !text.contains("_avenger") {
+            let resource = (text.lines())
+                .any(|line| !line.trim_start().starts_with('#') && line.contains("_avenger"));
+            if !resource {
                 println!(
                     "_quarto.yml: to draw charts with tools interactively in the renders, add\n  project:\n    resources:\n      - \"_avenger/**\""
                 );
