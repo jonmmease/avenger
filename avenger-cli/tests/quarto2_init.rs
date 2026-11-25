@@ -94,7 +94,7 @@ fn a_new_folder_takes_the_extension_and_the_files_of_a_project() {
     );
     assert!(
         quarto_yml.contains(
-            "project:\n  type: default\n  output-dir: _output\n  resources:\n    - _avenger/\n"
+            "project:\n  type: default\n  output-dir: _output\n  resources:\n    - \"_avenger/**\"\n"
         ),
         "{quarto_yml}"
     );
@@ -135,7 +135,7 @@ fn an_existing_quarto_yml_stays_and_the_lines_to_add_print() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("add\n  project:\n    resources:\n      - _avenger/"),
+        stdout.contains("add\n  project:\n    resources:\n      - \"_avenger/**\""),
         "{stdout}"
     );
     // The ignores follow the file's own lines, which keep no final newline.

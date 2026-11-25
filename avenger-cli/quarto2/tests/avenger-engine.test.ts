@@ -173,8 +173,9 @@ test("a theme and an output format pick the color schemes of the charts", () => 
 });
 
 test("an output format that runs scripts draws charts with tools interactively", () => {
-  for (const to of ["html", "html5", "dashboard", "revealjs"]) assert.ok(interactiveFor(to), to);
-  for (const to of ["epub", "typst", "docx", "gfm"]) assert.ok(!interactiveFor(to), to);
+  for (const to of ["html", "html5", "dashboard"]) assert.ok(interactiveFor(to), to);
+  // revealjs scales its slides, which the canvas's pointer positions do not follow yet.
+  for (const to of ["revealjs", "epub", "typst", "docx", "gfm"]) assert.ok(!interactiveFor(to), to);
 });
 
 test("an output format picks the image of cells without their own", () => {

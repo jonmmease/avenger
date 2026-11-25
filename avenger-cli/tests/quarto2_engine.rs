@@ -283,7 +283,7 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
     std::fs::write(&document, "").unwrap();
     std::fs::write(root.join("styles/main.css"), "@import 'theme.css';").unwrap();
     std::fs::write(root.join("styles/theme.css"), "mark { opacity: 0.5; }").unwrap();
-    let text = "```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars, tools => [navigate(), tooltip()]) AS chart\n```\n\n```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n";
+    let text = "```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars, tools => [navigate(), tooltip()]) AS chart\n```\n\n```{avenger-sql}\nFROM heavy_by_origin |> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n\n```{avenger-sql}\nFROM UNNEST([STRUCT(1 AS x, 1 AS y)]) |> AGGREGATE mark_image(x => x, y => y, image => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/eL9GtQAAAABJRU5ErkJggg==', tools => [tooltip()]) AS chart\n```\n";
     let mut interactive = request(&document, text);
     interactive["interactive"] = json!(true);
     interactive["projectDir"] = json!(root);
@@ -312,6 +312,12 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
         "{html}"
     );
     assert_eq!(response["cells"][1]["outputs"].as_array().unwrap().len(), 1);
+    // A chart of image marks, which the browser's library does not fetch, stays an image.
+    assert_eq!(
+        response["cells"][2]["outputs"].as_array().unwrap().len(),
+        1,
+        "{response}"
+    );
     // The runtime is in the project's `_avenger/`, once, with the fonts as gzip.
     let folders: Vec<_> = std::fs::read_dir(root.join("_avenger"))
         .unwrap()
@@ -340,6 +346,12 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
         "mark { opacity: 0.5; }"
     );
     assert_eq!(config["colorSchemes"], json!(["light"]));
+    // A document with a dark theme gives both schemes.
+    let mut both = interactive.clone();
+    both["colorSchemes"] = json!(["light", "dark"]);
+    let (_, response) = engine(&both);
+    let config = runtime_config(response["header"].as_str().unwrap());
+    assert_eq!(config["colorSchemes"], json!(["light", "dark"]));
     // A second request leaves the runtime as it is, since a preview renders again on a change.
     let modified = std::fs::metadata(folder.join("avenger-chart.js"))
         .unwrap()

@@ -8,7 +8,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
   DependenciesOptions,
@@ -92,9 +92,10 @@ export function imageFor(to: string): Request["image"] {
 
 /**
  * The output formats whose pages run scripts, where a chart that declares tools draws in a canvas
- * with them. q2 writes epub as HTML too, but epub readers rarely run scripts.
+ * with them. q2 writes epub as HTML too, but epub readers rarely run scripts, and revealjs scales
+ * its slides with a CSS transform, which the canvas's pointer positions do not follow yet.
  */
-const INTERACTIVE_FORMATS = new Set(["html", "html4", "html5", "dashboard", "revealjs"]);
+const INTERACTIVE_FORMATS = new Set(["html", "html4", "html5", "dashboard"]);
 
 /** Whether the output format `to` draws charts with tools interactively. */
 export function interactiveFor(to: string): boolean {
@@ -278,10 +279,11 @@ export async function execute(options: ExecuteOptions): Promise<ExecuteResult> {
   };
   const env = (options as ExecuteOptions & { executeEnv?: Record<string, string> }).executeEnv;
   const { cells, header } = await runAvenger(request, env ?? {});
-  // q2 reads an include from a file, and puts it in the page's header once.
+  // q2 reads an include from a file, and puts it in the page's header once. Each document has a
+  // file of its own, since the documents of a project can share q2's temporary folder.
   const includes: Record<string, string[]> = {};
   if (header !== undefined) {
-    const file = join(options.tempDir, "avenger-header.html");
+    const file = join(mkdtempSync(join(options.tempDir, "avenger-")), "header.html");
     writeFileSync(file, header);
     includes["include-in-header"] = [file];
   }

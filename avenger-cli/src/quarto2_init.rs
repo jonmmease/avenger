@@ -50,8 +50,11 @@ const SOURCE: &str = ".quarto/avenger-extension";
 
 /// The `_quarto.yml` of a project without one: a Quarto 2 project, which q2 presumes a project to
 /// be only when it says so, whose renders go to `_output/` with the runtime of interactive charts
-/// that the engine writes to `_avenger/`, and whose preview runs the engine on every edit.
-const QUARTO_YML: &str = "quarto-required: \"^2\"\nproject:\n  type: default\n  output-dir: _output\n  resources:\n    - _avenger/\npreview:\n  engine: auto\n";
+/// that the engine writes to `_avenger/`, and whose preview runs the engine on every edit. The
+/// resource is a glob, since a pattern that matches nothing only warns where a missing folder
+/// stops the render of `q2 preview --static`, and the engine writes the folder, which Git ignores,
+/// during a render.
+const QUARTO_YML: &str = "quarto-required: \"^2\"\nproject:\n  type: default\n  output-dir: _output\n  resources:\n    - \"_avenger/**\"\npreview:\n  engine: auto\n";
 
 /// The lines that `.gitignore` takes, each with the lines that ignore the same paths, and the
 /// comment above it: q2's working folder, the renders of `_output/`, the runtime of interactive
@@ -199,7 +202,7 @@ pub fn run(options: &Options) -> Result<Status, String> {
                 "{}",
                 done(
                     options.dry_run,
-                    "_quarto.yml: written, with `output-dir: _output`, `resources: [_avenger/]`, and \
+                    "_quarto.yml: written, with `output-dir: _output`, `resources: [\"_avenger/**\"]`, and \
                      `preview: engine: auto`"
                 )
             );
@@ -215,7 +218,7 @@ pub fn run(options: &Options) -> Result<Status, String> {
             // only as a resource.
             if !text.contains("_avenger") {
                 println!(
-                    "_quarto.yml: to draw charts with tools interactively in the renders, add\n  project:\n    resources:\n      - _avenger/"
+                    "_quarto.yml: to draw charts with tools interactively in the renders, add\n  project:\n    resources:\n      - \"_avenger/**\""
                 );
             }
         }

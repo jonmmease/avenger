@@ -234,7 +234,9 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
                         output
                     })
                     .collect();
-                let chart = value.filter(|chart| project_dir.is_some() && chart.is_interactive());
+                let chart = value.filter(|chart| {
+                    project_dir.is_some() && chart.is_interactive() && browser_draws(chart.root())
+                });
                 if let (Some(chart), Some(size)) = (chart, size) {
                     outputs.push(element(&chart, size)?);
                     interactive = true;
@@ -325,6 +327,24 @@ async fn images(
         .then(|| result.chart(0, 0).cloned())
         .flatten();
     Ok((images, chart))
+}
+
+/// Whether the browser's library draws the node `node` as its image draws it: it leaves out geo
+/// plots, whose projections and tiles it does not build, and fetches no images, so a chart with
+/// either stays an image.
+fn browser_draws(node: &avenger_chart::proto::Node) -> bool {
+    use avenger_chart::proto::{cartesian_layer, node::Node, plot::Coord};
+    match &node.node {
+        Some(Node::Plot(plot)) => match &plot.coord {
+            Some(Coord::Geo(_)) => false,
+            Some(Coord::Cartesian(cartesian)) => (cartesian.layers.iter())
+                .all(|layer| !matches!(layer.mark, Some(cartesian_layer::Mark::Image(_)))),
+            Some(Coord::Polar(_)) | None => true,
+        },
+        Some(Node::Concat(concat)) => concat.children.iter().all(browser_draws),
+        Some(Node::Wrap(wrap)) => wrap.children.iter().all(browser_draws),
+        Some(Node::Empty(_)) | None => true,
+    }
 }
 
 /// The `display_data` output of the `<avenger-chart>` element of `chart`, at the natural size of
