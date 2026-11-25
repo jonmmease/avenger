@@ -61,8 +61,9 @@ pub struct FileOption {
     pub formats: &'static [Format],
     /// What it means, in one sentence.
     pub meaning: &'static str,
-    /// The values that it takes, in upper case, when they are a list. Values match without
-    /// regard to case.
+    /// The values that it takes, when they are a list: in upper case for an option of files or of
+    /// a table, as BigQuery spells them, and in lower case for an option of a selection. Values
+    /// match without regard to case.
     pub values: &'static [&'static str],
 }
 
@@ -172,8 +173,8 @@ pub const FILE_OPTIONS: &[FileOption] = &[
         required: false,
         place: OptionPlace::Selection,
         formats: &[],
-        meaning: "How the selection combines the clauses of the marks that write it: GLOBAL holds one clause, which a new gesture in any chart replaces, UNION selects a row that some mark's clause selects, and INTERSECT a row that every mark's clause selects. When omitted, it is GLOBAL.",
-        values: &["GLOBAL", "UNION", "INTERSECT"],
+        meaning: "How the selection combines the clauses of the marks that write it: 'global' holds one clause, which a new gesture in any chart replaces, 'union' selects a row that some mark's clause selects, and 'intersect' a row that every mark's clause selects. When omitted, it is 'global'.",
+        values: &["global", "union", "intersect"],
     },
 ];
 

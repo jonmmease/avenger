@@ -6,7 +6,7 @@ mod pass;
 use std::sync::Arc;
 
 use avenger_selection::{Clause, Condition, Resolution, SelectionState};
-use avenger_sql::analysis::{selection_reads, Analysis, Overrides, StatementPlan};
+use avenger_sql::analysis::{Analysis, Overrides};
 use datafusion::arrow::array::StringArray;
 
 /// The analysis of `text`, which has no errors.
@@ -87,11 +87,6 @@ fn a_misuse_of_a_selection_is_an_error_at_its_place() {
             "b = TRUE",
         ),
         (
-            "DECLARE b SELECTION;\nFROM penguins |> WHERE b.x",
-            "`b` is a selection, which has no fields",
-            "b",
-        ),
-        (
             "FROM penguins |> WHERE selected(species)",
             "`species` is not a selection of the script",
             "species",
@@ -135,7 +130,10 @@ async fn value(text: &str, states: &[(&str, SelectionState)]) -> String {
         .await
         .unwrap();
     for (name, state) in states {
-        assert!(query.selections.contains_key(*name), "{text} reads {name}");
+        assert!(
+            query.selections.contains_key(*name),
+            "{text} declares {name}"
+        );
         query.selections.insert(name.to_string(), state.clone());
     }
     let batches = query
@@ -169,27 +167,4 @@ async fn a_read_of_a_selection_tests_each_row_by_its_state() {
     assert_eq!(value(exclude, &[("brush", adelie.clone())]).await, "344");
     let others = "DECLARE brush SELECTION;\nFROM penguins |> WHERE selected(brush, exclude => ['bars', 'map']) |> AGGREGATE COUNT(*) AS n";
     assert_eq!(value(others, &[("brush", adelie)]).await, "152");
-}
-
-#[test]
-fn each_query_records_the_selections_that_it_reads() {
-    let analysis = analysis(
-        "DECLARE brush SELECTION;
-DECLARE picks SELECTION;
-DECLARE least INT64 DEFAULT 3000;
-FROM penguins |> WHERE brush AND body_mass_g > least;
-FROM penguins |> WHERE selected(picks, empty => 'none')",
-    );
-    let reads: Vec<Vec<String>> = (analysis.statements.iter())
-        .filter_map(|statement| match &statement.plan {
-            StatementPlan::Query(plan) => {
-                Some(selection_reads(plan).unwrap().into_iter().collect())
-            }
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        reads,
-        [vec!["brush".to_string()], vec!["picks".to_string()]]
-    );
 }

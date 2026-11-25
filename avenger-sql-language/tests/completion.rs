@@ -674,6 +674,6 @@ fn a_selection_completes_its_option_and_the_values_of_its_option() {
         complete("DECLARE brush SELECTION OPTIONS (resolution = $0);\nFROM penguins");
     assert_eq!(
         labels(&completions, CompletionKind::EnumValue),
-        ["'GLOBAL'", "'INTERSECT'", "'UNION'"]
+        ["'global'", "'intersect'", "'union'"]
     );
 }

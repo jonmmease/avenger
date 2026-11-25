@@ -770,12 +770,8 @@ impl Pass<'_> {
             let at = refs[0].syntax().text_range();
             if let Some(variable) = self.variable(&first, at) {
                 found = Some((variable, 1));
-            } else if let Some(read) = self.selection_read(&first, at, scope) {
-                if names.len() > 1 {
-                    self.error(at, format!("`{first}` is a selection, which has no fields"));
-                    return None;
-                }
-                found = Some((read?, 1));
+            } else if let Some(selection) = self.use_selection(&first, at) {
+                found = Some((self.read_selection(&selection, at, scope, None, &[])?, 1));
             }
         }
         if found.is_none() {

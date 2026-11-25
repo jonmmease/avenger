@@ -42,9 +42,7 @@ pub use model::{
     MatchRecognizePart, Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
 };
 pub use print::{Lifted, LiftedOperator};
-pub use selection::{
-    placeholder as selection_placeholder, reads as selection_reads, resolution_name, Selection,
-};
+pub use selection::{placeholder as selection_placeholder, resolution_name, Selection};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
 use data::DataScript;
@@ -186,10 +184,8 @@ impl Analysis {
         let StatementPlan::Query(plan) = &self.statements[last].plan else {
             unreachable!("the last query");
         };
-        // Each selection that the query reads starts empty, with its resolution.
-        let read = selection::reads(plan)?;
+        // Each selection starts empty, with its resolution.
         let selections = (self.selections.iter())
-            .filter(|selection| read.contains(&selection.name))
             .map(|selection| {
                 let state =
                     avenger_selection::SelectionState::new(selection.resolution, Vec::new());
@@ -288,7 +284,7 @@ impl Analysis {
 
 /// The last query of a script, ready to run, as [`Analysis::planned_query`] gives it: its plan,
 /// unoptimized, whose placeholders read the values of the variables before it and the states of
-/// the selections that it reads, those values, and those states. A host that runs the plan
+/// the script's selections, those values, and those states. A host that runs the plan
 /// itself, such as a cache of results keyed by plans, binds each state to the placeholder that
 /// [`selection_placeholder`] names, and then `params` as the plan's parameters.
 #[derive(Clone, Debug)]
@@ -298,8 +294,8 @@ pub struct PlannedQuery {
     pub plan: LogicalPlan,
     /// The value of each variable before the query, by the name of its placeholder.
     pub params: datafusion::common::ParamValues,
-    /// The state of each selection that the query reads, by the selection's name: empty, with
-    /// the selection's resolution, until a host sets it.
+    /// The state of each selection of the script, by the selection's name: empty, with the
+    /// selection's resolution, until a host sets it.
     pub selections: std::collections::BTreeMap<String, avenger_selection::SelectionState>,
 }
 

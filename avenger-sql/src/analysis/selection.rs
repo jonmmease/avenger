@@ -6,8 +6,6 @@
 //! `bind_selections` before it binds the values of the variables. A read needs rows, so a
 //! selection can't stand where a constant does, and it can't be compared or assigned.
 
-use std::collections::BTreeSet;
-
 use avenger_selection::Resolution;
 use avenger_sql_syntax::{
     ast::{self, AstNode},
@@ -15,13 +13,10 @@ use avenger_sql_syntax::{
 };
 use datafusion::{
     arrow::datatypes::DataType,
-    common::{
-        tree_node::{TreeNode, TreeNodeRecursion},
-        Result, ScalarValue,
-    },
+    common::ScalarValue,
     logical_expr::{
         expr::{Placeholder, ScalarFunction},
-        Expr, LogicalPlan,
+        Expr,
     },
 };
 
@@ -41,30 +36,6 @@ pub struct Selection {
 /// binds it.
 pub fn placeholder(name: &str) -> String {
     format!("__sel_{name}")
-}
-
-/// The name of the selection whose state the placeholder `id`, with or without its `$`, holds.
-fn selection_of_placeholder(id: &str) -> Option<&str> {
-    id.trim_start_matches('$').strip_prefix("__sel_")
-}
-
-/// The names of the selections whose states `plan` reads, by the placeholders of its `selected`
-/// calls.
-pub fn reads(plan: &LogicalPlan) -> Result<BTreeSet<String>> {
-    let mut names = BTreeSet::new();
-    plan.apply_with_subqueries(|node| {
-        node.apply_expressions(|expr| {
-            expr.apply(|expr| {
-                if let Expr::Placeholder(Placeholder { id, .. }) = expr {
-                    if let Some(name) = selection_of_placeholder(id) {
-                        names.insert(name.to_string());
-                    }
-                }
-                Ok(TreeNodeRecursion::Continue)
-            })
-        })
-    })?;
-    Ok(names)
 }
 
 /// Whether `declare` declares selections: its type is `SELECTION`.
@@ -192,20 +163,22 @@ impl Pass<'_> {
         Some(selection)
     }
 
-    /// The read of the selection `name` at `range` in `scope`, whether it selects each row, when
-    /// the script declares one: `Some(None)` after an error, for a scope without rows.
-    pub(super) fn selection_read(
+    /// The read of `selection` at `range` in `scope`, whether it selects each row, with what an
+    /// empty selection selects and the ids of the marks whose clauses it skips, or `None` after
+    /// the error of a scope without rows.
+    pub(super) fn read_selection(
         &mut self,
-        name: &str,
+        selection: &Selection,
         range: TextRange,
         scope: Scope,
-    ) -> Option<Option<Expr>> {
-        let selection = self.use_selection(name, range)?;
+        empty: Option<&str>,
+        without: &[String],
+    ) -> Option<Expr> {
         if !has_rows(&scope) {
             self.error(range, not_a_value(&selection.name, scope.clause));
-            return Some(None);
+            return None;
         }
-        Some(Some(selected(&selection, None, &[])))
+        Some(selected(selection, empty, without))
     }
 
     /// A call of `selected(selection, empty => ..., exclude => ...)`: the read of the selection,
@@ -216,28 +189,23 @@ impl Pass<'_> {
         scope: Scope,
         range: TextRange,
     ) -> Option<Expr> {
-        let args: Vec<ast::Argument> = (call.arg_list())
-            .map(|list| list.arguments().collect())
-            .unwrap_or_default();
-        let first = match args.first() {
-            Some(ast::Argument::Arg(arg)) => Some(arg),
-            _ => None,
-        };
-        let reference = first.and_then(|arg| match arg.expr() {
-            Some(ast::Expr::PathExpr(path)) => {
-                let refs: Vec<ast::NameRef> = path.path()?.name_refs().collect();
-                match refs.as_slice() {
-                    [name] => Some((name.text()?, name.syntax().text_range())),
-                    _ => None,
-                }
-            }
-            _ => None,
-        });
+        let list = call.arg_list();
+        let args = self.arguments(list.iter().flat_map(|list| list.arguments()), "selected")?;
+        let reference =
+            match args.positional.as_slice() {
+                [(ast::Expr::PathExpr(path), _)] => path.path().and_then(|path| {
+                    match path.name_refs().collect::<Vec<_>>().as_slice() {
+                        [name] => Some((name.text()?, name.syntax().text_range())),
+                        _ => None,
+                    }
+                }),
+                _ => None,
+            };
         let Some((name, at)) = reference else {
-            let at = first.map_or(range, |arg| arg.syntax().text_range());
+            let at = args.positional.first().map_or(range, |(_, at)| *at);
             self.error(
                 at,
-                "`selected` takes a selection first, as `selected(brush)`",
+                "`selected` takes one selection first, as `selected(brush)`",
             );
             return None;
         };
@@ -245,44 +213,28 @@ impl Pass<'_> {
             self.error(at, format!("`{name}` is not a selection of the script"));
             return None;
         };
-        if !has_rows(&scope) {
-            self.error(range, not_a_value(&selection.name, scope.clause));
-            return None;
-        }
         let mut empty = None;
         let mut without = Vec::new();
-        for arg in args.iter().skip(1) {
-            let at = arg.syntax().text_range();
-            let ast::Argument::NamedArg(named) = arg else {
-                self.error(
-                    at,
-                    "`selected` takes its options by name: `empty`, `exclude`",
-                );
-                return None;
-            };
-            let param = (named.name_ref())
-                .and_then(|name| name.text())
-                .unwrap_or_default();
-            let value = named.expr();
-            match param.to_ascii_lowercase().as_str() {
+        for (param, value, at) in &args.named {
+            match param.as_str() {
                 "empty" => {
-                    let text = match &value {
-                        Some(ast::Expr::Literal(literal)) => literal.string_value(),
+                    let text = match value {
+                        ast::Expr::Literal(literal) => literal.string_value(),
                         _ => None,
                     };
                     match text.map(|text| text.to_ascii_lowercase()) {
                         Some(text) if text == "all" || text == "none" => empty = Some(text),
                         _ => {
-                            self.error(at, "`empty` is 'all' or 'none'");
+                            self.error(*at, "`empty` is 'all' or 'none'");
                             return None;
                         }
                     }
                 }
-                "exclude" => match value.as_ref().and_then(ids) {
+                "exclude" => match ids(value) {
                     Some(ids) => without = ids,
                     None => {
                         self.error(
-                            at,
+                            *at,
                             "`exclude` takes the id of a mark, as 'scatter', or an array of \
                              them, as ['scatter', 'bars']",
                         );
@@ -291,7 +243,7 @@ impl Pass<'_> {
                 },
                 other => {
                     self.error(
-                        at,
+                        *at,
                         format!(
                             "`selected` takes the options `empty` and `exclude`, not `{other}`"
                         ),
@@ -300,7 +252,7 @@ impl Pass<'_> {
                 }
             }
         }
-        Some(selected(&selection, empty.as_deref(), &without))
+        self.read_selection(&selection, range, scope, empty.as_deref(), &without)
     }
 }
 
