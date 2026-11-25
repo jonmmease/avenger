@@ -77,7 +77,7 @@ pub const WHITE_CLEAR: LoadOp<wgpu::Color> = LoadOp::Clear(wgpu::Color::WHITE);
 /// OneMinusSrcAlpha` blending.
 pub const TRANSPARENT_CLEAR: LoadOp<wgpu::Color> = LoadOp::Clear(wgpu::Color::TRANSPARENT);
 
-/// A surface frame's attachment, cleared to white. With more than one sample, `multisampled`
+/// A surface frame's attachment, cleared to `clear`. With more than one sample, `multisampled`
 /// (the size the surface is configured to) resolves into `view`. Otherwise the frame draws into
 /// `view` at the size the surface handed out.
 #[cfg(any(feature = "winit", target_arch = "wasm32"))]
@@ -88,6 +88,7 @@ pub(crate) fn surface_frame_target<'a>(
     configured_size: [u32; 2],
     format: TextureFormat,
     sample_count: u32,
+    clear: wgpu::Color,
 ) -> AvengerRenderTarget<'a> {
     if sample_count > 1 {
         let extent = Extent3d {
@@ -101,10 +102,10 @@ pub(crate) fn surface_frame_target<'a>(
             extent,
             format,
             sample_count,
-            WHITE_CLEAR,
+            LoadOp::Clear(clear),
         )
     } else {
-        AvengerRenderTarget::new(view, view_extent, format, 1, WHITE_CLEAR)
+        AvengerRenderTarget::new(view, view_extent, format, 1, LoadOp::Clear(clear))
     }
 }
 

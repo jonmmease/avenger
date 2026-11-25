@@ -252,6 +252,7 @@ impl WindowCanvas<'_> {
             [self.surface_config.width, self.surface_config.height],
             self.layers.bottom().texture_format(),
             self.layers.bottom().sample_count(),
+            wgpu::Color::WHITE,
         );
         let commands =
             self.layers
