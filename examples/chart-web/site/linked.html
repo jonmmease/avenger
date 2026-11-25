@@ -98,30 +98,33 @@
   // The element's methods are there once the library defines it.
   await customElements.whenDefined("avenger-chart");
 
-  // The address holds the mode and the bytes of the state of the chart that changed last.
-  let mode = "brush";
+  // The address holds the mode, the selections, which the charts share, and the views of each
+  // chart, under its name, as the bytes of the parts of the charts' states.
+  const names = manifest.linked.map((chart) => chart.name);
   const params = new URLSearchParams(location.hash.slice(1));
-  if (params.get("state")) {
-    const state = fromHash(params.get("state"));
-    for (const element of elements) element.setState(state);
+  if (params.get("selections")) {
+    const selections = fromHash(params.get("selections"));
+    for (const element of elements) element.setState(selections);
   }
+  elements.forEach((element, index) => {
+    const views = params.get(`views-${names[index]}`);
+    if (views) element.setState(fromHash(views));
+  });
+  let mode = "brush";
   const setMode = (next) => {
     mode = next;
+    params.set("mode", mode);
     for (const element of elements) element.setMode(mode, true);
     for (const button of document.querySelectorAll("[data-mode]")) {
       button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
     }
   };
   if (params.get("mode")) setMode(params.get("mode"));
-  const remember = (state) => {
-    const next = new URLSearchParams({ mode });
-    if (state) next.set("state", toHash(state));
-    history.replaceState(null, "", `#${next}`);
-  };
+  const remember = () => history.replaceState(null, "", `#${params}`);
   for (const button of document.querySelectorAll("[data-mode]")) {
     button.addEventListener("click", () => {
       setMode(button.dataset.mode);
-      remember(params.get("state") ? fromHash(params.get("state")) : null);
+      remember();
     });
   }
 
@@ -137,10 +140,12 @@
       }
       const what = change.selections.length ? change.selections.join(", ") : "no selection";
       log.textContent = `Last change: ${manifest.linked[index].title}, ${what}, ${change.bytes.length} bytes${change.settled ? ", settled" : ""}.`;
+      // A settled gesture saves the selections, which this chart holds as the other does, and
+      // this chart's own views.
       if (change.settled) {
-        const state = element.state();
-        params.set("state", toHash(state));
-        remember(state);
+        params.set("selections", toHash(element.state({ modes: false, views: false })));
+        params.set(`views-${names[index]}`, toHash(element.state({ selections: false, modes: false })));
+        remember();
       }
     });
   });
