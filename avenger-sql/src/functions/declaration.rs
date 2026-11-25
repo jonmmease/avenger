@@ -111,7 +111,8 @@ impl AggregateUDFImpl for MarkDeclaration {
 
     fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
         let spec = self.spec;
-        let count = spec.channels.len() + spec.properties.len() + spec.options.len() + 1;
+        // The parameters, and the script's selections after them, which the pass appends.
+        let count = spec.channels.len() + spec.properties.len() + spec.options.len() + 2;
         let name = spec.name;
         if arg_types.len() > count {
             return plan_err!(
@@ -175,6 +176,9 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
     let properties: Vec<Expr> = args.by_ref().take(spec.properties.len()).collect();
     let options: Vec<Expr> = args.by_ref().take(spec.options.len()).collect();
     let coord = args.next();
+    if let Some(selections) = args.next() {
+        mark.selections(declared_selections(&selections)?);
+    }
     for (declared, argument) in spec.channels.iter().zip(channels) {
         let wrapped = super::kind::unwrap(&argument);
         let (function, explicit) = (wrapped.function, wrapped.kind);
@@ -241,6 +245,53 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
         params.order_by,
         None,
     )))
+}
+
+/// The argument of a mark call that declares the script's selections `selections` in its chart,
+/// which the pass appends after the mark's parameters: a list of the selections' names, each with
+/// its resolution, as `'global'`, `'union'`, or `'intersect'`.
+pub(crate) fn selections_argument(selections: &[(String, &str)]) -> Expr {
+    use datafusion::common::ScalarValue;
+    let names: Vec<ScalarValue> = (selections.iter())
+        .flat_map(|(name, resolution)| {
+            [
+                ScalarValue::from(name.as_str()),
+                ScalarValue::from(*resolution),
+            ]
+        })
+        .collect();
+    Expr::Literal(
+        ScalarValue::List(ScalarValue::new_list_nullable(&names, &DataType::Utf8)),
+        None,
+    )
+}
+
+/// The selections of the argument that [`selections_argument`] builds.
+fn declared_selections(
+    expr: &Expr,
+) -> Result<Vec<(String, avenger_chart::proto::SelectionResolution)>> {
+    use avenger_chart::proto::SelectionResolution;
+    use datafusion::{
+        arrow::array::{Array, AsArray},
+        common::ScalarValue,
+    };
+    let Expr::Literal(ScalarValue::List(list), _) = expr else {
+        return internal_err!("the selections of a mark are a list of their names, not {expr}");
+    };
+    let values = list.value(0);
+    let values = values.as_string::<i32>();
+    let resolution = |text: &str| match text {
+        "global" => Ok(SelectionResolution::Global),
+        "union" => Ok(SelectionResolution::Union),
+        "intersect" => Ok(SelectionResolution::Intersect),
+        other => internal_err!("no resolution `{other}`"),
+    };
+    (0..values.len() / 2)
+        .map(|index| {
+            let name = values.value(2 * index).to_string();
+            Ok((name, resolution(values.value(2 * index + 1))?))
+        })
+        .collect()
 }
 
 /// The arguments of `exprs`, which are literals after folding, as the options of `what` of the

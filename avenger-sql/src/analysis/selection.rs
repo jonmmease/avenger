@@ -256,6 +256,88 @@ impl Pass<'_> {
     }
 }
 
+impl Pass<'_> {
+    /// The name of the selection that `value`, the first argument of a select tool, writes: a
+    /// selection that the script declares, by its name.
+    pub(super) fn written_selection(&mut self, value: &ast::Expr) -> Option<String> {
+        let reference =
+            match value {
+                ast::Expr::PathExpr(path) => path.path().and_then(|path| {
+                    match path.name_refs().collect::<Vec<_>>().as_slice() {
+                        [name] => Some((name.text()?, name.syntax().text_range())),
+                        _ => None,
+                    }
+                }),
+                _ => None,
+            };
+        let selection = reference.and_then(|(name, at)| self.use_selection(&name, at));
+        if selection.is_none() {
+            self.error(
+                value.syntax().text_range(),
+                "a select tool writes a selection that the script declares, as `select(brush)` \
+                 after `DECLARE brush SELECTION`",
+            );
+        }
+        selection.map(|selection| selection.name)
+    }
+
+    /// The id of the mark call `fname` at `range`, whose arguments are `list`, when it has a select
+    /// tool and no `id`: the mark's name and the call's number among such calls of the script,
+    /// so it stays while the script keeps its marks with select tools in their order.
+    pub(super) fn generated_id(
+        &mut self,
+        list: Option<&ast::ArgList>,
+        fname: &str,
+        range: TextRange,
+    ) -> Option<String> {
+        let named = |name: &str| {
+            (list.into_iter().flat_map(|list| list.arguments())).find_map(|argument| match argument
+            {
+                ast::Argument::NamedArg(arg)
+                    if (arg.name_ref().and_then(|name| name.text()))
+                        .is_some_and(|text| text.eq_ignore_ascii_case(name)) =>
+                {
+                    arg.expr()
+                }
+                _ => None,
+            })
+        };
+        if named("id").is_some() {
+            return None;
+        }
+        let tools = named("tools")?;
+        let selects = (tools.syntax().descendants().filter_map(ast::CallExpr::cast)).any(|call| {
+            let name = call
+                .path()
+                .and_then(|path| path.names())
+                .unwrap_or_default();
+            matches!(name.as_slice(), [name] if name.eq_ignore_ascii_case("select"))
+        });
+        if !selects {
+            return None;
+        }
+        if let Some((_, id)) = self.generated_ids.iter().find(|(at, _)| *at == range) {
+            return Some(id.clone());
+        }
+        let id = format!("{fname}_{}", self.generated_ids.len() + 1);
+        self.generated_ids.push((range, id.clone()));
+        Some(id)
+    }
+
+    /// The argument of a mark call that declares the script's selections in its chart.
+    pub(super) fn selections_argument(&self) -> Expr {
+        let selections: Vec<(String, &str)> = (self.selections.iter())
+            .map(|selection| {
+                (
+                    selection.name.clone(),
+                    resolution_name(selection.resolution),
+                )
+            })
+            .collect();
+        crate::functions::declaration::selections_argument(&selections)
+    }
+}
+
 /// Whether `scope` has rows, which a read of a selection tests.
 fn has_rows(scope: &Scope) -> bool {
     !(scope.columns.is_empty() && scope.vars.is_empty())

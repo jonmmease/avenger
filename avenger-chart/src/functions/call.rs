@@ -81,6 +81,7 @@ impl Mark {
             plot: Builder::default(),
             layer_options: Builder::default(),
             columns: Vec::new(),
+            selections: Vec::new(),
         }
     }
 }
@@ -98,9 +99,20 @@ pub struct MarkCall {
     /// The options of the call's layer: its id and its classes.
     layer_options: Builder<proto::CartesianLayer>,
     columns: Vec<String>,
+    selections: Vec<(String, proto::SelectionResolution)>,
 }
 
 impl MarkCall {
+    /// Declares `selections` in the call's chart, each a name and a resolution, as a binding
+    /// declares the selections that its select tools write and its conditions test, so that
+    /// every chart of one document declares them.
+    pub fn selections(
+        &mut self,
+        selections: impl IntoIterator<Item = (String, proto::SelectionResolution)>,
+    ) {
+        self.selections.extend(selections);
+    }
+
     /// Sets the channel `name` from `arg`, with the kind `kind`, or the default kind of the
     /// channel for `None`. `function` is the channel function that wraps the value, when the call
     /// writes one, and `options` are its arguments after the value, in the order of its
@@ -316,6 +328,7 @@ impl MarkCall {
             options: self.options.map(|options| options.encode_to_vec().into()),
             plot: plot.map(|plot| plot.encode_to_vec().into()),
             columns: self.columns,
+            selections: self.selections,
         })
     }
 }
@@ -333,6 +346,8 @@ pub struct MarkTemplate {
     /// system, or `None` when the call sets none.
     plot: Option<Bytes>,
     columns: Vec<String>,
+    /// The selections that the chart declares, each a name and a resolution.
+    selections: Vec<(String, proto::SelectionResolution)>,
 }
 
 impl MarkTemplate {
@@ -392,7 +407,9 @@ impl MarkTemplate {
             plot.message.width = own.width;
             plot.message.height = own.height;
         }
-        syntaxes.chart(plot)
+        let selections = (self.selections.iter())
+            .map(|(name, resolution)| proto::Selection::new(name.as_str(), *resolution));
+        syntaxes.builder(plot).selections(selections).build()
     }
 }
 

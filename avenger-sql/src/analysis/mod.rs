@@ -406,6 +406,9 @@ pub(crate) struct Pass<'a> {
     variables: Vec<script::Variable>,
     /// The script's selections, by their `DECLARE`s.
     selections: Vec<Selection>,
+    /// The ids that the pass generated for the mark calls with select tools and no `id`, by the
+    /// ranges of the calls, in the order of the text.
+    generated_ids: Vec<(TextRange, String)>,
     /// The temporary tables, and the table arguments of a table function's body.
     temp_tables: Vec<WithName>,
     /// The temporary functions, and the functions of the imported modules under their paths.
@@ -463,6 +466,7 @@ impl<'a> Pass<'a> {
             with_names: Vec::new(),
             variables: Vec::new(),
             selections: Vec::new(),
+            generated_ids: Vec::new(),
             temp_tables: Vec::new(),
             functions: Vec::new(),
             constants: Vec::new(),

@@ -168,3 +168,80 @@ async fn a_read_of_a_selection_tests_each_row_by_its_state() {
     let others = "DECLARE brush SELECTION;\nFROM penguins |> WHERE selected(brush, exclude => ['bars', 'map']) |> AGGREGATE COUNT(*) AS n";
     assert_eq!(value(others, &[("brush", adelie)]).await, "152");
 }
+
+#[tokio::test]
+async fn a_select_tool_writes_a_selection_that_every_chart_declares() {
+    use avenger_chart::proto::{layer_tool::Kind, SelectionResolution};
+    let script = |item: &str| {
+        format!(
+            "DECLARE brush SELECTION;
+DECLARE picks SELECTION OPTIONS (resolution = 'union');
+FROM penguins |> AGGREGATE {item} AS chart"
+        )
+    };
+    let scatter = pass::charts(&script(
+        "mark_symbol(x => bill_length_mm, y => body_mass_g, id => 'scatter', \
+         tools => [select(brush, type => interval(channels => ['x']))])",
+    ))
+    .await;
+    let bars = pass::charts(&script("mark_bar(x => species, y => COUNT(*))")).await;
+    for chart in [&scatter[0], &bars[0]] {
+        let declared: Vec<(&str, SelectionResolution)> = (chart.selections().iter())
+            .map(|selection| (selection.name.as_str(), selection.resolution()))
+            .collect();
+        assert_eq!(
+            declared,
+            [
+                ("brush", SelectionResolution::Global),
+                ("picks", SelectionResolution::Union),
+            ]
+        );
+    }
+    let Some(avenger_chart::proto::node::Node::Plot(plot)) = &scatter[0].root().node else {
+        panic!("a plot");
+    };
+    let Some(avenger_chart::proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("a Cartesian plot");
+    };
+    let layer = &cartesian.layers[0];
+    assert_eq!(layer.id, "scatter");
+    let Some(Kind::Select(select)) = &layer.tools[0].kind else {
+        panic!("a select tool");
+    };
+    assert_eq!(select.selection, "brush");
+}
+
+/// The id of the first layer of the plot of `chart`.
+fn layer_id(chart: &avenger_chart::Chart) -> String {
+    let Some(avenger_chart::proto::node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot");
+    };
+    let Some(avenger_chart::proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("a Cartesian plot");
+    };
+    cartesian.layers[0].id.clone()
+}
+
+#[tokio::test]
+async fn a_mark_with_a_select_tool_and_no_id_takes_a_generated_id() {
+    use avenger_chart::{charts_from_arrow, Decode};
+    let text = "DECLARE brush SELECTION;
+FROM penguins
+|> AGGREGATE
+     mark_symbol(x => bill_length_mm, y => body_mass_g, tools => [select(brush)]) AS first,
+     mark_bar(x => species, y => COUNT(*), tools => [select(brush, type => point(keys => ['species']))]) AS second,
+     mark_bar(x => species, y => COUNT(*)) AS plain";
+    let batches = pass::run(text).await.unwrap();
+    let ids: Vec<String> = ["first", "second", "plain"]
+        .into_iter()
+        .map(|name| {
+            let column = batches[0].column_by_name(name).unwrap();
+            let chart = charts_from_arrow(column, Decode::Auto)
+                .unwrap()
+                .remove(0)
+                .unwrap();
+            layer_id(&chart)
+        })
+        .collect();
+    assert_eq!(ids, ["mark_symbol_1", "mark_bar_2", ""]);
+}

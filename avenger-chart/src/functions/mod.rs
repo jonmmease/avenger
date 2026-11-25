@@ -68,10 +68,14 @@ impl FormatSyntaxes<'_> {
         self,
         root: impl Into<proto::NodeBuilder>,
     ) -> Result<crate::Chart, crate::ChartError> {
+        self.builder(root).build()
+    }
+
+    /// The builder of the chart with the root `root` and these syntaxes.
+    pub(crate) fn builder(self, root: impl Into<proto::NodeBuilder>) -> proto::ChartBuilder {
         crate::Chart::builder(root)
             .number_format_syntax(self.number)
             .datetime_format_syntax(self.datetime)
-            .build()
     }
 }
 

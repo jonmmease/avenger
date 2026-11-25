@@ -626,9 +626,8 @@ async fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
 }
 
 #[tokio::test]
-async fn a_mark_call_places_a_select_tool_on_its_layer() {
-    // The selection tool lands on the call's layer, whose reader then names the selection that the
-    // chart does not declare.
+async fn a_select_tool_takes_a_selection_that_the_script_declares() {
+    // A string names no selection of the script, so the chart could declare none.
     let message = run(
         "FROM t |> AGGREGATE mark_symbol(x => a, y => b, id => 'points', \
          tools => [select('brush', type => interval(channels => ['x']))]) \
@@ -638,8 +637,7 @@ async fn a_mark_call_places_a_select_tool_on_its_layer() {
     .unwrap_err()
     .to_string();
     assert!(
-        message.contains("root.plot.cartesian.layers[0].tools[0].select.selection")
-            && message.contains("the chart has no selection `brush`"),
+        message.contains("a select tool writes a selection that the script declares"),
         "{message}"
     );
 }

@@ -1946,6 +1946,23 @@ impl Pass<'_> {
                 }
                 continue;
             }
+            // The selection that a select tool writes, by its name.
+            let writes = fills
+                .as_ref()
+                .is_some_and(|fills| fills.builds.constructor == "select");
+            if writes && param_is("selection") {
+                match self.written_selection(&value) {
+                    Some(name) => {
+                        args.push((
+                            named,
+                            Arg::Value(Expr::Literal(ScalarValue::from(name), None)),
+                        ));
+                        strings.push(None);
+                    }
+                    None => ok = false,
+                }
+                continue;
+            }
             match self.expr(&value, arg_scope) {
                 Some(expr) => {
                     if marked {
@@ -1978,6 +1995,17 @@ impl Pass<'_> {
                     strings.push(string_literal(&value));
                 }
                 None => ok = false,
+            }
+        }
+        // A mark whose select tool writes clauses owns them by its id, which the call generates
+        // when it writes none.
+        if function.family == library::Family::Mark {
+            if let Some(id) = self.generated_id(list.as_ref(), fname, range) {
+                args.push((
+                    Some("id".to_string()),
+                    Arg::Value(Expr::Literal(ScalarValue::from(id), None)),
+                ));
+                strings.push(None);
             }
         }
         // A plain syntax holds for the strings of the constructors in the call too, such as a
@@ -2126,6 +2154,13 @@ impl Pass<'_> {
                         order_by,
                         null_treatment,
                     );
+                    // A mark declares the script's selections in its chart, after its parameters.
+                    let mut args = args;
+                    if function.family == library::Family::Mark && !self.selections.is_empty() {
+                        let count = function.forms[0].signature.args.len();
+                        args.resize(count, Expr::Literal(ScalarValue::Null, None));
+                        args.push(self.selections_argument());
+                    }
                     let aggregate = AggregateFunction::new_udf(
                         func,
                         args,
