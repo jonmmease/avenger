@@ -40,6 +40,7 @@ pub mod prelude {
     };
     include!(concat!(env!("OUT_DIR"), "/prelude.rs"));
 }
+mod change;
 mod chart;
 mod codec;
 mod compose;
@@ -57,6 +58,7 @@ pub mod table;
 mod validate;
 pub mod walk;
 
+pub use change::ChangeMessage;
 pub use chart::Chart;
 pub use codec::{
     chart_field, charts_from_arrow, charts_to_arrow, list_value, values_from_ipc, values_to_ipc,

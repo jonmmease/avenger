@@ -1,0 +1,81 @@
+// What the reader of a chart changed, which the host that draws the chart sends to the host that
+// builds it, such as a page to its server, and which a host sends back to restore selections.
+
+syntax = "proto3";
+
+package avenger.chart.v1;
+
+import "avenger/chart/v1/annotation.proto";
+import "avenger/chart/v1/channel.proto";
+import "avenger/chart/v1/partition.proto";
+import "avenger/chart/v1/selection.proto";
+import "avenger/chart/v1/value.proto";
+
+// A change of a chart by its reader: the domains that a navigation settled, the clauses of the
+// selections that a gesture wrote, and the modes that are on. A `Fragment` carries it with the
+// values that its `ValueRef` fields refer to, so the domains and the clauses keep the types of
+// their columns. A change of one gesture holds what the gesture changed, and a change that
+// restores a chart's state holds every selection.
+message ChartChange {
+  // The domain that each scale a navigation moved shows when the navigation settles.
+  repeated ScaleDomain domains = 1;
+  // Each selection that the change writes, with all of its clauses.
+  repeated SelectionClauses selections = 2;
+  // The modes that are on, when the change holds the modes, such as after a mode widget turned
+  // one on or off. Unset when the change holds no modes.
+  ModesOn modes = 3;
+  // Whether the gesture ended, at a release, a click, a double click, or a wheel that stopped.
+  bool settled = 4;
+}
+
+// The domain of one scale.
+message ScaleDomain {
+  ScaleKey scale = 1 [(avenger.chart.v1.required) = true];
+  // The domain, a list in the type of the scale's domain: the two ends of a continuous scale, or
+  // the categories of a discrete one.
+  ValueRef domain = 2 [(avenger.chart.v1.required) = true];
+}
+
+// The identity of a scale, which stays the same across charts of one structure: its share family
+// and its channel, or its first plot, its channel, and its position among the plot's scales of the
+// channel.
+message ScaleKey {
+  // The channel of the scale.
+  Channel channel = 1 [(avenger.chart.v1.required) = true];
+  oneof owner {
+    option (avenger.chart.v1.required_oneof) = true;
+    // The share family that the specs of the scale name.
+    string family = 2;
+    // The first plot of the scale with an id, or else its first plot, in tree order.
+    PlotKey plot = 3;
+  }
+  // The position of the scale among the scales of its channel in `plot`: 0, or 1 for the second
+  // scale of a channel in one plot. It is 0 for a scale of a family.
+  uint32 position = 4;
+}
+
+// The identity of a plot: its id, or the path of a plot without one, with its partition.
+message PlotKey {
+  oneof id {
+    option (avenger.chart.v1.required_oneof) = true;
+    // The id that the chart gives the plot.
+    string given = 1;
+    // The path of a plot without an id, such as `root.concat.children[1].plot`.
+    string path = 2;
+  }
+  // The partition of the plot, keyed by column, as `PartitionValue` describes.
+  repeated PartitionValue partition = 3;
+}
+
+// The clauses of one selection, in the order of their owners in the tree.
+message SelectionClauses {
+  // The name of the selection.
+  string name = 1 [(avenger.chart.v1.required) = true];
+  // The clauses, as `Selection.initial` holds them. None clears the selection.
+  repeated Clause clauses = 2;
+}
+
+// The names of the modes that are on.
+message ModesOn {
+  repeated string names = 1;
+}

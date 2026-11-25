@@ -97,6 +97,49 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     Ok(())
 }
 
+/// Checks a change of a chart, `message`, with the values that its references refer to, which are
+/// in range, against the rules of the format that the change decides alone: its required fields
+/// and its enums, one element in each value, a list for each domain, and the clauses of its
+/// selections and the partitions of its plots by the rules of a chart's.
+pub(crate) fn change(message: &proto::ChartChange, values: &[ArrayRef]) -> Result<()> {
+    if let Some(index) = values.iter().position(|value| value.len() != 1) {
+        return Err(fail(
+            "values",
+            format!(
+                "value {index} has {} elements, and each value is one element",
+                values[index].len()
+            ),
+        ));
+    }
+    let mut failure = None;
+    message.visit_required("", &mut |path, reason| {
+        failure.get_or_insert_with(|| fail(path, reason));
+    });
+    message.visit_enums("", &mut |path, name, value| {
+        if failure.is_none() {
+            failure = enum_error(name, value).map(|reason| fail(path, format!("{value} {reason}")));
+        }
+    });
+    if let Some(failure) = failure {
+        return Err(failure);
+    }
+    let values = Values(values);
+    for (index, domain) in message.domains.iter().enumerate() {
+        let path = format!("domains[{index}]");
+        values.list(domain.domain.as_ref(), &format!("{path}.domain"))?;
+        let scale = domain.scale.as_ref().expect(REQUIRED);
+        if let Some(proto::scale_key::Owner::Plot(plot)) = &scale.owner {
+            values.partition(&plot.partition, &format!("{path}.scale.plot"))?;
+        }
+    }
+    for (index, selection) in message.selections.iter().enumerate() {
+        for (position, clause) in selection.clauses.iter().enumerate() {
+            values.clause(clause, &format!("selections[{index}].clauses[{position}]"))?;
+        }
+    }
+    Ok(())
+}
+
 /// Checks the rules that span the messages of `chart`, whose messages are each valid.
 pub(crate) fn check_shared(chart: &Chart) -> Result<()> {
     let checker = Checker {
@@ -267,6 +310,24 @@ impl<'a> Values<'a> {
     /// equal exactly when two values are equal.
     fn key(self, value: Option<&proto::ValueRef>, path: &str) -> Result<Vec<u8>> {
         value_key(self.scalar(value, path)?).map_err(|reason| fail(path, reason))
+    }
+
+    /// Checks partition values, keyed by column, of a node, a layer, or a clause: one value of each
+    /// column.
+    fn partition(self, partition: &[proto::PartitionValue], path: &str) -> Result<()> {
+        let path = format!("{path}.partition");
+        let mut keys = Vec::with_capacity(partition.len());
+        for (index, value) in partition.iter().enumerate() {
+            let path = format!("{path}[{index}]");
+            keys.push((value.column.clone(), self.key(value.value.as_ref(), &path)?));
+        }
+        keyed(
+            &keys,
+            |(column, _)| column.clone(),
+            |a, b| a.1 == b.1,
+            &path,
+            "partition values",
+        )
     }
 }
 

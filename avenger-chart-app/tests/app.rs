@@ -659,6 +659,49 @@ async fn a_box_writes_the_clause_of_its_plot_and_grays_the_rows_outside_it() {
     assert_eq!(changes.last().unwrap().selection("brush").unwrap().len(), 1);
 }
 
+/// `change` after a trip through the bytes of the format, as a page sends it to its server.
+fn through_format(change: &ChartChange) -> ChartChange {
+    let bytes = change.to_message().unwrap().to_bytes().unwrap();
+    ChartChange::from_message(&avenger_chart::ChangeMessage::from_bytes(bytes).unwrap()).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_change_of_a_box_crosses_the_format_with_its_clauses() {
+    let select = vec![ToolBuilder::from(Select::interval(
+        "brush",
+        IntervalSelect::builder(),
+    ))];
+    let (mut app, _, changes) = app_reporting(scatter(cars(), select), Reports::Settled).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let from = [x + width * 0.25, y + height * 0.1];
+    send(&mut app, drag(from, [x + width * 0.6, y + height * 0.9])).await;
+    let changes = changes.lock().unwrap();
+    let change = changes.last().unwrap();
+    let read = through_format(change);
+    assert!(read.settled);
+    assert_eq!(read.modes, None);
+    assert_eq!(
+        format!("{:?}", read.selection("brush").unwrap()),
+        format!("{:?}", change.selection("brush").unwrap())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_change_of_a_navigation_crosses_the_format_with_its_domains() {
+    let (mut app, _, changes) = app(facets(&["USA", "Japan"], weight_family, navigate)).await;
+    let from = center(&app, 0);
+    send(&mut app, drag(from, [from[0] - 40.0, from[1] + 30.0])).await;
+    let changes = changes.lock().unwrap();
+    let change = changes.last().unwrap();
+    assert!(!change.domains.is_empty());
+    let read = through_format(change);
+    assert_eq!(read.domains.len(), change.domains.len());
+    for ((identity, domain), (expected, values)) in read.domains.iter().zip(&change.domains) {
+        assert_eq!(identity, expected);
+        assert_eq!(domain.to_data(), values.to_data());
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
     let select = vec![ToolBuilder::from(Select::interval(

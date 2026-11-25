@@ -7,6 +7,7 @@
 //! tree's styles for the host inputs.
 
 mod bins;
+pub mod change;
 mod convert;
 mod encode;
 mod error;

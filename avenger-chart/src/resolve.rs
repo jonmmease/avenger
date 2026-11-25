@@ -118,6 +118,14 @@ impl Identity {
         }
     }
 
+    /// The key of the widget and the owner of an owner name of [`Identity::owner_name`], with an
+    /// empty key for the name of a tool's clause.
+    pub fn owner_parts(name: &str) -> (&str, &str) {
+        name.strip_prefix('\0')
+            .and_then(|rest| rest.split_once('\0'))
+            .unwrap_or(("", name))
+    }
+
     /// The key of the identity, equal exactly for equal identities.
     pub(crate) fn key(&self) -> Vec<u8> {
         // An id and a path differ in their first byte, so they never share a key.

@@ -2,28 +2,61 @@
 //! initial clauses, the predicates of conditional values, and the values that a selection gives a
 //! selection domain.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
-    array::{new_null_array, Array, ArrayRef, AsArray},
+    array::{new_null_array, Array, ArrayRef, AsArray, StructArray},
     compute::{concat, kernels::cmp::lt, sort_to_indices, take, SortOptions},
+    datatypes::{Field, Fields},
 };
 use avenger_chart::{
+    builder::Value,
     proto::{self, condition, predicate, Channel, SelectionResolution},
     resolve::Identity,
-    Chart,
+    ChangeMessage, Chart,
 };
 use avenger_scales::{
     categories::{distinct, CategoryIndex},
     scalar::Scalar,
 };
 use avenger_selection::{
-    Clause, Condition, Predicate, Resolution, SelectedOptions, SelectionState,
+    Clause, Condition, Predicate, Resolution, SelectedOptions, SelectionError, SelectionState,
 };
 
 use crate::EvalError;
 
 type Result<T> = std::result::Result<T, EvalError>;
+
+/// The reason of the `expect` of a reference that a valid message holds.
+const REFERS: &str = "a valid partition value refers to its value";
+
+/// The values that the references of a clause of the format read: a chart's, or a change's.
+pub(crate) trait Values {
+    /// The value that `value` refers to, an array of one element.
+    fn value(&self, value: &proto::ValueRef) -> &ArrayRef;
+    /// The elements of the list that `value` refers to.
+    fn list_elements(&self, value: &proto::ValueRef) -> ArrayRef;
+}
+
+impl Values for Chart {
+    fn value(&self, value: &proto::ValueRef) -> &ArrayRef {
+        Chart::value(self, value)
+    }
+
+    fn list_elements(&self, value: &proto::ValueRef) -> ArrayRef {
+        Chart::list_elements(self, value)
+    }
+}
+
+impl Values for ChangeMessage {
+    fn value(&self, value: &proto::ValueRef) -> &ArrayRef {
+        ChangeMessage::value(self, value)
+    }
+
+    fn list_elements(&self, value: &proto::ValueRef) -> ArrayRef {
+        ChangeMessage::list_elements(self, value)
+    }
+}
 
 /// The state of each selection of `chart` by name, with its initial clauses.
 pub(crate) fn states(chart: &Chart) -> Result<BTreeMap<String, SelectionState>> {
@@ -49,16 +82,16 @@ pub(crate) fn states(chart: &Chart) -> Result<BTreeMap<String, SelectionState>> 
 
 /// A clause of the format as avenger-selection holds it, owned by the name that
 /// [`Identity::owner_name`] gives it.
-pub(crate) fn clause(chart: &Chart, clause: &proto::Clause) -> Result<Clause> {
+pub(crate) fn clause(values: &impl Values, clause: &proto::Clause) -> Result<Clause> {
     let mut converted = Clause::new(Identity::owner_name(&clause.widget, &clause.owner));
     for value in &clause.partition {
         converted = converted.partition(
             value.column.clone(),
-            Scalar::new(chart.partition_value(value).clone()),
+            Scalar::new(values.value(value.value.as_ref().expect(REFERS)).clone()),
         );
     }
     let conditions = (clause.conditions.iter())
-        .map(|condition| self::condition(chart, condition))
+        .map(|condition| self::condition(values, condition))
         .collect::<Result<Vec<_>>>()?;
     Ok(converted.conditions(conditions))
 }
@@ -72,7 +105,7 @@ fn label(channel: i32) -> Option<String> {
     }
 }
 
-fn condition(chart: &Chart, condition: &proto::Condition) -> Result<Condition> {
+fn condition(values: &impl Values, condition: &proto::Condition) -> Result<Condition> {
     let kind = condition
         .kind
         .as_ref()
@@ -90,7 +123,7 @@ fn condition(chart: &Chart, condition: &proto::Condition) -> Result<Condition> {
                     .collect(),
                 (set.columns.iter())
                     .map(|column| {
-                        chart.list_elements(column.values.as_ref().expect("a set has its values"))
+                        values.list_elements(column.values.as_ref().expect("a set has its values"))
                     })
                     .collect(),
             )?;
@@ -100,8 +133,8 @@ fn condition(chart: &Chart, condition: &proto::Condition) -> Result<Condition> {
             }
         }
         condition::Kind::Range(range) => {
-            let low = range.low.as_ref().map(|low| chart.value(low).clone());
-            let high = range.high.as_ref().map(|high| chart.value(high).clone());
+            let low = range.low.as_ref().map(|low| values.value(low).clone());
+            let high = range.high.as_ref().map(|high| values.value(high).clone());
             // An absent end is null, which avenger-selection does not bound.
             let data_type = (low.as_ref().or(high.as_ref()))
                 .expect("a valid range has an end")
@@ -123,7 +156,7 @@ fn condition(chart: &Chart, condition: &proto::Condition) -> Result<Condition> {
             y_column: polygon.y_column.clone(),
             polygons: (polygon.vertices.iter())
                 .map(|vertices| {
-                    let points = chart.list_elements(vertices);
+                    let points = values.list_elements(vertices);
                     let points = points.as_struct();
                     (points.column(0).clone(), points.column(1).clone())
                 })
@@ -137,6 +170,108 @@ fn condition(chart: &Chart, condition: &proto::Condition) -> Result<Condition> {
             end: range.end,
             period: range.period,
         },
+    })
+}
+
+/// The clause of the format of `clause`, with its values: its owner and its widget from its owner
+/// name, its partition, and its conditions. A range or a polygon records its ends or its paths
+/// without its cells, since a box snaps its ends to the cells that it covers, and a lasso writes
+/// none.
+pub(crate) fn format_clause(clause: &Clause) -> Result<proto::ClauseBuilder> {
+    let (widget, owner) = Identity::owner_parts(&clause.owner);
+    let conditions = (clause.conditions.iter())
+        .map(format_condition)
+        .collect::<Result<Vec<_>>>()?;
+    let partition = (clause.partition.iter()).map(|(column, value)| {
+        proto::PartitionValue::new(column.clone(), Value::scalar(value.0.clone()))
+    });
+    Ok(proto::Clause::new(conditions)
+        .owner(owner)
+        .widget(widget)
+        .partition(partition))
+}
+
+fn format_condition(condition: &Condition) -> Result<proto::ConditionBuilder> {
+    Ok(match condition {
+        Condition::Set {
+            columns,
+            channels,
+            values,
+            complement,
+        } => {
+            let columns = (columns.iter().zip(channels).zip(values))
+                .map(|((column, channel), values)| {
+                    Ok(
+                        proto::SetColumn::new(column.clone(), Value::list(values.clone()))
+                            .channel(channel_of(channel.as_deref())?),
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?;
+            proto::ValueSet::new(columns).complement(*complement).into()
+        }
+        Condition::Range {
+            column,
+            channel,
+            ends,
+            exclude_end,
+            ..
+        } => {
+            let mut range = proto::ValueRange::new(column.clone())
+                .channel(channel_of(channel.as_deref())?)
+                .exclude_end(*exclude_end);
+            // A null end does not bound the range, as an unset end of the format does not.
+            let end = |index: usize| {
+                (index < ends.len() && ends.is_valid(index))
+                    .then(|| Value::scalar(ends.slice(index, 1)))
+            };
+            if let Some(low) = end(0) {
+                range = range.low(low);
+            }
+            if let Some(high) = end(1) {
+                range = range.high(high);
+            }
+            range.into()
+        }
+        Condition::Polygon {
+            x_column,
+            y_column,
+            polygons,
+            ..
+        } => {
+            let vertices = (polygons.iter())
+                .map(|(x, y)| {
+                    let fields = Fields::from(vec![
+                        Field::new("x", x.data_type().clone(), true),
+                        Field::new("y", y.data_type().clone(), true),
+                    ]);
+                    let points = StructArray::try_new(fields, vec![x.clone(), y.clone()], None)?;
+                    Ok(Value::list(Arc::new(points)))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            proto::Polygon::new(x_column.clone(), y_column.clone(), vertices).into()
+        }
+        Condition::CyclicRange {
+            column,
+            channel,
+            start,
+            end,
+            period,
+        } => proto::CyclicRange::new(column.clone())
+            .channel(channel_of(channel.as_deref())?)
+            .start(*start)
+            .end(*end)
+            .period(*period)
+            .into(),
+    })
+}
+
+/// The channel of a channel label of avenger-selection, or `CHANNEL_UNSPECIFIED` for none.
+fn channel_of(label: Option<&str>) -> Result<Channel> {
+    let Some(label) = label else {
+        return Ok(Channel::Unspecified);
+    };
+    Channel::from_str_name(&format!("CHANNEL_{}", label.to_ascii_uppercase())).ok_or_else(|| {
+        SelectionError::Condition(format!("a condition names no channel `{label}`")).into()
     })
 }
 
