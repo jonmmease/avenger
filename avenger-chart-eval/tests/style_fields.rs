@@ -750,7 +750,10 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("DomainPin", &["value", "position"]),
     ("Selection", &["name", "resolution", "initial"]),
     ("Clause", &["owner", "conditions", "partition", "widget"]),
-    ("ChartChange", &["domains", "selections", "modes", "settled"]),
+    (
+        "ChartChange",
+        &["domains", "selections", "modes", "settled"],
+    ),
     ("ScaleDomain", &["scale", "domain"]),
     ("ScaleKey", &["channel", "family", "plot", "position"]),
     ("PlotKey", &["given", "path", "partition"]),
