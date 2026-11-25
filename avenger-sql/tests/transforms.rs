@@ -412,6 +412,27 @@ fn the_errors_of_impute_are_at_their_text() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
+/// Two analyses of one script plan equally, so a cache of results keyed by their plans, such as
+/// avenger-query-graph's, finds the results of the first: a mark whose channels read an aggregate
+/// shares its input among the items, and a lump shares its rows, and their shared inputs take one
+/// id in both plans.
+#[tokio::test]
+async fn two_analyses_of_one_script_plan_equally() {
+    for text in [
+        "FROM penguins |> WHERE body_mass_g > 3000 |> AGGREGATE mark_bar(x => species, y => AVG(body_mass_g), color => species) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar(x => bin(body_mass_g, maxbins => 20), y => COUNT(*)) AS chart",
+        "FROM penguins |> EXTEND lump(island, n => 1) OVER (PARTITION BY species) AS l |> AGGREGATE COUNT(*) AS n GROUP BY species, l",
+    ] {
+        let plan = || async {
+            let frame = pass::analysis(text).dataframe(&pass::session()).await.unwrap();
+            format!("{}", frame.into_unoptimized_plan().display_indent())
+        };
+        let (first, second) = (plan().await, plan().await);
+        assert!(first.contains("Shared"), "{text} shares no input:\n{first}");
+        assert_eq!(first, second, "{text}");
+    }
+}
+
 /// A pipe AGGREGATE grouped by a lump, and by the lump's partition, merges the states of the
 /// categories without joining the lump to its rows, and returns the rows of the same aggregate
 /// that a `WHERE` keeps from the fusion.

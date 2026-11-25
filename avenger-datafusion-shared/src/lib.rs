@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::catalog::{MemTable, Session};
-use datafusion::common::tree_node::{Transformed, TreeNodeRecursion};
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{DFSchemaRef, Result};
 use datafusion::datasource::source_as_provider;
 use datafusion::execution::memory_pool::{MemoryConsumer, MemoryReservation};
@@ -48,7 +48,10 @@ use futures::lock::Mutex as AsyncMutex;
 // The logical node
 // ---------------------------------------------------------------------------------------
 
-/// An input that its readers share. The references to one node have one `id`.
+/// An input that its readers share. The references to one node have one `id`, a hash of the
+/// input when it was made, so equal inputs give equal plans: two analyses of one script plan
+/// equally, as a cache of results keyed by their plans needs. A volatile input, such as one that
+/// calls `random()`, takes an id of its own instead, so two shared copies of it never run as one.
 ///
 /// The node keeps the schema of its input when it was made. A rule that rebuilds the node over
 /// an input with more columns, as DataFusion's pushdown of struct fields toward the leaves does,
@@ -63,12 +66,28 @@ pub struct SharedNode {
 
 /// `input` as a shared node, whose references in a plan read one run of `input`.
 pub fn shared(input: LogicalPlan) -> LogicalPlan {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let id = NEXT.fetch_add(1, AtomicOrdering::Relaxed);
+    let id = shared_id(&input);
     let schema = Arc::clone(input.schema());
     LogicalPlan::Extension(Extension {
         node: Arc::new(SharedNode { id, input, schema }),
     })
+}
+
+/// The id of a shared node of `input`: the hash of the input, or for a volatile input, the next
+/// of a counter of the process, which no hash takes since it sets the high bit.
+fn shared_id(input: &LogicalPlan) -> u64 {
+    use std::hash::{Hash, Hasher};
+    const VOLATILE: u64 = 1 << 63;
+    let volatile = input
+        .exists(|node| Ok(node.expressions().iter().any(Expr::is_volatile)))
+        .unwrap_or(true);
+    if volatile {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        return VOLATILE | NEXT.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+    let mut hasher = std::hash::DefaultHasher::new();
+    input.hash(&mut hasher);
+    hasher.finish() & !VOLATILE
 }
 
 impl PartialOrd for SharedNode {
