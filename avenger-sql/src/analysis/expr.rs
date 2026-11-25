@@ -771,7 +771,10 @@ impl Pass<'_> {
             if let Some(variable) = self.variable(&first, at) {
                 found = Some((variable, 1));
             } else if let Some(selection) = self.use_selection(&first, at) {
-                found = Some((self.read_selection(&selection, at, scope, None, &[])?, 1));
+                found = Some((
+                    self.read_selection(&selection, at, scope, None, Vec::new())?,
+                    1,
+                ));
             }
         }
         if found.is_none() {
@@ -2006,6 +2009,7 @@ impl Pass<'_> {
         // A mark whose select tool writes clauses owns them by its id, which the call generates
         // when it writes none.
         if function.family == library::Family::Mark {
+            self.mark_selections(list.as_ref(), &written, range);
             if let Some(id) = self.generated_id(list.as_ref(), fname, range) {
                 args.push((
                     Some("id".to_string()),

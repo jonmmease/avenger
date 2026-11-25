@@ -368,3 +368,103 @@ FROM penguins
     assert_eq!(charts.len(), 1);
     assert_eq!(charts[0].selections()[0].name, "picks");
 }
+
+/// The messages of the warnings of `text`, and the text at each.
+fn warnings(text: &str) -> Vec<(String, String)> {
+    (pass::analysis(text).warnings.iter())
+        .map(|warning| {
+            let range = std::ops::Range::<usize>::from(warning.range);
+            (warning.message.clone(), text[range].to_string())
+        })
+        .collect()
+}
+
+/// A script whose last statement draws a scatter of penguins whose box writes `brush`, after the
+/// statements `before`.
+fn with_scatter(before: &str, scatter: &str) -> String {
+    format!(
+        "DECLARE brush SELECTION;
+{before}
+FROM penguins |> AGGREGATE mark_symbol({scatter}, tools => [select(brush)]) AS chart"
+    )
+}
+
+#[test]
+fn a_read_of_a_selection_needs_the_fields_that_its_tools_test() {
+    let scatter = "x => body_mass_g, y => bill_length_mm, id => 'scatter'";
+    // A query over rows that lack a field of the box.
+    let text = with_scatter(
+        "CREATE TEMP TABLE counts AS (FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species);
+FROM counts |> WHERE brush;",
+        scatter,
+    );
+    let errors = pass::errors(&text);
+    assert!(
+        (errors.iter()).any(|(message, at)| at == "brush"
+            && message.starts_with("`brush` tests `body_mass_g`, which these rows lack")),
+        "{errors:?}"
+    );
+    // The rows of penguins carry both fields.
+    let text = with_scatter("FROM penguins |> WHERE brush;", scatter);
+    assert!(pass::errors(&text).is_empty(), "{:?}", pass::errors(&text));
+    // A restyle of bars of counts, whose items lack the fields.
+    let text = "DECLARE brush SELECTION;
+FROM penguins
+|> AGGREGATE
+     mark_bar(x => species, y => COUNT(*), fill => IF(brush, value('red'), value('gray'))) AS bars,
+     mark_symbol(x => body_mass_g, y => bill_length_mm, tools => [select(brush)]) AS chart";
+    let errors = pass::errors(text);
+    assert!(
+        (errors.iter()).any(|(message, _)| message
+            .starts_with("`brush` tests `body_mass_g`, which the items of this mark lack")),
+        "{errors:?}"
+    );
+    // A channel's `selection_field` names the column that the clauses test.
+    let text = with_scatter(
+        "FROM penguins |> WHERE brush;",
+        "x => x(body_mass_g / 1000, selection_field => 'body_mass_g'), y => bill_length_mm",
+    );
+    assert!(pass::errors(&text).is_empty(), "{:?}", pass::errors(&text));
+    let text = with_scatter(
+        "FROM penguins |> WHERE brush;",
+        "x => body_mass_g / 1000, y => bill_length_mm",
+    );
+    assert!(!pass::errors(&text).is_empty());
+}
+
+#[test]
+fn exclude_names_a_mark_that_writes_the_selection() {
+    let text = with_scatter(
+        "FROM penguins |> WHERE selected(brush, exclude => ['scatter', 'nope']);",
+        "x => body_mass_g, y => bill_length_mm, id => 'scatter'",
+    );
+    let errors = pass::errors(&text);
+    assert_eq!(
+        errors,
+        [(
+            "`nope` is not the `id` of a mark whose select tool writes `brush`, which `exclude` \
+             names"
+                .to_string(),
+            "'nope'".to_string()
+        )]
+    );
+}
+
+#[test]
+fn a_mark_that_filters_by_its_own_selection_gets_a_warning() {
+    let text = "DECLARE brush SELECTION;
+FROM penguins
+|> WHERE brush
+|> AGGREGATE mark_symbol(x => body_mass_g, y => bill_length_mm, id => 'scatter', tools => [select(brush)]) AS chart";
+    let found = warnings(text);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].1, "brush");
+    assert!(
+        found[0]
+            .0
+            .ends_with("skip its clauses with `selected(brush, exclude => 'scatter')`"),
+        "{found:?}"
+    );
+    let text = text.replace("WHERE brush", "WHERE selected(brush, exclude => 'scatter')");
+    assert!(warnings(&text).is_empty());
+}

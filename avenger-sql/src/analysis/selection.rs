@@ -20,7 +20,7 @@ use datafusion::{
     },
 };
 
-use super::{expr::Scope, model::Definition, Pass, StatementPlan};
+use super::{expr::Scope, model::Definition, selection_checks::Read, Pass, StatementPlan};
 
 /// A selection of a script, by its `DECLARE`.
 #[derive(Clone, Debug, PartialEq)]
@@ -175,13 +175,23 @@ impl Pass<'_> {
         range: TextRange,
         scope: Scope,
         empty: Option<&str>,
-        without: &[String],
+        excluded: Vec<(String, TextRange)>,
     ) -> Option<Expr> {
         if !has_rows(&scope) {
             self.error(range, not_a_value(&selection.name, scope.clause));
             return None;
         }
-        Some(selected(selection, empty, without))
+        let without: Vec<String> = excluded.iter().map(|(id, _)| id.clone()).collect();
+        let columns = (scope.columns.iter()).map(|col| col.name.clone()).collect();
+        self.read(Read {
+            selection: selection.name.clone(),
+            range,
+            columns: Some(columns),
+            restyle: false,
+            excluded,
+            statement: self.statement,
+        });
+        Some(selected(selection, empty, &without))
     }
 
     /// A call of `selected(selection, empty => ..., exclude => ...)`: the read of the selection,
@@ -211,7 +221,7 @@ impl Pass<'_> {
             return None;
         };
         let mut empty = None;
-        let mut without = Vec::new();
+        let mut excluded = Vec::new();
         for (param, value, at) in &args.named {
             match param.as_str() {
                 "empty" => {
@@ -228,7 +238,7 @@ impl Pass<'_> {
                     }
                 }
                 "exclude" => match ids(value) {
-                    Some(ids) => without = ids,
+                    Some(ids) => excluded = ids,
                     None => {
                         self.error(
                             *at,
@@ -249,7 +259,7 @@ impl Pass<'_> {
                 }
             }
         }
-        self.read_selection(&selection, range, scope, empty.as_deref(), &without)
+        self.read_selection(&selection, range, scope, empty.as_deref(), excluded)
     }
 }
 
@@ -345,6 +355,7 @@ impl Pass<'_> {
                 value.clone()
             })
         });
+        self.restyle_reads(at, error.is_none());
         match error {
             Some(message) => {
                 self.error(at, message);
@@ -488,17 +499,15 @@ pub(super) fn not_a_value(name: &str, clause: &str) -> String {
     )
 }
 
-/// The string literals of `expr`: one, or an array of them.
-fn ids(expr: &ast::Expr) -> Option<Vec<String>> {
-    match expr {
-        ast::Expr::Literal(literal) => Some(vec![literal.string_value()?]),
-        ast::Expr::ArrayExpr(array) => (array.exprs())
-            .map(|element| match element {
-                ast::Expr::Literal(literal) => literal.string_value(),
-                _ => None,
-            })
-            .collect(),
+/// The string literals of `expr`, one or an array of them, each with its range.
+fn ids(expr: &ast::Expr) -> Option<Vec<(String, TextRange)>> {
+    let literal = |expr: &ast::Expr| match expr {
+        ast::Expr::Literal(literal) => Some((literal.string_value()?, expr.syntax().text_range())),
         _ => None,
+    };
+    match expr {
+        ast::Expr::ArrayExpr(array) => array.exprs().map(|element| literal(&element)).collect(),
+        expr => Some(vec![literal(expr)?]),
     }
 }
 
