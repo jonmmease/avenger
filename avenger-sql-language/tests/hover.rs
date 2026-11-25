@@ -257,3 +257,23 @@ fn hover_says_that_the_strings_of_a_parameter_are_typst_markup() {
         );
     }
 }
+
+#[test]
+fn hover_shows_a_selection_with_its_resolution() {
+    let document = document(
+        "DECLARE picks SELECTION OPTIONS (resolution = 'union');\nFROM penguins |> WHERE picks",
+    );
+    assert!(
+        document.diagnostics().is_empty(),
+        "{:?}",
+        document.diagnostics()
+    );
+    let (range, markdown) = hover(&document, "picks", 1).unwrap();
+    assert_eq!(range, "picks");
+    assert!(
+        markdown.starts_with(
+            "```googlesql\nDECLARE picks SELECTION OPTIONS (resolution = 'union')\n```"
+        ),
+        "{markdown}"
+    );
+}

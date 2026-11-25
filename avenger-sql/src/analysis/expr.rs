@@ -765,10 +765,13 @@ impl Pass<'_> {
             Lookup::Failed => return None,
             Lookup::Missing => None,
         };
-        // A script variable, which a column hides, then a constant of a module.
+        // A script variable or a selection, which a column hides, then a constant of a module.
         if found.is_none() {
-            if let Some(variable) = self.variable(&first, refs[0].syntax().text_range()) {
+            let at = refs[0].syntax().text_range();
+            if let Some(variable) = self.variable(&first, at) {
                 found = Some((variable, 1));
+            } else if let Some(selection) = self.use_selection(&first, at) {
+                found = Some((self.read_selection(&selection, at, scope, None, &[])?, 1));
             }
         }
         if found.is_none() {
@@ -1068,6 +1071,19 @@ impl Pass<'_> {
         let range = bin.syntax().text_range();
         let op = bin.operator()?;
         let operands = self.operands([bin.lhs(), bin.rhs()], scope)?;
+        let logical = matches!(op, BinaryOp::Or | BinaryOp::And);
+        if !logical
+            && operands
+                .iter()
+                .any(|(expr, _)| super::selection::is_read(expr))
+        {
+            self.error(
+                range,
+                "a selection tests rows, so it combines with AND, OR, and NOT, and can't be \
+                 compared or computed with",
+            );
+            return None;
+        }
         let name = match op {
             BinaryOp::Or => "$or",
             BinaryOp::And => "$and",
@@ -1663,6 +1679,9 @@ impl Pass<'_> {
         );
         if function.name == "lump" {
             return self.lump(call, scope, range);
+        }
+        if function.name == "selected" {
+            return self.selected_call(call, scope, range);
         }
         if function.kind == library::FunctionKind::Table {
             self.error(

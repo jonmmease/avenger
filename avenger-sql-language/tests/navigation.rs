@@ -161,3 +161,21 @@ fn a_column_of_a_table_has_no_rename() {
         Ok("n")
     );
 }
+
+#[test]
+fn a_selection_goes_to_its_declare_and_finds_its_reads() {
+    let text = "DECLARE brush SELECTION;
+FROM penguins |> WHERE brush |> AGGREGATE COUNTIF(selected(brush, empty => 'none')) AS n";
+    let document = document(text);
+    let offset = |needle: &str, n: usize| usize::from(find(&document, needle, n));
+    assert_eq!(
+        target(&document, "brush", 1),
+        Some(("brush", offset("brush", 0)))
+    );
+    assert_eq!(
+        target(&document, "brush", 2),
+        Some(("brush", offset("brush", 0)))
+    );
+    let references = document.references(find(&document, "brush", 0));
+    assert_eq!(references.len(), 3, "{references:?}");
+}

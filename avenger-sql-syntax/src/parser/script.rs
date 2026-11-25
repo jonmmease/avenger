@@ -319,9 +319,11 @@ impl Parser<'_> {
         let at_end = matches!(self.current(), SEMICOLON | EOF);
         // The type is optional, so it can start where the text ends.
         self.record(Expected::Type);
-        if !self.at_keyword("DEFAULT") && !at_end {
+        let options = self.at_keyword("OPTIONS") && self.nth(1) == L_PAREN;
+        if !self.at_keyword("DEFAULT") && !options && !at_end {
             self.ty();
         }
+        self.options();
         if self.eat_keyword("DEFAULT") {
             self.expr();
         }

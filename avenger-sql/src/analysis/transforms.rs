@@ -37,9 +37,9 @@ use crate::{
 
 /// The arguments of a call: the positional ones, and the named ones with their names in lower
 /// case, each with its range.
-struct Arguments {
-    positional: Vec<(ast::Expr, TextRange)>,
-    named: Vec<(String, ast::Expr, TextRange)>,
+pub(super) struct Arguments {
+    pub(super) positional: Vec<(ast::Expr, TextRange)>,
+    pub(super) named: Vec<(String, ast::Expr, TextRange)>,
 }
 
 /// The columns that `expr` reads outside its aggregates and its occurrences of `category`.
@@ -64,7 +64,7 @@ fn bare_columns(expr: &Expr, category: &Expr) -> Vec<Column> {
 impl Pass<'_> {
     /// The arguments of `arguments`, or `None` after an error: the positional arguments come
     /// before the named ones, and `function` takes no `TABLE` argument among them.
-    fn arguments(
+    pub(super) fn arguments(
         &mut self,
         arguments: impl Iterator<Item = ast::Argument>,
         function: &str,

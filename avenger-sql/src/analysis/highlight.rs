@@ -76,7 +76,7 @@ fn role(definition: &Definition) -> NameRole {
         Definition::Field { .. } => NameRole::Field,
         Definition::Table { .. } => NameRole::Table,
         Definition::Query { .. } => NameRole::Query,
-        Definition::Variable { .. } => NameRole::Variable,
+        Definition::Variable { .. } | Definition::Selection { .. } => NameRole::Variable,
         Definition::Module { .. } => NameRole::Module,
         Definition::Function { role, .. } => NameRole::Function(*role),
     }

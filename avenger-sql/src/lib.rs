@@ -58,8 +58,9 @@ pub use pipeline::{
 /// extension nodes of avenger, so `ctx` must have DataFusion's default query planner, the rule that
 /// computes cheap shared inputs again in place of sharing them, the rule that narrows a shared
 /// input to the columns that its readers read, the rule that groups by the
-/// fields of a struct, such as a bin, and the rule that plans an aggregate grouped by a lump
-/// without joining the lump to its rows. Registering two times adds the rules once.
+/// fields of a struct, such as a bin, the rule that plans an aggregate grouped by a lump
+/// without joining the lump to its rows, and `selected`, which reads a selection. Registering two
+/// times adds the rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
     use avenger_datafusion_shared::{InlineShared, PruneShared};
     use avenger_datafusion_transforms::{lump::LumpAggregateFusion, StructGroupSplit};
@@ -114,6 +115,11 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
         .with_analyzer_rules(analyzers)
         .with_optimizer_rules(rules)
         .build();
+    // `selected`, which a read of a selection plans, and the rewrite that names a selection that
+    // a run did not bind.
+    if !state.scalar_functions().contains_key("selected") {
+        avenger_selection_datafusion::register(&mut *state)?;
+    }
     Ok(())
 }
 

@@ -95,10 +95,11 @@ ImportStmt =
 
 // As in GoogleSQL, every `DECLARE` of a script comes before its other statements, and a
 // `DECLARE` takes a type, a `DEFAULT`, or both: checks of the validation pass.
-// The names take no trailing comma, since a type can follow them.
-/// `DECLARE names [type] [DEFAULT value]`
+// The names take no trailing comma, since a type can follow them. `OPTIONS` hold the properties
+// of a `SELECTION`, as GoogleSQL's DDL holds them, which the analysis checks.
+/// `DECLARE names [type] [OPTIONS (...)] [DEFAULT value]`
 DeclareStmt =
-  'declare' (Name (',' Name)*) Type? ('default' Expr)?
+  'declare' (Name (',' Name)*) Type? Options? ('default' Expr)?
 
 /// `SET name = value`, or `SET (names) = value`
 SetStmt =

@@ -167,6 +167,16 @@ impl Pass<'_> {
     /// The plans of a `DECLARE`: a variable for each name, of the type, of the value of its
     /// `DEFAULT` or `NULL`.
     pub(super) fn declare(&mut self, declare: &ast::DeclareStmt) -> Vec<StatementPlan> {
+        if super::selection::declares_selection(declare) {
+            return self.declare_selection(declare);
+        }
+        if let Some(options) = declare.options() {
+            self.error(
+                options.syntax().text_range(),
+                "OPTIONS hold the properties of a SELECTION, and a variable takes none",
+            );
+            return Vec::new();
+        }
         let names: Vec<(String, TextRange)> = declare
             .names()
             .filter_map(|name| Some((name.text()?, name.syntax().text_range())))
@@ -213,11 +223,7 @@ impl Pass<'_> {
         };
         let mut plans = Vec::new();
         for (name, definition) in names {
-            if self
-                .variables
-                .iter()
-                .any(|v| v.name.eq_ignore_ascii_case(&name))
-            {
+            if self.declared(&name) {
                 self.error(definition, format!("Variable '{name}' redeclaration"));
                 continue;
             }
@@ -251,6 +257,15 @@ impl Pass<'_> {
             let at = target.syntax().text_range();
             match self.use_variable(&name, at) {
                 Some(variable) => variables.push(variable),
+                None if self.use_selection(&name, at).is_some() => {
+                    self.error(
+                        at,
+                        format!(
+                            "`{name}` is a selection, which its tools write, so SET can't assign it"
+                        ),
+                    );
+                    return Vec::new();
+                }
                 None => {
                     self.error(at, format!("Undeclared variable: {name}"));
                     return Vec::new();

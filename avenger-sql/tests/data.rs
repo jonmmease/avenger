@@ -104,7 +104,7 @@ fn names(path: &str) -> Vec<String> {
 }
 
 #[test]
-fn the_table_of_options_holds_the_options_of_files_and_of_tables() {
+fn the_table_of_options_holds_the_options_of_files_tables_and_selections() {
     let names: Vec<&str> = FILE_OPTIONS.iter().map(|option| option.name).collect();
     assert_eq!(
         names,
@@ -119,6 +119,7 @@ fn the_table_of_options_holds_the_options_of_files_and_of_tables() {
             "compression",
             "hive_partition_uri_prefix",
             "description",
+            "resolution",
         ]
     );
     let format = file_option("FORMAT").unwrap();
