@@ -55,7 +55,9 @@ impl Key {
             },
             Definition::RangeVariable { definition, .. } => Key::RangeVariable((*definition)?),
             Definition::Query { definition, .. } => Key::Query((*definition)?),
-            Definition::Variable { definition, .. } => Key::Variable((*definition)?),
+            Definition::Variable { definition, .. } | Definition::Selection { definition, .. } => {
+                Key::Variable((*definition)?)
+            }
             Definition::Function { definition, .. } => Key::Function((*definition)?),
             Definition::Field { .. } | Definition::Table { .. } | Definition::Module { .. } => {
                 return None

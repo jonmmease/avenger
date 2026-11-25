@@ -97,8 +97,17 @@ impl ChartQuery {
             self.store.set_source_options(&table, options);
         }
         let graph = (self.store).compile(&self.ctx.state(), vec![self.query.plan.clone()])?;
+        let selections = (self.query.selections.iter())
+            .map(|(name, state)| {
+                (
+                    avenger_sql::analysis::selection_placeholder(name),
+                    state.clone(),
+                )
+            })
+            .collect();
         let inputs = Inputs {
             params: self.query.params.clone(),
+            selections,
             ..Inputs::default()
         };
         let run = graph.run(&inputs).await?;

@@ -1,5 +1,6 @@
 DECLARE lo, hi INT64 DEFAULT 3;
 DECLARE xs ARRAY<STRUCT<a INT64, b STRING>>;
+DECLARE brush selection OPTIONS (resolution = 'union');
 SET lo = (
     FROM t
     |> AGGREGATE min(x)

@@ -665,3 +665,15 @@ fn the_items_of_each_kind_come_together() {
         }
     }
 }
+
+#[test]
+fn a_selection_completes_its_option_and_the_values_of_its_option() {
+    let (completions, _) = complete("DECLARE brush SELECTION OPTIONS ($0);\nFROM penguins");
+    assert_eq!(labels(&completions, CompletionKind::Option), ["resolution"]);
+    let (completions, _) =
+        complete("DECLARE brush SELECTION OPTIONS (resolution = $0);\nFROM penguins");
+    assert_eq!(
+        labels(&completions, CompletionKind::EnumValue),
+        ["'GLOBAL'", "'INTERSECT'", "'UNION'"]
+    );
+}

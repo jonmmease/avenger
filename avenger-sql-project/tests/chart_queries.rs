@@ -138,6 +138,8 @@ async fn a_collect_gives_the_rows_of_its_frame() {
         "DECLARE least INT64 DEFAULT 2;\nFROM host |> WHERE v >= least |> ORDER BY v",
         // A lump of a column whose rows a variable filters, so the graph cuts between them.
         "DECLARE least INT64 DEFAULT 2;\nFROM host |> WHERE v >= least |> SET k = lump(k, n => 1) OVER () |> ORDER BY v",
+        // A selection, whose empty state the graph binds, so it keeps every row.
+        "DECLARE brush SELECTION;\nFROM host |> WHERE brush AND v > 1 |> ORDER BY v",
         // An order, and projections after it.
         "FROM host |> ORDER BY v DESC |> SELECT k |> SELECT k AS key",
         // Two columns of one name.

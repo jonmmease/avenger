@@ -109,6 +109,14 @@ impl Document {
                 Some(ty) => format!("```googlesql\nDECLARE {name} {}\n```", googlesql_name(ty)),
                 None => format!("```googlesql\nDECLARE {name}\n```"),
             },
+            Definition::Selection {
+                name, resolution, ..
+            } => {
+                let resolution = avenger_sql::analysis::resolution_name(*resolution);
+                format!(
+                    "```googlesql\nDECLARE {name} SELECTION OPTIONS (resolution = '{resolution}')\n```\n\nA selection, which its tools write, and which tests each row, as `WHERE {name}`."
+                )
+            }
             Definition::Module { names } => {
                 format!("```googlesql\nMODULE {}\n```", names.join("."))
             }

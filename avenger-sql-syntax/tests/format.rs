@@ -200,6 +200,7 @@ FROM t |> SELECT - -x, -(-x), + -x, a - -b, -1 AS n",
         Role::Script,
         "DECLARE lo, hi INT64 DEFAULT 3;
 DECLARE xs ARRAY<STRUCT<a INT64, b STRING>>;
+declare brush selection options(resolution='union');
 SET lo = (FROM t |> AGGREGATE MIN(x));
 CREATE TEMP FUNCTION twice(v INT64) RETURNS INT64 AS (v * 2);
 CREATE TEMP TABLE FUNCTION evens(k INT64) AS (FROM t |> WHERE MOD(x, k) = 0);

@@ -129,6 +129,7 @@ pub(super) fn functions() -> Vec<Function> {
     for transform in [bin(), stack(), timeunit(), lump(), impute()] {
         functions.push(transform.family(Family::Transform));
     }
+    functions.push(selected());
     functions
 }
 
@@ -813,6 +814,38 @@ fn planned_by_the_pass(_: &super::Call) -> Result<Planned, super::CallError> {
     Err(super::CallError::call(
         "the pass plans this function itself",
     ))
+}
+
+fn selected() -> Function {
+    Function::scalar(
+        "selected",
+        "Whether the selection selects each row, with what an empty selection selects and the \
+         marks whose clauses it skips.",
+    )
+    .description(
+        "A selection's name reads as a `BOOL` of each row wherever the row's columns are in \
+         scope, as `WHERE brush`, and `selected` is the same test with options. A selection \
+         that holds no clause selects every row, or none with `empty => 'none'`. A chart that \
+         filters by a selection that its own mark writes names the mark in `exclude`, so its \
+         rows do not change under the pointer.",
+    )
+    .param(
+        "selection",
+        "A selection of the script, by its `DECLARE ... SELECTION`.",
+    )
+    .param(
+        "empty",
+        "What the selection selects while it holds no clause: `'all'`, every row, or `'none'`. \
+         When omitted, it is `'all'`.",
+    )
+    .param(
+        "exclude",
+        "The id of a mark, or an array of them, whose clauses the test skips.",
+    )
+    .form(
+        "(selection: ANY[, empty => ONEOF('all', 'none')][, exclude => ANY]) -> BOOL",
+        planned_by_the_pass,
+    )
 }
 
 fn lump() -> Function {

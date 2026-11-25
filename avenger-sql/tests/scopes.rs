@@ -251,6 +251,7 @@ fn the_model_resolves_each_name_to_its_definition() {
                 Definition::Field { name, .. } => format!("field {name}"),
                 Definition::Query { name, .. } => format!("query {name}"),
                 Definition::Variable { name, .. } => format!("variable {name}"),
+                Definition::Selection { name, .. } => format!("selection {name}"),
                 Definition::Module { names } => format!("module {}", names.join(".")),
             };
             (at(text, name.range), definition)

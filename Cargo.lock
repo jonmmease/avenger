@@ -1324,6 +1324,8 @@ dependencies = [
  "avenger-format-number-googlesql",
  "avenger-render-fixtures",
  "avenger-scenegraph",
+ "avenger-selection",
+ "avenger-selection-datafusion",
  "avenger-sql-syntax",
  "avenger-style",
  "avenger-svg",

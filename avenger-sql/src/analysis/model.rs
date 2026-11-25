@@ -259,6 +259,12 @@ pub enum Definition {
         definition: Option<TextRange>,
         ty: Option<DataType>,
     },
+    /// A selection of the script, by its `DECLARE ... SELECTION`.
+    Selection {
+        name: String,
+        definition: Option<TextRange>,
+        resolution: avenger_selection::Resolution,
+    },
     /// A module of an `IMPORT MODULE`, by its path.
     Module {
         names: Vec<String>,

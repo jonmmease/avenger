@@ -25,6 +25,7 @@ mod query;
 mod reshape;
 mod rows;
 mod script;
+mod selection;
 mod set;
 mod transforms;
 
@@ -41,6 +42,9 @@ pub use model::{
     MatchRecognizePart, Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
 };
 pub use print::{Lifted, LiftedOperator};
+pub use selection::{
+    placeholder as selection_placeholder, reads as selection_reads, resolution_name, Selection,
+};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
 use data::DataScript;
@@ -106,6 +110,8 @@ pub struct Analysis {
     ///
     /// [`ScriptTable`]: crate::data::ScriptTable
     pub file_tables: Vec<crate::data::Definition>,
+    /// The script's selections, by their `DECLARE`s, in the order of the text.
+    pub selections: Vec<Selection>,
 }
 
 /// Values of a script's variables, by name, that take the place of their own values.
@@ -180,9 +186,20 @@ impl Analysis {
         let StatementPlan::Query(plan) = &self.statements[last].plan else {
             unreachable!("the last query");
         };
+        // Each selection that the query reads starts empty, with its resolution.
+        let read = selection::reads(plan)?;
+        let selections = (self.selections.iter())
+            .filter(|selection| read.contains(&selection.name))
+            .map(|selection| {
+                let state =
+                    avenger_selection::SelectionState::new(selection.resolution, Vec::new());
+                (selection.name.clone(), state)
+            })
+            .collect();
         Ok(PlannedQuery {
             plan: plan.clone(),
             params: param_values(&values),
+            selections,
         })
     }
 
@@ -270,25 +287,37 @@ impl Analysis {
 }
 
 /// The last query of a script, ready to run, as [`Analysis::planned_query`] gives it: its plan,
-/// unoptimized, whose placeholders read the values of the variables before it, and those values.
-/// A host that runs the plan itself, such as a cache of results keyed by plans, binds `params`
-/// as the plan's parameters.
+/// unoptimized, whose placeholders read the values of the variables before it and the states of
+/// the selections that it reads, those values, and those states. A host that runs the plan
+/// itself, such as a cache of results keyed by plans, binds each state to the placeholder that
+/// [`selection_placeholder`] names, and then `params` as the plan's parameters.
 #[derive(Clone, Debug)]
 pub struct PlannedQuery {
-    /// The plan of the query, with a placeholder for each variable that it reads.
+    /// The plan of the query, with a placeholder for each variable and each selection that it
+    /// reads.
     pub plan: LogicalPlan,
     /// The value of each variable before the query, by the name of its placeholder.
     pub params: datafusion::common::ParamValues,
+    /// The state of each selection that the query reads, by the selection's name: empty, with
+    /// the selection's resolution, until a host sets it.
+    pub selections: std::collections::BTreeMap<String, avenger_selection::SelectionState>,
 }
 
 impl PlannedQuery {
-    /// The rows of the query, with the values of its variables bound, as a DataFrame of `ctx`,
-    /// unrun.
+    /// The rows of the query, with the states of its selections and the values of its variables
+    /// bound, as a DataFrame of `ctx`, unrun.
     pub async fn dataframe(
         &self,
         ctx: &datafusion::prelude::SessionContext,
     ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
-        let plan = self.plan.clone().with_param_values(self.params.clone())?;
+        let ids: Vec<(String, &avenger_selection::SelectionState)> = (self.selections.iter())
+            .map(|(name, state)| (selection::placeholder(name), state))
+            .collect();
+        let states: Vec<(&str, &avenger_selection::SelectionState)> = (ids.iter())
+            .map(|(id, state)| (id.as_str(), *state))
+            .collect();
+        let plan = avenger_selection_datafusion::bind_selections(self.plan.clone(), &states)?;
+        let plan = plan.with_param_values(self.params.clone())?;
         ctx.execute_logical_plan(plan).await
     }
 }
@@ -356,6 +385,7 @@ pub fn analyze(
         diagnostics: pass.diagnostics,
         lifted: pass.lifted,
         file_tables: data.definitions,
+        selections: pass.selections,
     }
 }
 
@@ -378,6 +408,8 @@ pub(crate) struct Pass<'a> {
     with_names: Vec<WithName>,
     /// The script variables, by their `DECLARE`s.
     variables: Vec<script::Variable>,
+    /// The script's selections, by their `DECLARE`s.
+    selections: Vec<Selection>,
     /// The temporary tables, and the table arguments of a table function's body.
     temp_tables: Vec<WithName>,
     /// The temporary functions, and the functions of the imported modules under their paths.
@@ -434,6 +466,7 @@ impl<'a> Pass<'a> {
             outers: Vec::new(),
             with_names: Vec::new(),
             variables: Vec::new(),
+            selections: Vec::new(),
             temp_tables: Vec::new(),
             functions: Vec::new(),
             constants: Vec::new(),

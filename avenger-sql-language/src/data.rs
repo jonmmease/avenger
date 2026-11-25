@@ -35,6 +35,7 @@ pub(crate) fn reads_statement(role: Role, stmt: &SyntaxNode) -> bool {
             (ast::CreateExternalTableStmt::cast(stmt.clone()))
                 .is_some_and(|create| create.scope_kind() == Some(Scope::Temp))
         }
+        (Role::Script, DECLARE_STMT) => true,
         (Role::Script, LOAD_DATA_STMT) => {
             ast::LoadDataStmt::cast(stmt.clone()).is_some_and(|load| load.scope().is_some())
         }
@@ -255,6 +256,7 @@ pub(crate) fn option_hover(name: &str) -> Option<String> {
         );
         let applies = match option.place {
             OptionPlace::Table => "An option of a table, a view, or a schema".to_string(),
+            OptionPlace::Selection => "An option of a selection".to_string(),
             OptionPlace::Files if option.formats.len() == Format::ALL.len() => {
                 "An option of the files of every format".to_string()
             }

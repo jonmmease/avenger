@@ -16,6 +16,8 @@ avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googles
 ] }
 avenger-format-locales-d3 = { path = "../avenger-format-locales-d3" }
 avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
+avenger-selection = { path = "../avenger-selection" }
+avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 datafusion = { workspace = true, features = [
     "nested_expressions",

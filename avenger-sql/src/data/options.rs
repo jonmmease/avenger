@@ -44,6 +44,8 @@ pub enum OptionPlace {
     /// The options of a table: an external table's `OPTIONS (...)`, and the `OPTIONS (...)` of a
     /// `LOAD DATA`, a view, a table and a schema.
     Table,
+    /// The options of a selection: the `OPTIONS (...)` of a `DECLARE ... SELECTION`.
+    Selection,
 }
 
 /// An option of files or of a table, in a data script.
@@ -64,8 +66,8 @@ pub struct FileOption {
     pub values: &'static [&'static str],
 }
 
-/// The options of files and of tables that a data script takes. Their names and types are
-/// BigQuery's.
+/// The options of files and of tables that a data script takes, whose names and types are
+/// BigQuery's, and the options of a selection.
 pub const FILE_OPTIONS: &[FileOption] = &[
     FileOption {
         name: "format",
@@ -163,6 +165,15 @@ pub const FILE_OPTIONS: &[FileOption] = &[
         formats: &Format::ALL,
         meaning: "The description of the table, the view, or the schema.",
         values: &[],
+    },
+    FileOption {
+        name: "resolution",
+        ty: OptionType::String,
+        required: false,
+        place: OptionPlace::Selection,
+        formats: &[],
+        meaning: "How the selection combines the clauses of the marks that write it: GLOBAL holds one clause, which a new gesture in any chart replaces, UNION selects a row that some mark's clause selects, and INTERSECT a row that every mark's clause selects. When omitted, it is GLOBAL.",
+        values: &["GLOBAL", "UNION", "INTERSECT"],
     },
 ];
 
@@ -382,6 +393,7 @@ pub fn option_places(list: &SyntaxNode) -> Option<&'static [OptionPlace]> {
         (OPTIONS, LOAD_DATA_STMT | CREATE_VIEW_STMT | CREATE_TABLE_STMT | CREATE_SCHEMA_STMT) => {
             &[OptionPlace::Table]
         }
+        (OPTIONS, DECLARE_STMT) => &[OptionPlace::Selection],
         _ => return None,
     };
     Some(places)
@@ -627,6 +639,9 @@ impl<'a> Reader<'a> {
                         "{} is an option of files, which {what} doesn't read",
                         option.name
                     ),
+                    OptionPlace::Selection => {
+                        format!("{} is an option of a DECLARE ... SELECTION", option.name)
+                    }
                 };
                 self.error(name_range, message);
                 continue;
