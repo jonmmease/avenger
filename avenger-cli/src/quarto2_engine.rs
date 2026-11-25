@@ -9,6 +9,10 @@
 //! response holds each cell's number, the line of its opening fence, and its outputs, in nbformat
 //! 4, which the extension gives q2's core to write.
 //!
+//! A value draws in each color scheme of the request. A document with a light and a dark theme
+//! asks for both, and each value then has an image of each scheme, on a transparent background,
+//! whose class, `light-content` or `dark-content`, shows it only in its scheme.
+//!
 //! A request in another protocol, or one whose document or project doesn't load, writes an error
 //! and exits with status 1, as does a failing cell whose errors are no output.
 
@@ -22,7 +26,9 @@ use serde_json::{json, Value};
 
 use crate::{
     cells,
-    render::{image, Failure, Format, Options, Project, Renderer},
+    render::{
+        result_image, run_target, Failure, Format, Image, Options, Project, Renderer, Target,
+    },
     report::{Output, Report},
 };
 
@@ -41,8 +47,8 @@ struct Request {
     text: String,
     #[serde(default)]
     image: ImageDefault,
-    #[serde(default)]
-    color_scheme: Option<String>,
+    /// The color schemes of the document's themes, each `light` or `dark`.
+    color_schemes: Vec<String>,
     /// The document's `execute: error`.
     #[serde(default)]
     error: bool,
@@ -120,11 +126,7 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
         serde_json::from_value(value).map_err(|error| format!("the request: {error}"))?;
     let file = std::fs::canonicalize(&request.document)
         .map_err(|error| format!("{}: {error}", request.document.display()))?;
-    let color_scheme = match request.color_scheme.as_deref() {
-        None | Some("light") => ColorScheme::Light,
-        Some("dark") => ColorScheme::Dark,
-        Some(other) => return Err(format!("`colorScheme` `{other}`: light or dark")),
-    };
+    let schemes = color_schemes(&request.color_schemes)?;
     let default = match request.image.format.as_str() {
         "svg" => (Format::Svg, 1.0),
         "png" => (Format::Png, request.image.scale),
@@ -136,7 +138,9 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
     let mut options = Options {
         size: [None, None],
         scale: 1.0,
-        color_scheme,
+        color_scheme: schemes[0],
+        // Images of several schemes take the color of the page around them.
+        transparent: schemes.len() > 1,
         style: None,
         modes: Vec::new(),
         chart: None,
@@ -176,14 +180,26 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
         let drawn = match project.aim(&format!("{chart}#{number}")) {
             Ok(aim) => {
                 let target = aim.target(project);
-                let drawn = image(&target, format, &options, &renderer).await;
+                let drawn = images(&target, format, &mut options, &schemes, &renderer).await;
                 project = target.into_project();
                 drawn
             }
             Err(failure) => Err(failure),
         };
-        let output = match drawn {
-            Ok(drawn) => display(format, drawn.bytes, drawn.size),
+        let outputs = match drawn {
+            Ok(images) => {
+                let tagged = images.len() > 1;
+                (images.into_iter().zip(&schemes))
+                    .map(|(drawn, scheme)| {
+                        let mut output = display(format, drawn.bytes, drawn.size);
+                        if tagged {
+                            output["metadata"]["quarto_attrs"] =
+                                json!({"classes": [content_class(*scheme)]});
+                        }
+                        output
+                    })
+                    .collect()
+            }
             Err(failure) => {
                 let reports = match failure {
                     Failure::Reports(reports) => reports,
@@ -199,13 +215,58 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Vec<Value>,
                 if !cell.options.error.unwrap_or(request.error) {
                     return Err(traceback(&reports));
                 }
-                error_output(&reports)
+                vec![error_output(&reports)]
             }
         };
-        response["outputs"] = json!([output]);
+        response["outputs"] = Value::Array(outputs);
         responses.push(response);
     }
     Ok(responses)
+}
+
+/// The color schemes `names` of a request, at least one, each once.
+fn color_schemes(names: &[String]) -> Result<Vec<ColorScheme>, String> {
+    let mut schemes = Vec::with_capacity(names.len());
+    for name in names {
+        let scheme = match name.as_str() {
+            "light" => ColorScheme::Light,
+            "dark" => ColorScheme::Dark,
+            other => return Err(format!("`colorSchemes` `{other}`: light or dark")),
+        };
+        if schemes.contains(&scheme) {
+            return Err(format!("`colorSchemes` names `{name}` twice"));
+        }
+        schemes.push(scheme);
+    }
+    if schemes.is_empty() {
+        return Err("`colorSchemes` is empty: light, dark, or both".to_string());
+    }
+    Ok(schemes)
+}
+
+/// The class of q2's themes that shows an image only in the color scheme `scheme`.
+fn content_class(scheme: ColorScheme) -> &'static str {
+    match scheme {
+        ColorScheme::Light => "light-content",
+        ColorScheme::Dark => "dark-content",
+    }
+}
+
+/// The images of `target`, which runs once, drawn in each of `schemes`, in order.
+async fn images(
+    target: &Target,
+    format: Format,
+    options: &mut Options,
+    schemes: &[ColorScheme],
+    renderer: &Renderer,
+) -> Result<Vec<Image>, Failure> {
+    let result = run_target(target).await?;
+    let mut images = Vec::with_capacity(schemes.len());
+    for scheme in schemes {
+        options.color_scheme = *scheme;
+        images.push(result_image(target, &result, format, options, renderer).await?);
+    }
+    Ok(images)
 }
 
 /// The `display_data` output of an image in `format`, whose bytes are `bytes` and whose size in

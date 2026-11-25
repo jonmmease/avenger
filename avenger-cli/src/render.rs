@@ -28,7 +28,7 @@ use avenger_scenegraph::{
 };
 use avenger_sql_language::FileRole;
 use avenger_sql_project::{
-    charts::{background, label_engine, preferences},
+    charts::{background, cascade, label_engine, preferences},
     find_root,
     qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
@@ -63,6 +63,10 @@ pub struct Options {
     pub scale: f32,
     /// The reader's color scheme, light or dark, with its background.
     pub color_scheme: ColorScheme,
+    /// Draw on a transparent background, which the surface around the image shows through: a
+    /// chart's own background is transparent unless the project's stylesheets set it, and the
+    /// color scheme's background stays the stylesheets' `env(background)`.
+    pub transparent: bool,
     /// A stylesheet after the project's.
     pub style: Option<PathBuf>,
     /// The modes of the chart to turn on.
@@ -203,6 +207,9 @@ pub async fn run_all(
 /// runtime that the chart apps prepare their charts on.
 pub(crate) struct Renderer {
     engine: LabelEngine,
+    /// The sheet of a transparent background, between the base stylesheet and the project's, when
+    /// the options draw on one.
+    transparent: Sheet,
     extra: Option<Sheet>,
     images: ImageCache,
     runtime: tokio::runtime::Handle,
@@ -216,11 +223,27 @@ impl Renderer {
         };
         Ok(Renderer {
             engine: label_engine(),
+            transparent: transparent_sheet(),
             extra,
             images: ImageCache::with_options(image_options()?),
             runtime: options.runtime.clone(),
         })
     }
+}
+
+/// The sheet that leaves a chart's background to the surface around it, which the base stylesheet
+/// sets to `env(background)`.
+fn transparent_sheet() -> Sheet {
+    let mut no_files = |url: &str, _: Option<&str>| Err(format!("no file `{url}`"));
+    let (sheet, diagnostics) = Sheet::load(
+        "chart { background: transparent; }",
+        None,
+        SourceId(u32::MAX - 2),
+        ParseOptions::default(),
+        &mut no_files,
+    );
+    debug_assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    sheet
 }
 
 /// The stylesheet at `path`, alone, without imports of other files.
@@ -691,22 +714,38 @@ pub(crate) async fn image(
     renderer: &Renderer,
 ) -> Result<Image, Failure> {
     let result = run_target(target).await?;
-    let cascade = target
-        .stylesheet
-        .cascade(background(options.color_scheme), renderer.extra.as_ref());
+    result_image(target, &result, format, options, renderer).await
+}
+
+/// Draws `result`, the result of the target `target`, in the format `format`, one chart alone or a
+/// table of its rows, so a result that runs once draws in each color scheme.
+pub(crate) async fn result_image(
+    target: &Target,
+    result: &QueryResult,
+    format: Format,
+    options: &Options,
+    renderer: &Renderer,
+) -> Result<Image, Failure> {
+    let sheets = (options
+        .transparent
+        .then_some(&renderer.transparent)
+        .into_iter())
+    .chain(&target.stylesheet.sheet)
+    .chain(&renderer.extra);
+    let cascade = cascade(background(options.color_scheme), sheets);
     let single = (result.shape() == Shape::Chart)
         .then(|| result.chart(0, 0))
         .flatten();
     let scene = match (&options.chart, single) {
         (Some(picked), _) => {
-            let chart = pick(&result, picked)
+            let chart = pick(result, picked)
                 .map_err(|error| Failure::Reports(vec![target.report(error)]))?;
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
         (None, Some(chart)) => {
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
-        (None, None) => table_scene(&result, &cascade, options, renderer).await?,
+        (None, None) => table_scene(result, &cascade, options, renderer).await?,
     };
     let bytes = (draw(&scene, format, options, renderer).await).map_err(Failure::Usage)?;
     Ok(Image {
@@ -1415,14 +1454,15 @@ async fn table_scene(
     })
 }
 
-/// The bytes of `scene` drawn in `format`, on the background of the color scheme.
+/// The bytes of `scene` drawn in `format`, on the background of the color scheme, or on a
+/// transparent one.
 async fn draw(
     scene: &SceneGraph,
     format: Format,
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Vec<u8>, String> {
-    let background = color(background(options.color_scheme));
+    let background = (!options.transparent).then(|| color(background(options.color_scheme)));
     let images: Arc<dyn ImageResolver> = Arc::new(renderer.images.clone());
     match format {
         Format::Png => {
@@ -1436,7 +1476,7 @@ async fn draw(
             };
             let mut canvas = (PngCanvas::new(dimensions, config).await)
                 .map_err(|e| format!("{e}; without a GPU, `.svg` renders without one"))?;
-            canvas.set_background(background);
+            canvas.set_background(background.unwrap_or([0.0; 4]));
             (canvas.set_scene(scene, &renderer.engine)).map_err(|e| e.to_string())?;
             let image = canvas.render().await.map_err(|e| e.to_string())?;
             let mut bytes = std::io::Cursor::new(Vec::new());
@@ -1446,7 +1486,7 @@ async fn draw(
         Format::Svg => {
             let svg = avenger_svg::SvgRenderer::new()
                 .with_options(avenger_svg::SvgRenderOptions {
-                    background: Some(background),
+                    background,
                     allow_unready_images: true,
                     ..Default::default()
                 })
@@ -1457,7 +1497,7 @@ async fn draw(
         }
         Format::Pdf => avenger_pdf::PdfRenderer::new()
             .with_options(avenger_pdf::PdfRenderOptions {
-                background: Some(background),
+                background,
                 allow_unready_images: true,
             })
             .with_images(images)

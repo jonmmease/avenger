@@ -48,13 +48,16 @@ const PROTOCOL = 1;
                     
  
 
+/** A color scheme of a document's themes. */
+                                           
+
 /** The request of `avenger quarto2-engine`. */
                           
                    
                    
                
                                                   
-                       
+                              
                  
  
 
@@ -76,6 +79,21 @@ const SVG_FORMATS = new Set([
 function imageFor(to        )                   {
   const base = to.split(/[+-]/)[0];
   return SVG_FORMATS.has(base) ? { format: "svg", scale: 1 } : { format: "png", scale: 2 };
+}
+
+/** The output formats whose pages switch between a light and a dark theme with q2's toggle. */
+const TOGGLE_FORMATS = new Set(["html", "html4", "html5", "dashboard"]);
+
+/**
+ * The color schemes of the charts of a document whose `theme` is `theme`, in the output format
+ * `to`: light and dark, in that order, for a theme with a dark variant in a format with q2's
+ * toggle, since q2 adds its default light variant to a theme of a dark one alone. A theme's name,
+ * a theme of a light variant alone, no theme, and the formats without the toggle give light.
+ */
+function colorSchemesFor(theme         , to        )                {
+  const dark = TOGGLE_FORMATS.has(to.split(/[+-]/)[0]) &&
+    theme !== null && typeof theme === "object" && !Array.isArray(theme) && "dark" in theme;
+  return dark ? ["light", "dark"] : ["light"];
 }
 
 /** The options that only change how q2's core writes a cell, never what avenger computes. */
@@ -230,12 +248,13 @@ async function execute(options                )                         {
   if (offered.presentedBy !== "core") {
     throw new Error("the avenger engine needs a q2 that writes the cells of an engine's record");
   }
+  const to = options.format.pandoc.to ?? "html";
   const request          = {
     protocol: PROTOCOL,
     document: options.target.input,
     text: markdown,
-    image: imageFor(options.format.pandoc.to ?? "html"),
-    colorScheme: "light",
+    image: imageFor(to),
+    colorSchemes: colorSchemesFor(options.format.metadata?.theme, to),
     error: options.format.execute.error === true,
   };
   const env = (options                                                            ).executeEnv;
@@ -297,4 +316,4 @@ const engine                           = {
   },
 };
 
-export { PROTOCOL, engine as default, execute, imageFor, record, runAvenger };
+export { PROTOCOL, colorSchemesFor, engine as default, execute, imageFor, record, runAvenger };

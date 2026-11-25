@@ -688,13 +688,32 @@ impl PngCanvas {
         self.readback
             .encode_copy_from_texture(&mut extract_encoder, &self.output_target.texture);
         self.queue.submit(Some(extract_encoder.finish()));
-        self.readback
+        let mut image = self
+            .readback
             .read_rgba8(
                 &self.device,
                 dimensions.to_physical_width(),
                 dimensions.to_physical_height(),
             )
-            .await
+            .await?;
+        unpremultiply(&mut image);
+        Ok(image)
+    }
+}
+
+/// `image`, whose colors are premultiplied by their alpha, as the marks' alpha blending over a
+/// cleared target leaves them, with straight alpha, as PNG stores it. A pixel that is opaque or
+/// fully transparent is unchanged, so only a background that isn't opaque changes the image.
+fn unpremultiply(image: &mut image::RgbaImage) {
+    for pixel in image.pixels_mut() {
+        let alpha = u16::from(pixel[3]);
+        if alpha == 0 || alpha == 255 {
+            continue;
+        }
+        for channel in &mut pixel.0[..3] {
+            let straight = (u16::from(*channel) * 255 + alpha / 2) / alpha;
+            *channel = straight.min(255) as u8;
+        }
     }
 }
 
@@ -757,5 +776,24 @@ impl Canvas for PngCanvas {
 
     fn symbol_pipeline(&self) -> Arc<InstancedMarkPipeline> {
         self.layers.bottom().symbol_pipeline()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unpremultiply;
+
+    #[test]
+    fn a_premultiplied_pixel_takes_its_straight_color_and_opaque_ones_stay() {
+        // Light gray text at a quarter of its alpha, as alpha blending over a transparent target
+        // leaves it: 224 × 64 / 255 = 56.
+        let mut image =
+            image::RgbaImage::from_raw(3, 1, vec![56, 56, 56, 64, 10, 20, 30, 255, 0, 0, 0, 0])
+                .unwrap();
+        unpremultiply(&mut image);
+        assert_eq!(
+            image.into_raw(),
+            [223, 223, 223, 64, 10, 20, 30, 255, 0, 0, 0, 0]
+        );
     }
 }

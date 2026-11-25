@@ -1,0 +1,17 @@
+---
+title: Themed
+format:
+  html:
+    theme:
+      light: cosmo
+      dark: darkly
+---
+
+```{avenger-sql}
+#| label: fig-cars
+#| fig-cap: Cars by origin
+FROM UNNEST([STRUCT('Europe' AS origin, 3 AS cars), STRUCT('USA', 8)])
+|> AGGREGATE mark_bar(x => origin, y => cars) AS chart
+```
+
+The cars by origin are in @fig-cars.

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { execute, imageFor, record } from "../_extensions/avenger/src/avenger-engine.ts";
+import { colorSchemesFor, execute, imageFor, record } from "../_extensions/avenger/src/avenger-engine.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 process.env.AVENGER = join(here, "fake-avenger.mjs");
@@ -60,6 +60,21 @@ test("the record holds each cell's outputs by its unit's id", async () => {
     [request.protocol, request.document, request.text, request.image, request.error],
     [1, "/project/report.qmd", "# Text", { format: "svg", scale: 1 }, false],
   );
+  assert.deepEqual(request.colorSchemes, ["light"]);
+});
+
+test("a theme of a dark and a light variant asks for light, then dark", async () => {
+  const requested = join(mkdtempSync(join(tmpdir(), "avenger-")), "request.json");
+  process.env.FAKE_REQUEST = requested;
+  process.env.FAKE_STATUS = "0";
+  process.env.FAKE_RESPONSE = JSON.stringify({ protocol: 1, cells: [{ number: 1, line: 5, outputs: [] }] });
+  const format = {
+    pandoc: { to: "html" },
+    execute: { error: false },
+    metadata: { theme: { dark: "darkly", light: "cosmo" } },
+  };
+  await execute(options("# Text", [unit("a", 5)], { format }));
+  assert.deepEqual(JSON.parse(readFileSync(requested, "utf8")).colorSchemes, ["light", "dark"]);
 });
 
 test("a response of many chunks keeps its characters of several bytes", async () => {
@@ -118,6 +133,23 @@ test("a missing avenger names how to find it", async () => {
   process.env.AVENGER = join(here, "no-such-avenger");
   await assert.rejects(execute(options("# Text", [unit("a", 5)])), /`avenger` on PATH, or its path in AVENGER/);
   process.env.AVENGER = fake;
+});
+
+test("a theme and an output format pick the color schemes of the charts", () => {
+  const both = { light: ["cosmo", "theme.scss"], dark: "darkly" };
+  // Light, then dark, whatever the order of the theme's keys, which q2 doesn't keep.
+  assert.deepEqual(colorSchemesFor(both, "html"), ["light", "dark"]);
+  assert.deepEqual(colorSchemesFor({ dark: "darkly", light: "cosmo" }, "html5"), ["light", "dark"]);
+  assert.deepEqual(colorSchemesFor(both, "dashboard"), ["light", "dark"]);
+  // q2 adds its default light variant to a dark one alone, and toggles between them.
+  assert.deepEqual(colorSchemesFor({ dark: "darkly" }, "html"), ["light", "dark"]);
+  assert.deepEqual(colorSchemesFor({ light: "cosmo" }, "html"), ["light"]);
+  // A theme's name says nothing of its scheme.
+  assert.deepEqual(colorSchemesFor("darkly", "html"), ["light"]);
+  assert.deepEqual(colorSchemesFor(undefined, "html"), ["light"]);
+  // Formats without q2's toggle show one image.
+  assert.deepEqual(colorSchemesFor(both, "revealjs"), ["light"]);
+  assert.deepEqual(colorSchemesFor(both, "typst"), ["light"]);
 });
 
 test("an output format picks the image of cells without their own", () => {
