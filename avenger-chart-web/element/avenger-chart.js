@@ -4,7 +4,8 @@
 // A page calls `start(config)` once, which loads the library, adds the fonts, and defines the
 // element, and every `<avenger-chart>` of the page then upgrades. An element holds its chart's
 // bytes as base64 in an inner `<script type="application/vnd.avenger.chart+base64">`, and its
-// `width` and `height` in CSS pixels:
+// `width` and `height` in CSS pixels, its chart's natural size, of which it takes less width on a
+// narrower page:
 //
 //   <avenger-chart width="300" height="268">
 //     <script type="application/vnd.avenger.chart+base64">…</script>
@@ -154,7 +155,10 @@ class AvengerChart extends HTMLElement {
     const transparent = schemes.length > 1;
     const canvas = document.createElement("canvas");
     const [width, height] = this.size();
-    canvas.style.width = `${width}px`;
+    // The canvas takes the chart's width, or less on a narrower page, where the chart lays out
+    // again at the width it gets, as its image would shrink.
+    canvas.style.width = "100%";
+    canvas.style.maxWidth = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.style.display = "block";
     this.append(canvas);
