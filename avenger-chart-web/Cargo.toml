@@ -11,6 +11,7 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+arrow = { workspace = true }
 avenger-app = { path = "../avenger-app" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-app = { path = "../avenger-chart-app" }

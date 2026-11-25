@@ -131,7 +131,10 @@
   elements.forEach((element, index) => {
     element.addEventListener("avenger-change", (event) => {
       const change = event.detail;
-      for (const other of elements) if (other !== element) other.setState(change.bytes);
+      // The other chart takes the brush, and keeps its own mode and its own pans and zooms.
+      for (const other of elements) {
+        if (other !== element) other.setState(change.bytes, { modes: false, views: false });
+      }
       const what = change.selections.length ? change.selections.join(", ") : "no selection";
       log.textContent = `Last change: ${manifest.linked[index].title}, ${what}, ${change.bytes.length} bytes${change.settled ? ", settled" : ""}.`;
       if (change.settled) {

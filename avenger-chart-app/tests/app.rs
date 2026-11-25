@@ -756,6 +756,35 @@ async fn the_modes_on_of_a_state_turn_on_and_turn_off_toggles() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn the_views_of_one_app_s_change_apply_to_another_and_reset_to_the_fit() {
+    let (mut first, _, changes) =
+        app_reporting(scatter(cars(), navigate()), Reports::Settled).await;
+    let from = center(&first, 0);
+    send(&mut first, drag(from, [from[0] - 40.0, from[1] + 30.0])).await;
+    let change = changes.lock().unwrap().last().unwrap().clone();
+    assert!(!change.domains.is_empty());
+    assert_eq!(
+        first.state().evaluator().scale_views().len(),
+        change.domains.len()
+    );
+
+    let (mut second, updates, _) = app(scatter(cars(), navigate())).await;
+    let fitted = domains(&second, 0);
+    updates.set_views(change.domains.clone());
+    refresh_until(&mut second, |app| {
+        app.state().evaluator().scale_view(0, Channel::X).is_some()
+    })
+    .await;
+    assert_eq!(domains(&second, 0), domains(&first, 0));
+    updates.reset_views();
+    refresh_until(&mut second, |app| {
+        app.state().evaluator().scale_views().is_empty()
+    })
+    .await;
+    assert_eq!(domains(&second, 0), fitted);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
     let select = vec![ToolBuilder::from(Select::interval(
         "brush",

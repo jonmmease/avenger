@@ -715,6 +715,7 @@ dependencies = [
 name = "avenger-chart-web"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-app",
  "avenger-chart",
  "avenger-chart-app",

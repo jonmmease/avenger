@@ -9,13 +9,14 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
+use arrow::array::ArrayRef;
 use avenger_app::{
     task::{BoxError, Task},
     waker::{AppWaker, Refresh},
 };
 use avenger_chart::Chart;
 use avenger_chart_eval::{
-    Carry, EvalError, Fit, Fitted, PreparedChart, Registry, UpdateOptions, Views,
+    Carry, EvalError, Fit, Fitted, PreparedChart, Registry, ScaleIdentity, UpdateOptions, Views,
 };
 use avenger_selection::{Clause, SelectionState};
 use avenger_style::{Cascade, Preferences};
@@ -118,6 +119,10 @@ enum Command {
     Clauses(String, Vec<Clause>),
     /// The modes that are on, which turn off the chart's other toggles.
     ModesOn(Vec<String>),
+    /// The domains of scale views by the identity of their scale.
+    Views(Vec<(ScaleIdentity, ArrayRef)>),
+    /// The removal of every scale view.
+    ResetViews,
     Preferences(Preferences),
 }
 
@@ -130,6 +135,8 @@ pub(crate) enum Applied {
     Selection(String, Option<SelectionState>),
     Clauses(String, Vec<Clause>),
     ModesOn(Vec<String>),
+    Views(Vec<(ScaleIdentity, ArrayRef)>),
+    ResetViews,
     Preferences(Preferences),
 }
 
@@ -252,6 +259,20 @@ impl ChartUpdates {
         self.command(Command::ModesOn(names));
     }
 
+    /// Sets the views of the scales `views`, each the domain that a scale shows by the identity of
+    /// the scale, as the domains of a [`ChartChange`](crate::ChartChange) or a saved state give
+    /// them. A scale that the chart does not have, or that a navigation cannot move, keeps its fit.
+    /// The app reports no change.
+    pub fn set_views(&self, views: Vec<(ScaleIdentity, ArrayRef)>) {
+        self.command(Command::Views(views));
+    }
+
+    /// Removes every scale view, so that each scale fits its domain again. The app reports no
+    /// change.
+    pub fn reset_views(&self) {
+        self.command(Command::ResetViews);
+    }
+
     /// Sets the preferences of the reader, such as the color scheme, which `@media` conditions of
     /// the chart's styles test, and which the app's widgets, tooltips, and brushes follow. A
     /// host whose surface turns dark sends the dark color scheme with the styles of its new
@@ -336,6 +357,8 @@ impl ChartUpdates {
                 Command::Selection(name, state) => applied.push(Applied::Selection(name, state)),
                 Command::Clauses(name, clauses) => applied.push(Applied::Clauses(name, clauses)),
                 Command::ModesOn(names) => applied.push(Applied::ModesOn(names)),
+                Command::Views(views) => applied.push(Applied::Views(views)),
+                Command::ResetViews => applied.push(Applied::ResetViews),
                 Command::Preferences(preferences) => {
                     applied.push(Applied::Preferences(preferences))
                 }

@@ -18,9 +18,10 @@
 //
 // Once the element is defined, a page listens to the reader's changes as `avenger-change` events,
 // whose `detail` is the view's change, `{ bytes, selections, modes, settled }`, and updates the
-// element with `setChart(bytes, options)`, `setState(bytes)`, and `setMode(name, on)`, which apply
-// at once or when the element's next view appears. `state()` gives the bytes of the element's
-// state. The `reports` attribute picks the changes that the events carry: `settled`, by default,
+// element with `setChart(bytes, options)`, `setState(bytes, parts)`, `setMode(name, on)`,
+// `clearSelection(name)`, and `resetViews()`, which apply at once or when the element's next view
+// appears. `state(parts)` gives the bytes of the element's state: its selections, its modes, and
+// its views. The `reports` attribute picks the changes that the events carry: `settled`, by default,
 // the changes when a gesture ends, or `every`, such as each move of a brush's drag.
 
 const CHART_TYPE = "application/vnd.avenger.chart+base64";
@@ -113,6 +114,14 @@ document.addEventListener("ready", () => connected.forEach((element) => element.
 
 function frame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/** Applies a call of `setState`, `setMode`, `clearSelection`, or `resetViews` to `view`. */
+function apply(view, call) {
+  if (call.state) view.setState(call.state, call.parts);
+  else if (call.mode !== undefined) view.setMode(call.mode, call.on);
+  else if (call.clear !== undefined) view.clearSelection(call.clear);
+  else if (call.reset) view.resetViews();
 }
 
 /** The base64 text of `bytes`. */
@@ -244,10 +253,7 @@ class AvengerChart extends HTMLElement {
     // The state of the last view, and the calls since, apply before the first frame shows.
     try {
       if (this.saved) view.setState(this.saved);
-      for (const call of this.pending) {
-        if (call.state) view.setState(call.state);
-        else view.setMode(call.mode, call.on);
-      }
+      for (const call of this.pending) apply(view, call);
     } catch (error) {
       console.warn("avenger-chart: the saved state did not apply", error);
     }
@@ -320,7 +326,7 @@ class AvengerChart extends HTMLElement {
     this.replaced = true;
     if (options?.selections === "reset") {
       this.saved = undefined;
-      this.pending = this.pending.filter((call) => !call.state);
+      this.pending = this.pending.filter((call) => !call.state && call.clear === undefined);
     }
     if (!this.view) {
       this.hideImages();
@@ -329,23 +335,41 @@ class AvengerChart extends HTMLElement {
   }
 
   /**
-   * The bytes of the state of the element's chart: its selections and the modes that are on. Without
-   * a view, it is the state of the last view, without the calls since, or null before any view.
+   * The bytes of the state of the element's chart: its selections, the modes that are on, and its
+   * views, or the parts of `parts`, as `ChartView.state` takes them. Without a view, it is the whole
+   * state of the last view, without the calls since, or null before any view.
    */
-  state() {
-    return this.view ? this.view.state() : (this.saved ?? null);
+  state(parts) {
+    return this.view ? this.view.state(parts) : (this.saved ?? null);
   }
 
-  /** Applies a change message, such as `state()` or an event's `detail.bytes` of another chart. */
-  setState(bytes) {
-    this.view?.setState(bytes);
-    if (!this.drawn) this.pending.push({ state: bytes });
+  /**
+   * Applies a change message, such as `state()` or an event's `detail.bytes` of another chart, or
+   * the parts of it that `parts` names, as `ChartView.setState` takes them.
+   */
+  setState(bytes, parts) {
+    this.call({ state: bytes, parts });
   }
 
   /** Turns the chart's mode `name` on or off. */
   setMode(name, on) {
-    this.view?.setMode(name, on);
-    if (!this.drawn) this.pending.push({ mode: name, on });
+    this.call({ mode: name, on });
+  }
+
+  /** Clears the selection `name`. */
+  clearSelection(name) {
+    this.call({ clear: name });
+  }
+
+  /** Returns every scale of the chart to its fit. */
+  resetViews() {
+    this.call({ reset: true });
+  }
+
+  /** Applies `call` to the view, and keeps it for the next view until a view has drawn. */
+  call(call) {
+    if (this.view) apply(this.view, call);
+    if (!this.drawn) this.pending.push(call);
   }
 
   /**

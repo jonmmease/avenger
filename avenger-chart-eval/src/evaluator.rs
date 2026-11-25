@@ -1098,6 +1098,50 @@ impl ChartEvaluator {
         }
     }
 
+    /// The domain of each scale view that a navigation moved, by the identity of its scale, as a
+    /// host saves the views to restore them on a chart of the same structure. A scale without an
+    /// identity has no entry.
+    pub fn scale_views(&self) -> Vec<(ScaleIdentity, ArrayRef)> {
+        (self.state.views.iter())
+            .filter(|(_, view)| view.moved())
+            .filter_map(|(group, view)| {
+                let identity = self.identities.get(*group)?.clone()?;
+                Some((identity, view.scale.domain().clone()))
+            })
+            .collect()
+    }
+
+    /// Sets the view of the scale with `identity` to show `domain`, as a pan or a zoom leaves it,
+    /// such as to restore a saved view. It returns whether the chart has a scale of the identity
+    /// that a navigation can move, which a plot of it evaluated at least once. A view of the
+    /// domain that the scale fits shows the fit, since the next evaluation drops a view that did
+    /// not move.
+    pub fn set_scale_view(&mut self, identity: &ScaleIdentity, domain: ArrayRef) -> bool {
+        let Some(group) = (self.identities.iter()).position(|own| own.as_ref() == Some(identity))
+        else {
+            return false;
+        };
+        let plot_channel = (self.plot_groups.iter().enumerate()).find_map(|(plot, groups)| {
+            (groups.iter())
+                .find(|(_, own)| **own == group)
+                .map(|(channel, _)| (plot, *channel))
+        });
+        let Some((plot, channel)) = plot_channel else {
+            return false;
+        };
+        let Some(view) = self.scale_view_mut(plot, channel) else {
+            return false;
+        };
+        *view = view.clone().with_domain(domain);
+        true
+    }
+
+    /// Removes every scale view, so that each scale fits its domain again, as a double click
+    /// returns a plot's scales to their fit.
+    pub fn clear_scale_views(&mut self) {
+        self.state.views.clear();
+    }
+
     /// The view of the scale of `channel` of the plot at index `plot`, when it has one.
     pub fn scale_view(&self, plot: usize, channel: Channel) -> Option<&ConfiguredScale> {
         Some(

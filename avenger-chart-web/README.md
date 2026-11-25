@@ -37,7 +37,7 @@ start({
 - In a revealjs deck, which lays every slide out in one place, only the charts of the present slide hold views, and a change of slide creates and frees them. A pointer on a slide that revealjs scales lands in the canvas's own pixels.
 - With one color scheme, a chart draws in it on its background. With two, a chart draws on a transparent canvas and follows the `quarto-light` and `quarto-dark` classes of `body`, as the light and dark themes of Quarto switch.
 - Until its canvas draws, an element takes no room. Inside a Quarto figure or cell, it then hides the chart's images, each with the wrapper of its output, and shows them again when its view goes away, so a page without WebGPU, or whose library fails to load, keeps its images.
-- Once the element is defined (`await customElements.whenDefined("avenger-chart")`), it fires an `avenger-change` event, which bubbles, for each change by the reader, whose `detail` is the view's change. Its `reports` attribute picks the changes: `settled`, by default, or `every`, as the view's option names them. `setChart(bytes, options)`, `setState(bytes)`, and `setMode(name, on)` update it in place, at once or when its next view appears, and `state()` gives the bytes of its state. As its view leaves, the element saves the view's state, its selections and its modes, and its next view applies it, then the calls of `setState` and `setMode` since, in order, so a brush survives a scroll away and back. A chart that `setChart` replaced keeps the element's room and the first chart's images hidden.
+- Once the element is defined (`await customElements.whenDefined("avenger-chart")`), it fires an `avenger-change` event, which bubbles, for each change by the reader, whose `detail` is the view's change. Its `reports` attribute picks the changes: `settled`, by default, or `every`, as the view's option names them. `setChart(bytes, options)`, `setState(bytes, parts)`, `setMode(name, on)`, `clearSelection(name)`, and `resetViews()` update it in place, at once or when its next view appears, and `state(parts)` gives the bytes of its state. As its view leaves, the element saves the view's state, its selections, its modes, and its views, and its next view applies it, then the calls since, in order, so a brush survives a scroll away and back. A chart that `setChart` replaced keeps the element's room and the first chart's images hidden.
 
 ## The library
 
@@ -54,8 +54,11 @@ const view = await ChartView.create(canvas, bytes, {
   reports: "settled",
 });
 view.setChart(newBytes, { fit: "keep" });
-view.setState(otherView.state());
+view.setState(saved); // a whole state, such as from view.state()
+other.setState(change.bytes, { modes: false, views: false }); // only a change's selections
 view.setMode("pan", true);
+view.clearSelection("brush");
+view.resetViews();
 view.setColorScheme("light");
 const diagnostics = view.setStyles(newStyles);
 view.free();
@@ -65,7 +68,9 @@ view.free();
 - `ChartView.create(canvas, bytes, options)` decodes the chart message, builds its app at the canvas's CSS size and the display's pixel ratio, and draws it. It rejects with the decoder's error for an invalid message, which includes a message of another format version, and with an error that says so in a browser without WebGPU. `options` gives the project's `styles`, the `colorScheme`, light by default, whether the view is `transparent`, and `wheel`.
 - `setChart(bytes, options)` replaces the chart. By default it fits each scale to the new rows and keeps the views of the scales and the selections where the new chart has the same structure. `options` says otherwise: `fit` is `"refit"`, `"keep"`, or `"extend"`, `views` is `"keep"` or `"drop"`, and `selections` is `"keep"` or `"reset"`. It throws the decoder's error for an invalid message.
 - `onChange` hears each change of the chart by its reader, after the view applies it: `bytes`, a change message of avenger-chart's format, which a Rust server reads with `ChangeMessage`, the names of the `selections` that it wrote, the `modes` that are on when it holds them, and whether it `settled`. `reports: "settled"` reports only the changes when a gesture ends, with the selections that the gesture wrote before it.
-- `state()` gives the bytes of a change message of the chart's state: every selection's clauses and the modes that are on. `setState(bytes)` applies a change message, such as `state()` of another view or an `onChange` change, with the resolution that this chart gives each selection, and leaves out the selections and the modes that this chart does not declare, so a page can pass one chart's brush to another. `setMode(name, on)` turns a mode on or off, as a mode widget does.
+- `state(parts)` gives the bytes of a change message of the chart's state: every selection's clauses, the modes that are on, and the domain of each scale that a pan or a zoom moved, or the parts that `parts` keeps, `{ selections, modes, views }`, each `true` by default.
+- `setState(bytes, parts)` applies a change message, such as `state()` or an `onChange` change, or the parts of it that `parts` names: `selections` is `true`, `false`, or the names of the selections to apply, and `modes` and `views` are `true` or `false`, all `true` by default. A selection that the message holds takes its clauses, with the resolution that this chart gives it, and one without clauses clears. Its modes, when it holds them, turn on and turn off the chart's other toggles. A scale whose domain it holds shows the domain, as a pan or a zoom leaves it. What the message does not hold stays as it is, and the selections, the modes, and the scales that this chart does not declare are left out, so a page can pass one chart's brush to another.
+- `setMode(name, on)` turns a mode on or off, as a mode widget does, `clearSelection(name)` clears a selection, and `resetViews()` returns every scale to its fit.
 - `setColorScheme(scheme)` draws the chart for a reader who prefers `"light"` or `"dark"`: its background, and the rules of its stylesheets' `prefers-color-scheme` conditions.
 - `free()` removes the view's listeners and its resize observer, and frees its GPU resources. A page frees the views that it no longer shows.
 - The views of a page share one WebGPU device, so their pipelines compile once, and one label engine, with GoogleSQL's number and date formats, whose syntaxes the charts of avenger-sql name.
