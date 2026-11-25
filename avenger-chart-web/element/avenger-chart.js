@@ -113,6 +113,8 @@ class AvengerChart extends HTMLElement {
     this.view = undefined;
     this.canvas = undefined;
     this.creating = undefined;
+    /** Whether the element is near the screen, so a view that finishes creating stays. */
+    this.wanted = false;
     this.hiddenOutputs = [];
   }
 
@@ -138,6 +140,7 @@ class AvengerChart extends HTMLElement {
   }
 
   approach() {
+    this.wanted = true;
     if (this.view || this.creating) return;
     this.creating = this.create().finally(() => {
       this.creating = undefined;
@@ -167,7 +170,8 @@ class AvengerChart extends HTMLElement {
       console.warn("avenger-chart: the chart stays an image", error);
       return;
     }
-    if (!this.isConnected) {
+    // The element left the screen, or the page, while its view was created.
+    if (!this.wanted || !this.isConnected) {
       view.destroy();
       view.free();
       canvas.remove();
@@ -190,6 +194,7 @@ class AvengerChart extends HTMLElement {
   }
 
   leave() {
+    this.wanted = false;
     if (!this.view) return;
     followers.delete(this);
     this.view.destroy();
