@@ -78,15 +78,6 @@
       : undefined,
     colorSchemes: ["light", "dark"],
   });
-  /** The base64 text of `bytes`. */
-  function base64(bytes) {
-    if (bytes.toBase64) return bytes.toBase64();
-    let text = "";
-    for (let at = 0; at < bytes.length; at += 0x8000) {
-      text += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-    }
-    return btoa(text);
-  }
   const gallery = document.getElementById("gallery");
   for (const chart of manifest.charts) {
     const article = document.createElement("article");
@@ -97,13 +88,12 @@
     description.textContent = chart.description;
     article.append(title, description);
     gallery.append(article);
-    const bytes = new Uint8Array(await (await fetch(`./charts/${chart.name}.bin`, { cache: "no-cache" })).arrayBuffer());
     const element = document.createElement("avenger-chart");
     element.setAttribute("width", String(Math.floor(article.clientWidth - 28)));
     element.setAttribute("height", "340");
     const script = document.createElement("script");
     script.type = "application/vnd.avenger.chart+base64";
-    script.textContent = base64(bytes);
+    script.textContent = chart.bytes;
     element.append(script);
     article.append(element);
   }

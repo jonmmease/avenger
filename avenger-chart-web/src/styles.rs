@@ -1,6 +1,6 @@
-//! The styles of a view: `avenger_style::chart_cascade` of the color scheme's background, the
-//! view's transparency, and the project's stylesheet when the page gives one, as the CLI styles
-//! its images.
+//! The styles of a view: the project's stylesheets, which a view loads once, and
+//! `avenger_style::chart_cascade` of them, the color scheme's background, and the view's
+//! transparency, as the CLI styles its images.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -8,11 +8,12 @@ use avenger_style::{
     chart_cascade, resolve_import, Cascade, ColorScheme, Loaded, ParseOptions, Severity, Sheet,
     SourceId,
 };
+use serde::{Deserialize, Serialize};
 
 /// A project's stylesheets, as the page gives them: the path of the entry stylesheet, and the text
 /// of each stylesheet by its path relative to the project's root. The entry stylesheet imports the
 /// others by paths relative to itself, as a project's stylesheets do.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ProjectStyles {
     pub entry: String,
     pub files: BTreeMap<String, String>,
@@ -20,7 +21,7 @@ pub struct ProjectStyles {
 
 /// A diagnostic of a project's stylesheet, at a line and a column of its file, both from 1. The
 /// column counts characters.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PageDiagnostic {
     pub severity: &'static str,
     pub message: String,
@@ -29,30 +30,17 @@ pub struct PageDiagnostic {
     pub column: u32,
 }
 
-/// The cascade of the base stylesheet, the rule of a `transparent` view, and the stylesheets of
-/// `project`, for a reader who prefers `scheme`, and the diagnostics of `project`. The project's
-/// rules win over the base rules. Its rules that parse apply, and its imports read its other files
-/// and the `std:` stylesheets, since the library fetches no stylesheets.
-pub fn cascade(
-    project: Option<&ProjectStyles>,
-    scheme: ColorScheme,
-    transparent: bool,
-) -> (Arc<Cascade>, Vec<PageDiagnostic>) {
-    let (sheet, diagnostics) = match project {
-        Some(project) => {
-            let (sheet, diagnostics) = load(project);
-            (Some(sheet), diagnostics)
-        }
-        None => (None, Vec::new()),
-    };
-    (
-        chart_cascade(scheme.background(), transparent, sheet.iter()),
-        diagnostics,
-    )
+/// The cascade of the base stylesheet, the rule of a `transparent` view, and the project's
+/// stylesheet `sheet`, when the page gives one, for a reader who prefers `scheme`. The project's
+/// rules win over the base rules.
+pub fn cascade(sheet: Option<&Sheet>, scheme: ColorScheme, transparent: bool) -> Arc<Cascade> {
+    chart_cascade(scheme.background(), transparent, sheet)
 }
 
 /// The entry stylesheet of `project` with its imports, and the diagnostics of the project's files.
-fn load(project: &ProjectStyles) -> (Sheet, Vec<PageDiagnostic>) {
+/// Its rules that parse apply, and its imports read its other files and the `std:` stylesheets,
+/// since the library fetches no stylesheets.
+pub fn load(project: &ProjectStyles) -> (Sheet, Vec<PageDiagnostic>) {
     let options = ParseOptions {
         allow_import: true,
         ..Default::default()

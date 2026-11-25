@@ -2,7 +2,7 @@
 # Builds the avenger-chart-web package with the release-size profile and `wasm-opt -Oz`, and
 # prints the raw, gzip, and brotli sizes of its module and its glue. It sets no budget.
 #
-# Usage: scripts/size.sh [OUT_DIR]
+# Usage: scripts/build.sh [OUT_DIR]
 #
 # OUT_DIR is the package directory, `pkg` in the crate by default. The script finds wasm-opt in
 # WASM_OPT, on the PATH, or in the cache of wasm-pack. On macOS, a crate with C code builds for
@@ -22,7 +22,7 @@ fi
 wasm-pack build "$crate" --target web --profile release-size --no-opt --out-dir "$out"
 wasm_opt="${WASM_OPT:-$(command -v wasm-opt || ls "$HOME"/Library/Caches/.wasm-pack/wasm-opt-*/bin/wasm-opt 2>/dev/null | head -n 1 || true)}"
 if [[ -z "$wasm_opt" ]]; then
-  echo "size.sh: no wasm-opt; set WASM_OPT" >&2
+  echo "build.sh: no wasm-opt; set WASM_OPT" >&2
   exit 1
 fi
 module="$out/avenger_chart_web_bg.wasm"

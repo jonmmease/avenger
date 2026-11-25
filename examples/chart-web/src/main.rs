@@ -1,30 +1,29 @@
-//! Writes the charts of the gallery into `site/`: each chart's bytes as `charts/<NAME>.bin`, the
-//! faces that `avenger-fonts` bundles as `fonts/<FILE>`, which the page adds, since the library
-//! embeds no fonts, and `manifest.json`: the name, the title, and the description of each chart in
-//! the gallery's order, and the fonts' files in the order that the page adds them. It copies the
-//! library's `<avenger-chart>` element beside them, as `avenger-chart.js`.
+//! Writes the gallery into `site/`: `manifest.json`, with the name, the title, the description,
+//! and the bytes of each chart's message as base64, in the gallery's order, and the fonts' files
+//! in the order that the page adds them; the faces that `avenger-fonts` bundles as
+//! `fonts/<FILE>`, which the page adds, since the library embeds no fonts; and the library's
+//! `<avenger-chart>` element, as `avenger-chart.js`.
 //!
 //! Usage: `build-charts [SITE_DIR]`, where `SITE_DIR` is the example's `site` by default.
 
 use std::path::PathBuf;
+
+use base64::prelude::{Engine, BASE64_STANDARD};
 
 fn main() {
     let site = std::env::args()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("site"));
-    let charts = site.join("charts");
-    std::fs::create_dir_all(&charts).expect("the charts directory");
     let mut manifest = Vec::new();
     for entry in chart_web::gallery() {
         let bytes = entry.chart.to_bytes().expect("the chart encodes");
-        std::fs::write(charts.join(format!("{}.bin", entry.name)), &bytes)
-            .expect("the chart's file writes");
         println!("{}: {} bytes", entry.name, bytes.len());
         manifest.push(serde_json::json!({
             "name": entry.name,
             "title": entry.title,
             "description": entry.description,
+            "bytes": BASE64_STANDARD.encode(&bytes),
         }));
     }
     let fonts = site.join("fonts");

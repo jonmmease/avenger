@@ -5,10 +5,10 @@ A WebAssembly library that renders avenger chart messages in HTML canvases. A se
 ## Build
 
 ```bash
-wasm-pack build avenger-chart-web --target web --profile release-size
+avenger-chart-web/scripts/build.sh [OUT_DIR]
 ```
 
-`scripts/size.sh [OUT_DIR]` builds the package into `pkg/`, or `OUT_DIR`, with `wasm-opt -Oz`, and prints the sizes of its module and its glue. On macOS, a crate with C code builds for wasm32 with Homebrew's LLVM, which the script uses when it is installed.
+The script builds the package into `pkg/`, or `OUT_DIR`, with wasm-pack, the `release-size` profile, and `wasm-opt -Oz`, and prints the sizes of its module and its glue. On macOS, a crate with C code builds for wasm32 with Homebrew's LLVM, which the script uses when it is installed.
 
 ## The element
 
@@ -49,14 +49,14 @@ const view = await ChartView.create(canvas, bytes, { styles, colorScheme: "dark"
 view.setChart(newBytes);
 view.setColorScheme("light");
 const diagnostics = view.setStyles(newStyles);
-view.destroy();
+view.free();
 ```
 
 - `addFonts(bytes)` registers the faces of a font file for the views made after it.
 - `ChartView.create(canvas, bytes, options)` decodes the chart message, builds its app at the canvas's CSS size and the display's pixel ratio, and draws it. It rejects with the decoder's error for an invalid message, which includes a message of another format version, and with an error that says so in a browser without WebGPU. `options` gives the project's `styles`, the `colorScheme`, light by default, whether the view is `transparent`, and `wheel`.
 - `setChart(bytes)` replaces the chart, and keeps the views of its scales and its selections where the new chart has the same structure. It throws the decoder's error for an invalid message.
 - `setColorScheme(scheme)` draws the chart for a reader who prefers `"light"` or `"dark"`: its background, and the rules of its stylesheets' `prefers-color-scheme` conditions.
-- `destroy()` removes the view's listeners and its resize observer, and frees its GPU resources. A page destroys the views that it no longer shows.
+- `free()` removes the view's listeners and its resize observer, and frees its GPU resources. A page frees the views that it no longer shows.
 - The views of a page share one WebGPU device, so their pipelines compile once, and one label engine, with GoogleSQL's number and date formats, whose syntaxes the charts of avenger-sql name.
 
 ## Styles
@@ -78,7 +78,7 @@ The module embeds no fonts, so the page adds them: the faces that `avenger-fonts
 
 ## Sizes
 
-`scripts/size.sh` measured these sizes on 2026-11-25:
+`scripts/build.sh` measured these sizes on 2026-11-25:
 
 | File | Raw | gzip | Brotli |
 |---|---|---|---|

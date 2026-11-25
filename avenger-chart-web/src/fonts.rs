@@ -8,19 +8,16 @@ use avenger_format_datetime_googlesql::GoogleSqlDateTimeFormatProvider;
 use avenger_format_number_googlesql::GoogleSqlNumberFormatProvider;
 use avenger_typst_label::{EngineOptions, FontOptions, LabelEngine, RegisteredFont};
 
-#[derive(Debug, thiserror::Error, PartialEq)]
-pub enum FontsError {
-    #[error("the file is not a font")]
-    NotAFont,
-}
+/// The error of a file that is not a font.
+pub const NOT_A_FONT: &str = "the file is not a font";
 
 /// Each face of the font `file`: one for a font, and each face of a collection.
-pub fn read_fonts(file: &[u8]) -> Result<Vec<RegisteredFont>, FontsError> {
+pub fn read_fonts(file: &[u8]) -> Result<Vec<RegisteredFont>, &'static str> {
     let data: Arc<[u8]> = Arc::from(file);
     let count = ttf_parser::fonts_in_collection(&data).unwrap_or(1);
     (0..count)
         .map(|index| {
-            ttf_parser::Face::parse(&data, index).map_err(|_| FontsError::NotAFont)?;
+            ttf_parser::Face::parse(&data, index).map_err(|_| NOT_A_FONT)?;
             Ok(RegisteredFont::new(data.clone()).with_face_index(index))
         })
         .collect()

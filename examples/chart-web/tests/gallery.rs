@@ -19,7 +19,7 @@ fn each_chart_round_trips_through_its_bytes_and_builds_an_app() {
     let gallery = chart_web::gallery();
     assert_eq!(gallery.len(), 6);
     for scheme in [ColorScheme::Light, ColorScheme::Dark] {
-        let (styles, _) = cascade(None, scheme, true);
+        let styles = cascade(None, scheme, true);
         for entry in &gallery {
             let bytes = entry.chart.to_bytes().unwrap();
             let chart = Chart::from_bytes(bytes).unwrap();

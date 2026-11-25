@@ -6,8 +6,9 @@ use avenger_eventstream::window::{
     WindowKeyboardInput, WindowMouseInput, WindowMouseWheel,
 };
 
-/// When wheel events over the canvas reach the chart.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// When wheel events over the canvas reach the chart: the `wheel` option, `"focus"` or `"always"`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Wheel {
     /// Only while the canvas has the focus, so a page scrolls past a chart that it does not use.
     #[default]
@@ -17,17 +18,6 @@ pub enum Wheel {
 }
 
 impl Wheel {
-    /// The option of `name`, `"focus"` or `"always"`.
-    pub fn parse(name: &str) -> Result<Self, String> {
-        match name {
-            "focus" => Ok(Self::Focus),
-            "always" => Ok(Self::Always),
-            other => Err(format!(
-                "the wheel option is \"focus\" or \"always\", not \"{other}\""
-            )),
-        }
-    }
-
     /// Whether a wheel event over the canvas reaches the chart.
     pub fn reaches(self, focused: bool) -> bool {
         self == Self::Always || focused
@@ -143,9 +133,10 @@ pub fn key(key: &str, state: ElementState) -> Option<WindowEvent> {
 
 /// The touch pointers on the canvas and the gesture that they make. One finger scrolls the page,
 /// and a tap moves the cursor to its point and clicks there. A tap and a drag of two fingers start
-/// with the cursor's entering, which the chart's tools wait for, as a mouse's entering is. Two fingers pan the chart as a drag
-/// of their midpoint, and zoom it by the change of their distance as wheel steps at the midpoint,
-/// so the chart's navigation takes touch without touch events of its own.
+/// with the cursor's entering, which the chart's tools wait for, as a mouse's entering is. Two
+/// fingers pan the chart as a drag of their midpoint, and zoom it by the change of their distance
+/// as wheel steps at the midpoint, so the chart's navigation takes touch without touch events of
+/// its own.
 #[derive(Debug, Default)]
 pub struct Touches {
     /// The pointers that are down, by their `pointerId`, in the order that they went down.

@@ -90,7 +90,7 @@ fn read(csv: &str, fields: Vec<Field>, required: &[&str]) -> RecordBatch {
 }
 
 /// The movies of `movie-search`.
-pub fn movies() -> RecordBatch {
+fn movies() -> RecordBatch {
     read(
         include_str!("../../movie-search/data/movies.csv"),
         vec![

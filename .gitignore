@@ -9,11 +9,6 @@
 .DS_Store
 examples/*/pkg/
 avenger-chart-web/pkg/
-examples/chart-web/site/charts/
-examples/chart-web/site/fonts/
-examples/chart-web/site/lib/
-examples/chart-web/site/manifest.json
-examples/chart-web/site/avenger-chart.js
 examples/*/target/
 scratch/
 

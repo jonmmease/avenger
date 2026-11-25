@@ -12,6 +12,7 @@ path = "src/main.rs"
 avenger-chart = { path = "../../avenger-chart" }
 avenger-fonts = { path = "../../avenger-fonts" }
 arrow = { workspace = true, features = ["csv"] }
+base64 = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

@@ -12,24 +12,26 @@ use avenger_chart::Chart;
 use avenger_chart_app::{ChartApp, ChartAppState, ChartUpdate, ChartUpdates};
 use avenger_common::{canvas::CanvasDimensions, time::Instant};
 use avenger_eventstream::window::{ElementState, WindowEvent, WindowResizeEvent};
-use avenger_style::{ColorScheme, Preferences};
+use avenger_style::{ColorScheme, Sheet};
 use avenger_typst_label::{LabelEngine, RegisteredFont};
 use avenger_wgpu::{
     canvas::CanvasConfig,
     html_canvas::{BrowserGpu, HtmlCanvasCanvas},
 };
-use js_sys::{Array, Object, Promise, Reflect};
+use js_sys::{Array, Object, Promise};
+use serde::Deserialize;
+use serde_wasm_bindgen::{from_value, to_value};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 use web_sys::{
     AddEventListenerOptions, ClipboardEvent, Event, FocusOptions, HtmlCanvasElement, KeyboardEvent,
-    PointerEvent, ResizeObserver, ResizeObserverEntry, TouchEvent, WheelEvent,
+    MouseEvent, PointerEvent, ResizeObserver, ResizeObserverEntry, TouchEvent, WheelEvent,
 };
 
 use crate::{
     fonts::{label_engine, read_fonts},
     input::{self, Touches, Wheel},
-    styles::{cascade, PageDiagnostic, ProjectStyles},
+    styles::{cascade, load, ProjectStyles},
 };
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -65,6 +67,35 @@ export interface StyleDiagnostic {
 }
 "#;
 
+/// The options of `ChartView.create`, as `ViewOptions` declares them. Each is optional, so an
+/// option that is missing, `undefined`, or `null` takes its default.
+#[derive(Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ViewOptions {
+    styles: Option<ProjectStyles>,
+    color_scheme: Option<Scheme>,
+    transparent: Option<bool>,
+    wheel: Option<Wheel>,
+}
+
+/// A color scheme as the page names it, `"light"` or `"dark"`.
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Scheme {
+    #[default]
+    Light,
+    Dark,
+}
+
+impl From<Scheme> for ColorScheme {
+    fn from(scheme: Scheme) -> Self {
+        match scheme {
+            Scheme::Light => ColorScheme::Light,
+            Scheme::Dark => ColorScheme::Dark,
+        }
+    }
+}
+
 #[wasm_bindgen(start)]
 fn start() {
     console_error_panic_hook::set_once();
@@ -95,7 +126,7 @@ thread_local! {
 /// their order, and its own fonts after them.
 #[wasm_bindgen(js_name = addFonts)]
 pub fn add_fonts(file: &[u8]) -> Result<(), JsError> {
-    let fonts = read_fonts(file).map_err(|error| JsError::new(&error.to_string()))?;
+    let fonts = read_fonts(file).map_err(JsError::new)?;
     PAGE.with(|page| page.fonts.borrow_mut().extend(fonts));
     Ok(())
 }
@@ -163,9 +194,9 @@ struct View {
     canvas: HtmlCanvasElement,
     wheel: Wheel,
     updates: ChartUpdates,
-    /// The project's stylesheets, the color scheme, and whether the view is transparent, which a
-    /// change of the stylesheets or of the scheme styles the chart with again.
-    styles: RefCell<Option<ProjectStyles>>,
+    /// The project's stylesheet, loaded once, the color scheme, and whether the view is
+    /// transparent, which a change of the stylesheet or of the scheme styles the chart with again.
+    sheet: RefCell<Option<Sheet>>,
     scheme: Cell<ColorScheme>,
     transparent: bool,
     /// The app and its canvas, which the driver takes while it awaits the app, and which
@@ -183,16 +214,15 @@ struct View {
 /// The resize observer of a view's canvas, with the callback that it calls.
 type Observer = (ResizeObserver, Closure<dyn FnMut(Array)>);
 
-struct Listener {
-    kind: &'static str,
-    callback: Closure<dyn FnMut(Event)>,
-}
+/// A listener of a view's canvas: the kind of its events, and its callback.
+type Listener = (&'static str, Closure<dyn FnMut(Event)>);
 
-/// A chart in a canvas, with the tools that the chart declares.
+/// A chart in a canvas, with the tools that the chart declares. `free()` removes the view's
+/// listeners and its resize observer, and frees its GPU resources.
 #[wasm_bindgen]
 pub struct ChartView {
     view: Rc<View>,
-    diagnostics: Array,
+    diagnostics: JsValue,
 }
 
 #[wasm_bindgen]
@@ -208,24 +238,27 @@ impl ChartView {
         #[wasm_bindgen(unchecked_optional_param_type = "ViewOptions")] options: Option<Object>,
     ) -> Result<ChartView, JsValue> {
         let chart = Chart::from_bytes(bytes).map_err(|error| JsError::new(&error.to_string()))?;
-        let project = styles_option(options.as_ref())?;
-        let scheme = match string_option(options.as_ref(), "colorScheme")? {
-            Some(name) => color_scheme(&name)?,
-            None => ColorScheme::Light,
+        let options: ViewOptions = match options {
+            Some(options) => from_value(options.into())?,
+            None => ViewOptions::default(),
         };
-        let transparent = bool_option(options.as_ref(), "transparent")?;
-        let wheel = match string_option(options.as_ref(), "wheel")? {
-            Some(name) => Wheel::parse(&name).map_err(|error| JsError::new(&error))?,
-            None => Wheel::default(),
+        let scheme = ColorScheme::from(options.color_scheme.unwrap_or_default());
+        let transparent = options.transparent.unwrap_or_default();
+        let (sheet, diagnostics) = match &options.styles {
+            Some(project) => {
+                let (sheet, diagnostics) = load(project);
+                (Some(sheet), diagnostics)
+            }
+            None => (None, Vec::new()),
         };
         let engine = engine();
         let gpu = gpu().await?;
-        let (styles, diagnostics) = cascade(project.as_ref(), scheme, transparent);
+        let styles = cascade(sheet.as_ref(), scheme, transparent);
 
         let size = css_size(&canvas);
         let dimensions = fit(size, pixel_ratio(), gpu.max_texture_dimension());
         let updates = ChartUpdates::new();
-        updates.set_preferences(preferences(scheme));
+        updates.set_preferences(scheme.preferences());
         let app = ChartApp::new(chart, styles, engine)
             .size(size)
             .updates(&updates)
@@ -244,9 +277,9 @@ impl ChartView {
         let view = Rc::new(View {
             id,
             canvas: canvas.clone(),
-            wheel,
+            wheel: options.wheel.unwrap_or_default(),
             updates,
-            styles: RefCell::new(project),
+            sheet: RefCell::new(sheet),
             scheme: Cell::new(scheme),
             transparent,
             core: RefCell::new(Some(Core {
@@ -279,14 +312,14 @@ impl ChartView {
         push(&view, Input::Refresh);
         Ok(ChartView {
             view,
-            diagnostics: diagnostics_array(&diagnostics),
+            diagnostics: to_value(&diagnostics)?,
         })
     }
 
     /// The diagnostics of the project's stylesheets: objects with `severity`, `message`, `file`,
     /// `line`, and `column`.
     #[wasm_bindgen(getter, unchecked_return_type = "StyleDiagnostic[]")]
-    pub fn diagnostics(&self) -> Array {
+    pub fn diagnostics(&self) -> JsValue {
         self.diagnostics.clone()
     }
 
@@ -307,9 +340,17 @@ impl ChartView {
     pub fn set_styles(
         &self,
         #[wasm_bindgen(unchecked_param_type = "ProjectStyles | null")] styles: JsValue,
-    ) -> Result<Array, JsValue> {
-        *self.view.styles.borrow_mut() = project_styles(&styles)?;
-        Ok(diagnostics_array(&self.view.restyle()))
+    ) -> Result<JsValue, JsValue> {
+        let (sheet, diagnostics) = match from_value::<Option<ProjectStyles>>(styles)? {
+            Some(project) => {
+                let (sheet, diagnostics) = load(&project);
+                (Some(sheet), diagnostics)
+            }
+            None => (None, Vec::new()),
+        };
+        *self.view.sheet.borrow_mut() = sheet;
+        self.view.restyle();
+        Ok(to_value(&diagnostics)?)
     }
 
     /// Draws the chart for a reader who prefers the color scheme `scheme`, `"light"` or `"dark"`:
@@ -317,24 +358,18 @@ impl ChartView {
     #[wasm_bindgen(js_name = setColorScheme)]
     pub fn set_color_scheme(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "\"light\" | \"dark\"")] scheme: String,
+        #[wasm_bindgen(unchecked_param_type = "\"light\" | \"dark\"")] scheme: JsValue,
     ) -> Result<(), JsValue> {
-        let scheme = color_scheme(&scheme)?;
+        let scheme = ColorScheme::from(from_value::<Scheme>(scheme)?);
         if scheme != self.view.scheme.replace(scheme) {
-            self.view.updates.set_preferences(preferences(scheme));
+            self.view.updates.set_preferences(scheme.preferences());
             self.view.restyle();
         }
         Ok(())
     }
-
-    /// Removes the view's listeners and its resize observer, and frees its GPU resources.
-    pub fn destroy(&self) {
-        self.view.release();
-    }
 }
 
-/// A view that JavaScript frees without `destroy` releases its canvas too, so the canvas calls no
-/// freed listener.
+/// A view that JavaScript frees releases its canvas, so the canvas calls no freed listener.
 impl Drop for ChartView {
     fn drop(&mut self) {
         self.view.release();
@@ -347,11 +382,10 @@ impl View {
         if self.destroyed.replace(true) {
             return;
         }
-        for listener in self.listeners.take() {
-            let _ = self.canvas.remove_event_listener_with_callback(
-                listener.kind,
-                listener.callback.as_ref().unchecked_ref(),
-            );
+        for (kind, callback) in self.listeners.take() {
+            let _ = self
+                .canvas
+                .remove_event_listener_with_callback(kind, callback.as_ref().unchecked_ref());
         }
         if let Some((observer, _)) = self.observer.take() {
             observer.disconnect();
@@ -361,124 +395,22 @@ impl View {
         drop(self.core.take());
         PAGE.with(|page| page.views.borrow_mut().remove(&self.id));
     }
-}
 
-impl View {
-    /// Styles the chart again with its stylesheets, its scheme, and its transparency, and returns
-    /// the diagnostics of the stylesheets.
-    fn restyle(&self) -> Vec<PageDiagnostic> {
-        let styles = self.styles.borrow();
-        let (cascade, diagnostics) = cascade(styles.as_ref(), self.scheme.get(), self.transparent);
+    /// Styles the chart again with its stylesheet, its scheme, and its transparency.
+    fn restyle(&self) {
+        let sheet = self.sheet.borrow();
+        let cascade = cascade(sheet.as_ref(), self.scheme.get(), self.transparent);
         self.updates.send(ChartUpdate::styles(cascade));
-        diagnostics
     }
 }
 
 /// The color that a view's canvas clears to: none for a transparent view, so the page shows
 /// through, and the background of `scheme` otherwise, as the CLI's images of one scheme have.
 fn canvas_background(scheme: ColorScheme, transparent: bool) -> [f32; 4] {
-    if transparent {
-        return [0.0; 4];
+    match transparent {
+        true => [0.0; 4],
+        false => scheme.background_rgba(),
     }
-    let hex = scheme.background().trim_start_matches('#');
-    let channel = |at: usize| {
-        u8::from_str_radix(&hex[at..at + 2], 16).map_or(1.0, |value| f32::from(value) / 255.0)
-    };
-    [channel(0), channel(2), channel(4), 1.0]
-}
-
-/// The preferences of a reader who prefers the color scheme `scheme`, which the stylesheets'
-/// `prefers-color-scheme` conditions test.
-fn preferences(scheme: ColorScheme) -> Preferences {
-    Preferences {
-        color_scheme: scheme,
-        ..Preferences::default()
-    }
-}
-
-/// The color scheme that `name` names, `light` or `dark`.
-fn color_scheme(name: &str) -> Result<ColorScheme, JsValue> {
-    match name {
-        "light" => Ok(ColorScheme::Light),
-        "dark" => Ok(ColorScheme::Dark),
-        other => Err(JsError::new(&format!("the color scheme `{other}`: light or dark")).into()),
-    }
-}
-
-/// The project's stylesheets of the `styles` option, when it gives them.
-fn styles_option(options: Option<&Object>) -> Result<Option<ProjectStyles>, JsValue> {
-    match options {
-        Some(options) => project_styles(&Reflect::get(options, &JsValue::from_str("styles"))?),
-        None => Ok(None),
-    }
-}
-
-/// The project's stylesheets of `value`, an object of `entry` and `files`, or none for `null`.
-fn project_styles(value: &JsValue) -> Result<Option<ProjectStyles>, JsValue> {
-    if value.is_undefined() || value.is_null() {
-        return Ok(None);
-    }
-    let invalid = || JsError::new("the styles are an object of `entry` and `files`");
-    let entry = Reflect::get(value, &JsValue::from_str("entry"))?
-        .as_string()
-        .ok_or_else(invalid)?;
-    let files = Reflect::get(value, &JsValue::from_str("files"))?;
-    let files: Object = files.dyn_into().map_err(|_| invalid())?;
-    let mut map = std::collections::BTreeMap::new();
-    for pair in Object::entries(&files).iter() {
-        let pair: Array = pair.dyn_into()?;
-        let path = pair.get(0).as_string().ok_or_else(invalid)?;
-        let text = pair.get(1).as_string().ok_or_else(invalid)?;
-        map.insert(path, text);
-    }
-    Ok(Some(ProjectStyles { entry, files: map }))
-}
-
-/// The boolean at `key` of `options`, false when it has none.
-fn bool_option(options: Option<&Object>, key: &str) -> Result<bool, JsValue> {
-    let Some(options) = options else {
-        return Ok(false);
-    };
-    let value = Reflect::get(options, &JsValue::from_str(key))?;
-    if value.is_undefined() || value.is_null() {
-        return Ok(false);
-    }
-    value
-        .as_bool()
-        .ok_or_else(|| JsError::new(&format!("the {key} option is a boolean")).into())
-}
-
-/// The string at `key` of `options`, when it has one.
-fn string_option(options: Option<&Object>, key: &str) -> Result<Option<String>, JsValue> {
-    let Some(options) = options else {
-        return Ok(None);
-    };
-    let value = Reflect::get(options, &JsValue::from_str(key))?;
-    if value.is_undefined() || value.is_null() {
-        return Ok(None);
-    }
-    value
-        .as_string()
-        .map(Some)
-        .ok_or_else(|| JsError::new(&format!("the {key} option is a string")).into())
-}
-
-fn diagnostics_array(diagnostics: &[PageDiagnostic]) -> Array {
-    diagnostics
-        .iter()
-        .map(|diagnostic| {
-            let object = Object::new();
-            let set = |key: &str, value: JsValue| {
-                let _ = Reflect::set(&object, &JsValue::from_str(key), &value);
-            };
-            set("severity", JsValue::from_str(diagnostic.severity));
-            set("message", JsValue::from_str(&diagnostic.message));
-            set("file", JsValue::from_str(&diagnostic.file));
-            set("line", JsValue::from(diagnostic.line));
-            set("column", JsValue::from(diagnostic.column));
-            JsValue::from(object)
-        })
-        .collect()
 }
 
 /// The canvas's size in its own CSS pixels, which a CSS transform of the page does not change, or
@@ -638,16 +570,10 @@ fn log(message: &str) {
 
 /// The position of a pointer, wheel, or mouse event in the CSS pixels of `canvas`'s content, from
 /// the event's client coordinates, so that dispatched events place as the browser's do.
-fn position(canvas: &HtmlCanvasElement, event: &Event) -> [f32; 2] {
-    let client = |key: &str| {
-        Reflect::get(event, &JsValue::from_str(key))
-            .ok()
-            .and_then(|value| value.as_f64())
-            .unwrap_or(0.0)
-    };
+fn position(canvas: &HtmlCanvasElement, event: &MouseEvent) -> [f32; 2] {
     let rect = canvas.get_bounding_client_rect();
     input::canvas_position(
-        [client("clientX"), client("clientY")],
+        [f64::from(event.client_x()), f64::from(event.client_y())],
         [rect.left(), rect.top()],
         [rect.width(), rect.height()],
         [
@@ -685,9 +611,7 @@ fn listen(view: &Rc<View>) -> Result<(), JsValue> {
                 callback.as_ref().unchecked_ref(),
                 &options,
             )?;
-        view.listeners
-            .borrow_mut()
-            .push(Listener { kind, callback });
+        view.listeners.borrow_mut().push((kind, callback));
         Ok::<(), JsValue>(())
     };
     on("pointerdown", false, pointer_down)?;
@@ -723,7 +647,7 @@ fn listen(view: &Rc<View>) -> Result<(), JsValue> {
         event.prevent_default();
         push(
             view,
-            Input::Event(input::moved(position(&view.canvas, &event))),
+            Input::Event(input::moved(position(&view.canvas, wheel))),
         );
         let delta = input::wheel(wheel.delta_x(), wheel.delta_y(), wheel.delta_mode());
         push(view, Input::Event(delta));
@@ -760,77 +684,66 @@ fn is_touch(event: &Event) -> bool {
         .is_some_and(|event| event.pointer_type() == "touch")
 }
 
-fn pointer_down(view: &Rc<View>, event: Event) {
+/// Handles a pointer event at its position in the canvas: a finger's through the view's touches,
+/// with `touch`, and a mouse's or a pen's as the window events of `mouse`.
+fn pointer(
+    view: &Rc<View>,
+    event: &Event,
+    touch: impl FnOnce(&mut Touches, i32, [f32; 2]) -> Vec<WindowEvent>,
+    mouse: impl FnOnce(&PointerEvent, [f32; 2]) -> Vec<WindowEvent>,
+) {
     let Some(pointer) = event.dyn_ref::<PointerEvent>() else {
         return;
     };
-    let at = position(&view.canvas, &event);
+    let at = position(&view.canvas, pointer);
+    let events = match pointer.pointer_type() == "touch" {
+        true => touch(&mut view.touches.borrow_mut(), pointer.pointer_id(), at),
+        false => mouse(pointer, at),
+    };
+    for event in events {
+        push(view, Input::Event(event));
+    }
+}
+
+fn pointer_down(view: &Rc<View>, event: Event) {
     // A press focuses the canvas, so the wheel and the keys reach the chart after it.
     let options = FocusOptions::new();
     options.set_prevent_scroll(true);
     let _ = view.canvas.focus_with_options(&options);
-    if pointer.pointer_type() == "touch" {
-        for event in view.touches.borrow_mut().down(pointer.pointer_id(), at) {
-            push(view, Input::Event(event));
-        }
-        return;
-    }
-    // The canvas keeps the pointer during a drag that leaves it, and the page selects no text.
-    event.prevent_default();
-    let _ = view.canvas.set_pointer_capture(pointer.pointer_id());
-    push(view, Input::Event(input::moved(at)));
-    let button = input::button(pointer.button());
-    push(
-        view,
-        Input::Event(input::press(button, ElementState::Pressed)),
-    );
+    pointer(view, &event, Touches::down, |pointer, at| {
+        // The canvas keeps the pointer during a drag that leaves it, and the page selects no text.
+        event.prevent_default();
+        let _ = view.canvas.set_pointer_capture(pointer.pointer_id());
+        let button = input::button(pointer.button());
+        vec![
+            input::moved(at),
+            input::press(button, ElementState::Pressed),
+        ]
+    });
 }
 
 fn pointer_move(view: &Rc<View>, event: Event) {
-    let Some(pointer) = event.dyn_ref::<PointerEvent>() else {
-        return;
-    };
-    let at = position(&view.canvas, &event);
-    if pointer.pointer_type() == "touch" {
-        for event in view.touches.borrow_mut().moved(pointer.pointer_id(), at) {
-            push(view, Input::Event(event));
-        }
-        return;
-    }
-    push(view, Input::Event(input::moved(at)));
+    pointer(view, &event, Touches::moved, |_, at| vec![input::moved(at)]);
 }
 
 fn pointer_up(view: &Rc<View>, event: Event) {
-    let Some(pointer) = event.dyn_ref::<PointerEvent>() else {
-        return;
-    };
-    let at = position(&view.canvas, &event);
-    if pointer.pointer_type() == "touch" {
-        for event in view.touches.borrow_mut().up(pointer.pointer_id(), at) {
-            push(view, Input::Event(event));
-        }
-        return;
-    }
-    push(view, Input::Event(input::moved(at)));
-    let button = input::button(pointer.button());
-    push(
-        view,
-        Input::Event(input::press(button, ElementState::Released)),
-    );
+    pointer(view, &event, Touches::up, |pointer, at| {
+        let button = input::button(pointer.button());
+        vec![
+            input::moved(at),
+            input::press(button, ElementState::Released),
+        ]
+    });
 }
 
 fn pointer_cancel(view: &Rc<View>, event: Event) {
-    let Some(pointer) = event.dyn_ref::<PointerEvent>() else {
-        return;
-    };
-    if pointer.pointer_type() == "touch" {
-        for event in view.touches.borrow_mut().cancel(pointer.pointer_id()) {
-            push(view, Input::Event(event));
-        }
-        return;
-    }
-    // A lost pointer cancels its press, as a lost focus does.
-    push(view, Input::Event(WindowEvent::WindowFocused(false)));
+    pointer(
+        view,
+        &event,
+        |touches, id, _| touches.cancel(id),
+        // A lost pointer cancels its press, as a lost focus does.
+        |_, _| vec![WindowEvent::WindowFocused(false)],
+    );
 }
 
 fn key(view: &Rc<View>, event: Event, state: ElementState) {

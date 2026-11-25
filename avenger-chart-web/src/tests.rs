@@ -11,9 +11,9 @@ use avenger_style::{ColorScheme, Element, HostInputs, Property, StyleTree};
 use avenger_typst_label::{LabelOptions, RegisteredFont};
 
 use crate::{
-    fonts::{font_options, label_engine, read_fonts, FontsError},
+    fonts::{font_options, label_engine, read_fonts, NOT_A_FONT},
     input::{self, Touches, Wheel},
-    styles::{cascade, ProjectStyles},
+    styles::{cascade, load, ProjectStyles},
 };
 
 /// The faces that `avenger-fonts` bundles, in their order, as a page adds them.
@@ -34,7 +34,7 @@ fn a_font_file_reads_as_its_one_face() {
 
 #[test]
 fn a_file_that_is_not_a_font_is_an_error() {
-    assert_eq!(read_fonts(b"not a font").unwrap_err(), FontsError::NotAFont);
+    assert_eq!(read_fonts(b"not a font").unwrap_err(), NOT_A_FONT);
 }
 
 #[test]
@@ -117,8 +117,6 @@ fn wheel_deltas_point_as_winit_deltas_do() {
 #[test]
 fn the_wheel_option_chooses_when_the_wheel_reaches_the_chart() {
     assert_eq!(Wheel::default(), Wheel::Focus);
-    assert_eq!(Wheel::parse("always"), Ok(Wheel::Always));
-    assert!(Wheel::parse("sometimes").is_err());
     assert!(!Wheel::Focus.reaches(false));
     assert!(Wheel::Focus.reaches(true));
     assert!(Wheel::Always.reaches(false));
@@ -243,8 +241,12 @@ fn colors(
     tree.set_attribute(plot, "type", "cartesian");
     let mark = tree.add(plot, Element::Mark);
     tree.set_attribute_forms(mark, "type", "bar", "bar");
-    let (styles, diagnostics) = cascade(project, scheme, transparent);
-    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    let sheet = project.map(|project| {
+        let (sheet, diagnostics) = load(project);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        sheet
+    });
+    let styles = cascade(sheet.as_ref(), scheme, transparent);
     let computed = styles.compute(&tree, &HostInputs::default());
     let background = computed[tree.root()]
         .color(Property::Background)
@@ -296,7 +298,7 @@ fn a_project_stylesheet_reports_its_diagnostics_at_their_files_lines_and_columns
         "chart.css",
         "mark { color: red; }\nplot {\n  colr: blue;\n}",
     )]);
-    let (_, diagnostics) = cascade(Some(&typo), ColorScheme::Light, false);
+    let (_, diagnostics) = load(&typo);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
     let found = &diagnostics[0];
     assert_eq!(
@@ -304,7 +306,7 @@ fn a_project_stylesheet_reports_its_diagnostics_at_their_files_lines_and_columns
         ("chart.css", 3, 3)
     );
     let missing = project(&[("chart.css", "@import 'theme.css';")]);
-    let (_, diagnostics) = cascade(Some(&missing), ColorScheme::Light, false);
+    let (_, diagnostics) = load(&missing);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
     assert_eq!(diagnostics[0].severity, "error");
     assert!(
