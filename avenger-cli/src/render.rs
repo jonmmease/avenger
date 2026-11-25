@@ -28,7 +28,7 @@ use avenger_scenegraph::{
 };
 use avenger_sql_language::FileRole;
 use avenger_sql_project::{
-    charts::{cascade, label_engine, preferences},
+    charts::{label_engine, preferences},
     find_root,
     qmd::{is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
@@ -207,9 +207,6 @@ pub async fn run_all(
 /// runtime that the chart apps prepare their charts on.
 pub(crate) struct Renderer {
     engine: LabelEngine,
-    /// The sheet of a transparent background, between the base stylesheet and the project's, when
-    /// the options draw on one.
-    transparent: Sheet,
     extra: Option<Sheet>,
     images: ImageCache,
     runtime: tokio::runtime::Handle,
@@ -223,27 +220,11 @@ impl Renderer {
         };
         Ok(Renderer {
             engine: label_engine(),
-            transparent: transparent_sheet(),
             extra,
             images: ImageCache::with_options(image_options()?),
             runtime: options.runtime.clone(),
         })
     }
-}
-
-/// The sheet that leaves a chart's background to the surface around it, which the base stylesheet
-/// sets to `env(background)`.
-fn transparent_sheet() -> Sheet {
-    let mut no_files = |url: &str, _: Option<&str>| Err(format!("no file `{url}`"));
-    let (sheet, diagnostics) = Sheet::load(
-        "chart { background: transparent; }",
-        None,
-        SourceId(u32::MAX - 2),
-        ParseOptions::default(),
-        &mut no_files,
-    );
-    debug_assert!(diagnostics.is_empty(), "{diagnostics:#?}");
-    sheet
 }
 
 /// The stylesheet at `path`, alone, without imports of other files.
@@ -726,13 +707,12 @@ pub(crate) async fn result_image(
     options: &Options,
     renderer: &Renderer,
 ) -> Result<Image, Failure> {
-    let sheets = (options
-        .transparent
-        .then_some(&renderer.transparent)
-        .into_iter())
-    .chain(&target.stylesheet.sheet)
-    .chain(&renderer.extra);
-    let cascade = cascade(options.color_scheme.background(), sheets);
+    let sheets = target.stylesheet.sheet.iter().chain(&renderer.extra);
+    let cascade = avenger_style::chart_cascade(
+        options.color_scheme.background(),
+        options.transparent,
+        sheets,
+    );
     let single = (result.shape() == Shape::Chart)
         .then(|| result.chart(0, 0))
         .flatten();

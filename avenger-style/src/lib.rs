@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod cascade;
+mod chart;
 mod computed;
 pub mod condition;
 mod conditions;
@@ -17,6 +18,7 @@ pub mod values;
 pub mod vocab;
 
 pub use cascade::Cascade;
+pub use chart::chart_cascade;
 pub use computed::{Computed, ComputedStyle, ComputedStyles, Paint, StyleWarning};
 pub use host::{ColorScheme, Contrast, HostInputs, HostTheme, Preferences};
 pub use import::resolve_import;
