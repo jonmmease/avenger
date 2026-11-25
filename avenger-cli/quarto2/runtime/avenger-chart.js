@@ -87,15 +87,28 @@ function follow(element) {
   }
 }
 
-/** The observers that create a view as its element nears the screen and free it as it leaves. */
+/** The observers that mark an element near the screen as it nears it, and far as it leaves. */
 const near = new IntersectionObserver(
-  (entries) => entries.forEach((entry) => entry.isIntersecting && entry.target.approach()),
+  (entries) =>
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) entry.target.setNear(true);
+    }),
   { rootMargin: "200px" },
 );
 const far = new IntersectionObserver(
-  (entries) => entries.forEach((entry) => !entry.isIntersecting && entry.target.leave()),
+  (entries) =>
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) entry.target.setNear(false);
+    }),
   { rootMargin: "600px" },
 );
+
+/** The connected elements, which a change of revealjs's slide updates. */
+const connected = new Set();
+// revealjs lays every slide out in one place and shows one, so an element of another slide counts
+// as near the screen. A change of slide decides again which elements hold views.
+document.addEventListener("slidechanged", () => connected.forEach((element) => element.update()));
+document.addEventListener("ready", () => connected.forEach((element) => element.update()));
 
 function frame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -114,7 +127,9 @@ class AvengerChart extends HTMLElement {
     this.view = undefined;
     this.canvas = undefined;
     this.creating = undefined;
-    /** Whether the element is near the screen, so a view that finishes creating stays. */
+    /** Whether the element is near the screen, as the observers last said. */
+    this.near = false;
+    /** Whether the element wants a view: near the screen, and on the present slide of a deck. */
     this.wanted = false;
     this.hiddenOutputs = [];
   }
@@ -124,11 +139,13 @@ class AvengerChart extends HTMLElement {
     this.style.display = "block";
     this.style.height = "0";
     this.style.overflow = "hidden";
+    connected.add(this);
     near.observe(this);
     far.observe(this);
   }
 
   disconnectedCallback() {
+    connected.delete(this);
     near.unobserve(this);
     far.unobserve(this);
     this.leave();
@@ -138,6 +155,23 @@ class AvengerChart extends HTMLElement {
     const width = Number(this.getAttribute("width")) || 300;
     const height = Number(this.getAttribute("height")) || 200;
     return [width, height];
+  }
+
+  setNear(near) {
+    this.near = near;
+    this.update();
+  }
+
+  /** Whether the element is on the present slide of a revealjs deck, or in no deck. */
+  shown() {
+    const slide = this.closest(".reveal .slides section");
+    return !slide || slide.classList.contains("present");
+  }
+
+  /** Creates the element's view when it is near the screen and shown, and frees it otherwise. */
+  update() {
+    if (this.near && this.shown()) this.approach();
+    else this.leave();
   }
 
   approach() {

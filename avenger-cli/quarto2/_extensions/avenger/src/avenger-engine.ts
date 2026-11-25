@@ -92,10 +92,9 @@ export function imageFor(to: string): Request["image"] {
 
 /**
  * The output formats whose pages run scripts, where a chart that declares tools draws in a canvas
- * with them. q2 writes epub as HTML too, but epub readers rarely run scripts, and revealjs scales
- * its slides with a CSS transform, which the canvas's pointer positions do not follow yet.
+ * with them. q2 writes epub as HTML too, but epub readers rarely run scripts.
  */
-const INTERACTIVE_FORMATS = new Set(["html", "html4", "html5", "dashboard"]);
+const INTERACTIVE_FORMATS = new Set(["html", "html4", "html5", "dashboard", "revealjs"]);
 
 /** Whether the output format `to` draws charts with tools interactively. */
 export function interactiveFor(to: string): boolean {
