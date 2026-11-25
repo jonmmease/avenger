@@ -7,13 +7,14 @@ use std::{collections::BTreeMap, sync::Arc};
 use arrow::array::ArrayRef;
 use avenger_app_tools::brushes::Lasso;
 use avenger_chart::{
+    builder::Value,
     proto::{self, encoding, layer_tool, tool, Channel},
     resolve::{Identity, Layer},
-    Chart,
+    ChangeMessage, Chart,
 };
 use avenger_chart_eval::{
-    ChartEvaluator, EvalError, EvalWarning, EvaluatedPlot, ProjectionIdentity, ProjectionView,
-    Registry, ScaleIdentity,
+    change, ChartEvaluator, EvalError, EvalWarning, EvaluatedPlot, ProjectionIdentity,
+    ProjectionView, Registry, ScaleIdentity,
 };
 use avenger_coords::PlotCoords;
 use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
@@ -53,6 +54,64 @@ impl ChartChange {
         (self.selections.iter())
             .find(|(written, _)| written == name)
             .map(|(_, clauses)| clauses.as_slice())
+    }
+
+    /// The change in the format, as a page sends it to its server: its domains, its selections,
+    /// its modes, and whether it settled, without its projections. It fails for a domain or a
+    /// clause that the format cannot hold, such as a value of a type that Arrow cannot write.
+    pub fn to_message(&self) -> Result<ChangeMessage, EvalError> {
+        let domains = (self.domains.iter()).map(|(identity, domain)| {
+            proto::ScaleDomain::new(change::scale_key(identity), Value::list(domain.clone()))
+        });
+        let selections = (self.selections.iter())
+            .map(|(name, clauses)| {
+                let clauses = (clauses.iter())
+                    .map(change::clause_to_format)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(proto::SelectionClauses::new(name.clone()).clauses(clauses))
+            })
+            .collect::<Result<Vec<_>, EvalError>>()?;
+        let mut builder = proto::ChartChange::builder()
+            .domains(domains)
+            .selections(selections)
+            .settled(self.settled);
+        if let Some(modes) = &self.modes {
+            builder = builder.modes(proto::ModesOn::builder().names(modes.clone()));
+        }
+        Ok(ChangeMessage::new(builder)?)
+    }
+
+    /// The change of `message`, as a server reads what a page sent, without projections.
+    pub fn from_message(message: &ChangeMessage) -> Result<Self, EvalError> {
+        let change = message.message();
+        let domains = (change.domains.iter())
+            .map(|domain| {
+                let scale = domain.scale.as_ref().expect("a valid domain has a scale");
+                let values = domain
+                    .domain
+                    .as_ref()
+                    .expect("a valid domain has its values");
+                (
+                    change::scale_identity(message, scale),
+                    message.list_elements(values),
+                )
+            })
+            .collect();
+        let selections = (change.selections.iter())
+            .map(|selection| {
+                let clauses = (selection.clauses.iter())
+                    .map(|clause| change::clause_from_format(message, clause))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((selection.name.clone(), clauses))
+            })
+            .collect::<Result<Vec<_>, EvalError>>()?;
+        Ok(Self {
+            domains,
+            projections: Vec::new(),
+            selections,
+            modes: change.modes.as_ref().map(|modes| modes.names.clone()),
+            settled: change.settled,
+        })
     }
 
     /// Whether the change holds no domain, no projection, no selection, and no modes.

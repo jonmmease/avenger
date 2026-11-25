@@ -4,7 +4,7 @@
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
 use super::{
-    classes, fail, keyed, label_settings, named, non_negative, positive, shown_labels, size, title,
+    classes, fail, label_settings, named, non_negative, positive, shown_labels, size, title,
     within, Checker, Result, REQUIRED,
 };
 use crate::{
@@ -42,7 +42,9 @@ impl Checker<'_> {
             Some(Node::Plot(plot)) => self.plot(plot, &format!("{path}.plot"), scope),
             Some(Node::Concat(concat)) => self.concat(concat, &format!("{path}.concat"), scope),
             Some(Node::Wrap(wrap)) => self.wrap(wrap, &format!("{path}.wrap"), scope),
-            Some(Node::Empty(empty)) => self.partition(&empty.partition, &format!("{path}.empty")),
+            Some(Node::Empty(empty)) => self
+                .values
+                .partition(&empty.partition, &format!("{path}.empty")),
             None => Err(fail(
                 path,
                 "a node is a plot, a concat, a wrap, or an empty cell",
@@ -51,7 +53,7 @@ impl Checker<'_> {
     }
 
     fn concat(&self, concat: &proto::Concat, path: &str, scope: &Scope) -> Result<()> {
-        self.partition(&concat.partition, path)?;
+        self.values.partition(&concat.partition, path)?;
         classes(&concat.classes, path)?;
         title(concat.title.as_ref(), &format!("{path}.title"), true)?;
         resolve(concat.resolve.as_ref(), path, false)?;
@@ -84,7 +86,7 @@ impl Checker<'_> {
     }
 
     fn wrap(&self, wrap: &proto::Wrap, path: &str, scope: &Scope) -> Result<()> {
-        self.partition(&wrap.partition, path)?;
+        self.values.partition(&wrap.partition, path)?;
         classes(&wrap.classes, path)?;
         title(wrap.title.as_ref(), &format!("{path}.title"), true)?;
         resolve(wrap.resolve.as_ref(), path, false)?;
@@ -114,7 +116,7 @@ impl Checker<'_> {
     }
 
     fn plot(&self, plot: &proto::Plot, path: &str, scope: &Scope) -> Result<()> {
-        self.partition(&plot.partition, path)?;
+        self.values.partition(&plot.partition, path)?;
         classes(&plot.classes, path)?;
         title(plot.title.as_ref(), &format!("{path}.title"), true)?;
         resolve(plot.resolve.as_ref(), path, true)?;
@@ -194,7 +196,7 @@ impl Checker<'_> {
         for (index, layer) in layers.iter().enumerate() {
             let path = format!("{coord_path}.layers[{index}]");
             let table = tables[index].expect(REQUIRED);
-            self.partition(layer.partition(), &path)?;
+            self.values.partition(layer.partition(), &path)?;
             let layer_scope = scope.with(layer.partition(), false);
             for (position, tool) in layer.tools().iter().enumerate() {
                 let path = format!("{path}.tools[{position}]");
@@ -432,26 +434,6 @@ impl Checker<'_> {
             lon_lat_box(&fit.bounds, &at("box.bounds"))?;
         }
         Ok(())
-    }
-
-    /// Checks partition values, keyed by column.
-    pub(super) fn partition(&self, partition: &[proto::PartitionValue], path: &str) -> Result<()> {
-        let path = format!("{path}.partition");
-        let mut keys = Vec::with_capacity(partition.len());
-        for (index, value) in partition.iter().enumerate() {
-            let path = format!("{path}[{index}]");
-            keys.push((
-                value.column.clone(),
-                self.values.key(value.value.as_ref(), &path)?,
-            ));
-        }
-        keyed(
-            &keys,
-            |(column, _)| column.clone(),
-            |a, b| a.1 == b.1,
-            &path,
-            "partition values",
-        )
     }
 
     fn tooltip(

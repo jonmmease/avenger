@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use arrow::datatypes::DataType;
 
-use super::{fail, named, Checker, Result, REQUIRED};
+use super::{fail, named, Checker, Result, Values, REQUIRED};
 use crate::{
     proto::{self, condition, predicate},
     Chart,
@@ -23,13 +23,18 @@ impl Checker<'_> {
     pub(super) fn initial_clauses(&self) -> Result<()> {
         for (index, selection) in self.chart.message.selections.iter().enumerate() {
             for (position, clause) in selection.initial.iter().enumerate() {
-                self.clause(clause, &format!("selections[{index}].initial[{position}]"))?;
+                (self.values)
+                    .clause(clause, &format!("selections[{index}].initial[{position}]"))?;
             }
         }
         Ok(())
     }
+}
 
-    fn clause(&self, clause: &proto::Clause, path: &str) -> Result<()> {
+impl Values<'_> {
+    /// Checks the fields of `clause`, which read only the values, so a clause of a chart and a
+    /// clause of a change follow one set of rules.
+    pub(super) fn clause(self, clause: &proto::Clause, path: &str) -> Result<()> {
         // A widget whose group anchors at the root writes a clause without an owner.
         if clause.widget.is_empty() {
             named(
@@ -47,9 +52,8 @@ impl Checker<'_> {
                     let mut length = None;
                     for (position, column) in set.columns.iter().enumerate() {
                         let path = format!("{path}.columns[{position}]");
-                        let values = self
-                            .values
-                            .list(column.values.as_ref(), &format!("{path}.values"))?;
+                        let values =
+                            self.list(column.values.as_ref(), &format!("{path}.values"))?;
                         if length.is_some_and(|length| length != values.len()) {
                             return Err(fail(
                                 &path,
@@ -62,10 +66,10 @@ impl Checker<'_> {
                 condition::Kind::Range(range) => {
                     let path = format!("{path}.range");
                     let low = (range.low.as_ref())
-                        .map(|low| self.values.scalar(Some(low), &format!("{path}.low")))
+                        .map(|low| self.scalar(Some(low), &format!("{path}.low")))
                         .transpose()?;
                     let high = (range.high.as_ref())
-                        .map(|high| self.values.scalar(Some(high), &format!("{path}.high")))
+                        .map(|high| self.scalar(Some(high), &format!("{path}.high")))
                         .transpose()?;
                     match (low, high) {
                         (None, None) => {
@@ -91,7 +95,7 @@ impl Checker<'_> {
                     let path = format!("{path}.polygon");
                     for (position, vertices) in polygon.vertices.iter().enumerate() {
                         let path = format!("{path}.vertices[{position}]");
-                        let vertices = self.values.list(vertices, &path)?;
+                        let vertices = self.list(vertices, &path)?;
                         let points = matches!(vertices.data_type(), DataType::Struct(fields)
                             if fields.len() == 2 && fields[0].name() == "x" && fields[1].name() == "y");
                         if !points || vertices.len() < 3 {
@@ -118,7 +122,9 @@ impl Checker<'_> {
         }
         Ok(())
     }
+}
 
+impl Checker<'_> {
     pub(super) fn predicate(&self, predicate: &proto::Predicate, path: &str) -> Result<()> {
         match predicate.predicate.as_ref().expect(REQUIRED) {
             predicate::Predicate::Selected(selected) => {

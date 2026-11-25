@@ -386,6 +386,18 @@ where
     })
 }
 
+/// The message of `fragment`, a message of type `M` of this version of the format, and the values
+/// that its references refer to, which are in range.
+pub(crate) fn fragment_parts<M>(
+    fragment: &proto::Fragment,
+) -> Result<(M, Vec<arrow::array::ArrayRef>), ChartError>
+where
+    M: VisitValues + prost::Message + prost::Name + Default,
+{
+    let builder = from_fragment::<M>(fragment)?;
+    Ok((builder.message, builder.parts.values))
+}
+
 /// The builder of `fragment`, which holds a message of type `M` of this version of the format
 /// and the values that its references refer to.
 pub(crate) fn from_fragment<M>(fragment: &proto::Fragment) -> Result<Builder<M>, ChartError>
