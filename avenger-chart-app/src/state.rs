@@ -4,8 +4,6 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use avenger_common::time::{Duration, Instant};
-
 use arrow::array::ArrayRef;
 use avenger_app_tools::brushes::Lasso;
 use avenger_chart::{
@@ -18,6 +16,7 @@ use avenger_chart_eval::{
     change, ChartEvaluator, EvalError, EvalWarning, EvaluatedPlot, ProjectionIdentity,
     ProjectionView, Registry, ScaleIdentity,
 };
+use avenger_common::time::{Duration, Instant};
 use avenger_coords::PlotCoords;
 use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
 use avenger_selection::{Clause, Condition, PixelGrid, Resolution, SelectionState};
@@ -552,20 +551,19 @@ impl ChartAppState {
     /// The throttle of the reports of the selections written since the last report: the least
     /// throttle of the select tools that write them.
     fn throttle(&self) -> Duration {
-        (self.declarations.iter())
+        let milliseconds = (self.declarations.iter())
             .flat_map(|declaration| &declaration.tools)
             .filter_map(|tool| match &tool.kind {
                 Some(proto::tool::Kind::Select(select))
                     if self.written.contains(&select.selection) =>
                 {
-                    Some(Duration::from_millis(
-                        select.throttle.unwrap_or(THROTTLE).into(),
-                    ))
+                    Some(select.throttle.unwrap_or(THROTTLE))
                 }
                 _ => None,
             })
             .min()
-            .unwrap_or(Duration::from_millis(THROTTLE.into()))
+            .unwrap_or(THROTTLE);
+        Duration::from_millis(milliseconds.into())
     }
 }
 
