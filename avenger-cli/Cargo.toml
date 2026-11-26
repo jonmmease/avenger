@@ -60,6 +60,7 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 
 [dev-dependencies]
 arrow = { workspace = true }
+avenger-query-graph = { path = "../avenger-query-graph" }
 image = { workspace = true }
 lsp-server = "0.7"
 lsp-types = "0.95"

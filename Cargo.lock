@@ -776,6 +776,7 @@ dependencies = [
  "avenger-fonts",
  "avenger-image",
  "avenger-pdf",
+ "avenger-query-graph",
  "avenger-results-egui",
  "avenger-scenegraph",
  "avenger-selection",
