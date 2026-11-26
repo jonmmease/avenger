@@ -1220,6 +1220,7 @@ dependencies = [
  "futures",
  "prost",
  "tokio",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

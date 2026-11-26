@@ -10,6 +10,7 @@ mod run;
 mod sources;
 mod split;
 mod store;
+mod task;
 
 pub use graph::{QueryGraph, QueryNode};
 pub use page::Page;
