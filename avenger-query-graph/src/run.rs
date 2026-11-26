@@ -283,12 +283,10 @@ impl Drop for Landing {
     }
 }
 
-type Task = tokio::task::JoinHandle<Result<Arc<Computed>>>;
-
 /// The parts of a computation that exist before its task: the result, which waits to be handed
 /// the task, and the sender of that handoff.
-fn result() -> (FlightResult, oneshot::Sender<Task>) {
-    let (sender, receiver) = oneshot::channel::<Task>();
+fn result() -> (FlightResult, oneshot::Sender<crate::task::Task>) {
+    let (sender, receiver) = oneshot::channel::<crate::task::Task>();
     let result = async move {
         let task = receiver.await.map_err(|_| {
             Arc::new(DataFusionError::Execution(
@@ -297,7 +295,9 @@ fn result() -> (FlightResult, oneshot::Sender<Task>) {
         })?;
         match task.await {
             Ok(result) => result.map_err(Arc::new),
-            Err(error) => Err(Arc::new(DataFusionError::External(Box::new(error)))),
+            Err(_) => Err(Arc::new(DataFusionError::Execution(
+                "the computation's task ended without a result".into(),
+            ))),
         }
     }
     .boxed()
@@ -307,15 +307,15 @@ fn result() -> (FlightResult, oneshot::Sender<Task>) {
 
 /// Spawn the task of the computation `flight` of a node: it waits for its job, then computes the
 /// node, keeps its result under `key` when the node is kept, and leaves the store. The caller
-/// does not hold the store's lock, because Tokio drops the task at once when the runtime is
-/// shutting down, and its guard then takes the lock to remove the computation.
+/// does not hold the store's lock, because a runtime that shuts down drops the task at once, and
+/// its guard then takes the lock to remove the computation.
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     store: &ResultStore,
     state: &SessionState,
     flight: &Flight,
     key: Option<NodeKey>,
-    handoff: oneshot::Sender<Task>,
+    handoff: oneshot::Sender<crate::task::Task>,
     receiver: oneshot::Receiver<Job>,
     columns: Vec<usize>,
     widened: Vec<String>,
@@ -329,13 +329,13 @@ fn spawn(
         key: key.clone(),
         id: flight.id,
     };
-    let task = tokio::spawn(async move {
+    let (task, abort) = crate::task::spawn(async move {
         let landing = landing;
         let computed = compute(&store, &state, receiver, key.as_ref(), columns, widened).await;
         drop(landing);
         computed
     });
-    flight.spawned(task.abort_handle());
+    flight.spawned(abort);
     let _ = handoff.send(task);
 }
 

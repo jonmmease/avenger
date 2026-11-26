@@ -12,8 +12,8 @@ use datafusion::{
     execution::SessionState,
     logical_expr::LogicalPlan,
 };
+use futures::future::AbortHandle;
 use futures::future::{BoxFuture, Shared};
-use tokio::task::AbortHandle;
 
 use crate::{
     cut::Kept,

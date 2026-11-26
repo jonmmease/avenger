@@ -13,7 +13,13 @@ avenger-selection = { path = "../avenger-selection" }
 avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
 datafusion = { workspace = true }
 futures = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt"] }
+
+# A page runs the computations on its event loop.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4.80"
 
 [dev-dependencies]
 avenger-scales = { path = "../avenger-scales" }

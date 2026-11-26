@@ -1203,6 +1203,7 @@ dependencies = [
  "datafusion",
  "futures",
  "tokio",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
