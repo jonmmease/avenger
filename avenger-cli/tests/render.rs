@@ -322,6 +322,9 @@ fn a_cell_renders_by_its_number_or_its_label_and_all_renders_each_chart() {
             "all/charts-by-origin.av.sql.svg",
             "all/charts-origins.av.sql.svg",
             "all/charts-weather-warm-days.av.sql.svg",
+            "all/reports-linked.qmd-1.svg",
+            "all/reports-linked.qmd-2.svg",
+            "all/reports-linked.qmd-3.svg",
             "all/reports-overview.qmd-1.svg",
         ]
     );
