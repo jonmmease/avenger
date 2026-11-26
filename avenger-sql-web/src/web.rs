@@ -88,7 +88,7 @@ impl SqlProject {
     }
 
     /// The errors and the warnings of the file at `path`: objects with `range`, `severity`,
-    /// `message`, `help`, and `source`. Ranges count UTF-16 code units, as strings do.
+    /// `message`, `help`, `source`, and `fixes`. Ranges count UTF-16 code units, as strings do.
     pub fn diagnostics(&self, path: &str) -> Result<JsValue, JsError> {
         value(&self.inner.diagnostics(path))
     }
@@ -113,5 +113,46 @@ impl SqlProject {
     /// The outline of the file at `path`.
     pub fn symbols(&self, path: &str) -> Result<JsValue, JsError> {
         value(&self.inner.symbols(path))
+    }
+
+    /// The classes of the tokens of the file at `path`: objects with `range`, `kind`, such as
+    /// `Keyword` or `Name(Column)`, and `definition`.
+    pub fn highlights(&self, path: &str) -> Result<JsValue, JsError> {
+        value(&self.inner.highlights(path))
+    }
+
+    /// The definition of the name at the position `at` of the file at `path`: `{ origin, path,
+    /// target }`, or `null`.
+    pub fn definition(&self, path: &str, at: u32) -> Result<JsValue, JsError> {
+        value(&self.inner.definition(path, at))
+    }
+
+    /// The uses and the definitions of the name at the position `at` of the file at `path`.
+    pub fn references(&self, path: &str, at: u32) -> Result<JsValue, JsError> {
+        value(&self.inner.references(path, at))
+    }
+
+    /// The range of the name at the position `at` of the file at `path` that a rename renames.
+    /// Throws the reason a rename can't rename it.
+    #[wasm_bindgen(js_name = prepareRename)]
+    pub fn prepare_rename(&self, path: &str, at: u32) -> Result<JsValue, JsError> {
+        value(&(self.inner.prepare_rename(path, at)).map_err(|error| JsError::new(&error))?)
+    }
+
+    /// The edits of each file that rename the name at the position `at` of the file at `path` to
+    /// `name`: objects with `path` and `edits`. Throws the reason a rename can't rename it.
+    pub fn rename(&self, path: &str, at: u32, name: &str) -> Result<JsValue, JsError> {
+        value(&(self.inner.rename(path, at, name)).map_err(|error| JsError::new(&error))?)
+    }
+
+    /// The edits that format the file at `path`: objects with `range` and `text`.
+    pub fn formatting(&self, path: &str) -> Result<JsValue, JsError> {
+        value(&self.inner.formatting(path))
+    }
+
+    /// The ranges of the file at `path` that an editor folds: objects with `range` and `comment`.
+    #[wasm_bindgen(js_name = foldingRanges)]
+    pub fn folding_ranges(&self, path: &str) -> Result<JsValue, JsError> {
+        value(&self.inner.folding_ranges(path))
     }
 }
