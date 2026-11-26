@@ -6,9 +6,11 @@ The DataFusion functions that build avenger charts in physical plans, for hosts 
 
 Every chart that the aggregates build names GoogleSQL's syntaxes for its format patterns, `functions::FORMAT_SYNTAXES`.
 
+`cut::CutInputExec` is the leaf through which a node's physical plan reads the result of a node below it. It holds the plan that scans that result and the scan's position, schema, projection, and limit, so a host that plans a node once replaces the scan with a scan of each computation's result and runs the same plan.
+
 ## Dependencies
 
-The crate depends on DataFusion's sub-crates and not on the `datafusion` crate, so its dependencies name the parts of DataFusion that a WebAssembly page needs. Its tests run a plan of a lifted chart natively and in a browser, and enable chrono's `wasmbind` in WebAssembly, since DataFusion's metrics read the clock when an operator starts and ends:
+The crate depends on DataFusion's sub-crates and not on the `datafusion` crate, so its dependencies name the parts of DataFusion that a WebAssembly page needs. Its WebAssembly build enables chrono's `wasmbind`, since DataFusion's metrics read the clock when an operator starts and ends. Its tests run a plan of a lifted chart natively and in a browser:
 
 ```bash
 cargo test --release -p avenger-physical-graph

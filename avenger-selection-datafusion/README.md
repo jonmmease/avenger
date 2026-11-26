@@ -1,21 +1,29 @@
 # avenger-selection-datafusion
 
-Filters Apache DataFusion queries by avenger selections, with the membership rules of avenger-selection. A query calls `selected` to filter by a selection, and `bind_selections` lowers each call to an ordinary filter for the selection's state. The query then keeps exactly the rows that a renderer styles as selected.
+Filters Apache DataFusion queries by avenger selections, with the membership rules of avenger-selection. A query calls `selected` to filter by a selection. `with_selection_nodes` replaces each call with a boolean column that a selection's operator computes, and binding gives the operator the selection's state, which it tests each row against. The query then keeps exactly the rows that a renderer styles as selected.
 
 ## Registration
 
-`register` adds `selected` to a session, so its queries can call it, and a function rewrite that fails a plan that runs with a `selected` call that `bind_selections` did not lower, with an error such as ``selection `brush` was not registered``:
+`register` adds `selected` to a session, so its queries can call it. It also adds a function rewrite, which makes planning fail when a plan still contains a `selected` call that `with_selection_nodes` did not replace, with an error such as ``selection `brush` was not registered``.
+
+The session's query planner must include `SelectionExtensionPlanner`, which plans the selections' operators. A host with a query planner of its own adds the extension planner to it, and a host without one installs the crate's `QueryPlanner`:
 
 ```rust
-use datafusion::prelude::SessionContext;
+use std::sync::Arc;
 
-let mut ctx = SessionContext::new();
+use datafusion::{execution::SessionStateBuilder, prelude::SessionContext};
+
+let state = SessionStateBuilder::new()
+    .with_default_features()
+    .with_query_planner(Arc::new(avenger_selection_datafusion::QueryPlanner))
+    .build();
+let mut ctx = SessionContext::new_with_state(state);
 avenger_selection_datafusion::register(&mut ctx).unwrap();
 ```
 
 ## `selected`
 
-`selected(state, exclude_own, owner, partition, empty, without)` returns whether each row is selected. `state` is a placeholder for the selection's state, which `bind_selections` binds, as [Binding states](#binding-states) describes:
+`selected(state, exclude_own, owner, partition, empty, without)` returns whether each row is selected. `state` is a placeholder for the selection's state, which binding gives, as [Selection operators](#selection-operators) describes:
 
 ```sql
 SELECT carrier, count(*) FROM flights WHERE selected($brush) GROUP BY carrier
@@ -34,33 +42,49 @@ DataFusion matches named arguments to the parameters in this order, and a call m
 
 A cross filter passes the plot that draws the rows as `owner` with `exclude_own`, so a gesture in a plot does not filter that plot's own rows. For a faceted plot, `partition` gives the row's panel, so a row skips only the clause of its own panel.
 
-## Binding states
+## Selection operators
 
-`bind_selections` takes a plan and each selection's `SelectionState` by the name of its placeholder, and lowers each `selected` call on that placeholder to a filter of the state. The state never becomes a value of the plan, so planning does not copy or format the state's values:
+A query runs in two steps. `with_selection_nodes` replaces each `selected` call in the logical plan with a selection's node, which is planned as an operator, and binding gives each operator the state of its selection.
+
+### Adding the nodes
+
+`with_selection_nodes` takes the unoptimized plan, as `into_unoptimized_plan` gives it, and replaces each `selected` call on a placeholder with the column `__selected_<hash>` of a `SelectionNode`. The node becomes the input of the operator that contained the call. It passes its input's rows through and appends the column, which tells whether each row is selected. The new plan has the schema of the original plan.
+
+A `SelectionFields` map names the columns that each selection's test can read: the columns that the tools that write the selection test. The node reads those columns, or every column of its input when the map does not name the selection, so the optimizer keeps them below the node.
+
+### Binding
+
+The planner plans each node as a `SelectionExec`. Binding the operator to a state prepares avenger-selection's `selected` test, `SelectionState::prepare_selected`, for the types of the operator's columns. The bound operator runs `PreparedPredicate::mask` on each batch, so a query selects the rows that `SelectionState::mask` selects for a renderer. An operator is bound in one of two places:
+
+- During planning, when the session's configuration holds `SelectionStates`, which `with_selection_states` adds. A DataFrame plans itself when it runs, so it binds this way:
 
 ```rust
-use avenger_selection::SelectionState;
-use datafusion::{arrow::array::RecordBatch, common::Result, prelude::SessionContext};
+use std::collections::BTreeMap;
 
-async fn counts(ctx: &SessionContext, brush: &SelectionState) -> Result<Vec<RecordBatch>> {
+use avenger_selection::SelectionState;
+use avenger_selection_datafusion::{with_selection_nodes, with_selection_states, SelectionFields};
+use datafusion::{
+    arrow::array::RecordBatch, common::Result, dataframe::DataFrame, prelude::SessionContext,
+};
+
+async fn counts(ctx: &SessionContext, brush: SelectionState) -> Result<Vec<RecordBatch>> {
     let sql = "SELECT carrier, count(*) FROM flights WHERE selected($brush) GROUP BY carrier";
     let plan = ctx.sql(sql).await?.into_unoptimized_plan();
-    let plan = avenger_selection_datafusion::bind_selections(plan, &[("brush", brush)])?;
-    ctx.execute_logical_plan(plan).await?.collect().await
+    let plan = with_selection_nodes(plan, &SelectionFields::new())?;
+    let state = with_selection_states(&ctx.state(), BTreeMap::from([("brush".into(), brush)]));
+    DataFrame::new(state, plan).collect().await
 }
 ```
 
-`with_param_values` binds the plan's other placeholders afterwards. A `selected` call whose placeholder has no given state stays in the plan, which fails when it runs with an error that names the selection.
+- After planning, with `bind_selections`, which binds each `SelectionExec` of a physical plan. A host that plans a query once and runs it for many states binds each run this way. It then passes the bound plan to DataFusion's `reset_plan_states`, so the run's operators share no execution state with an earlier run.
 
-Bind the unoptimized plan, as `into_unoptimized_plan` gives it. A `selected` call names no columns until it is bound, so the optimizer's projection pushdown can drop the columns that its conditions read, and binding then fails for a column that the input does not have. The lowered call takes those columns as its arguments, so the optimizer keeps them once the plan is bound.
+`with_param_values` binds the plan's other placeholders after `with_selection_nodes`. A `SelectionExec` without a state fails when it runs, with an error that names its selection. Binding fails for a state that tests a column that the operator does not read.
 
-## The lowering
+### What the optimizer does with a selection
 
-`bind_selections` prepares avenger-selection's `selected` test for a call's state and options, `SelectionState::prepare_selected`, for the types of the columns of the call's input. A test that reads no row, such as for an empty selection, becomes `TRUE` or `FALSE`, so an empty selection keeps every row or none. Any other test becomes one row test, `selection_matches(columns..., partition)`, which carries the prepared test and runs `PreparedPredicate::mask` on each batch's columns, so a query selects the rows that `SelectionState::mask` selects for a renderer. Its arguments are the columns that the test reads and, for a faceted owner, the `partition` struct. A fingerprint of the test names the call and decides its equality.
+The node blocks the optimizer's pushdown of predicates only for its own column. A filter on another column moves below the node, and a filter on the node's column stays above it. A filter by a selection therefore never moves below a join or into a scan's pushed filters, so every selection of a physical plan is a `SelectionExec` that `bind_selections` can find, and a brush does not prune files.
 
-Binding fails for a condition of a column that the input does not have, or that does not prepare for its columns' types.
-
-The filter has no pruning predicates beside the row tests. Selections filter tables in memory, which have no statistics for a scan to skip data by, so a predicate would only add work for every row.
+A `selected` call in a join's condition reads the columns of one side of the join, which the selection's fields name. `with_selection_nodes` fails for a call whose selection has no fields, or whose fields come from both sides.
 
 ## Pre-aggregation
 
@@ -87,7 +111,7 @@ Each focused dimension gives one key of the cells table:
 
 A bar chart grouped by two columns therefore gives two keys, and a box and a lasso over the same two grids share one cells table.
 
-The rollup checks the keys with `in_keys($s, owner, keys)`, which `bind_selections` turns into a check of the owner's clauses, or `TRUE` when the owner has none. A key gives the same answer as its row, because each key is the row's cell or value.
+The rollup checks the keys with `in_keys($s, owner, keys)`, which `preaggregate::bind_keys` turns into a check of the owner's clauses, or `TRUE` when the owner has none. A key gives the same answer as its row, because each key is the row's cell or value.
 
 ### Which plans qualify
 

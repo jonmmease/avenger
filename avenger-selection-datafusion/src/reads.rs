@@ -17,7 +17,7 @@ use datafusion::{
 
 use crate::{
     bind::marker,
-    lower::{fold_options, is_selected, Options},
+    call::{fold_options, is_selected, Options},
 };
 
 /// The clauses of one selection that a call reads.

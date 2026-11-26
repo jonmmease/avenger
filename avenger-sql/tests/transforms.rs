@@ -558,3 +558,76 @@ async fn an_aggregate_grouped_by_a_lump_reads_its_variables() {
         );
     }
 }
+
+/// A brush gets equal selection nodes in each reference to a shared input, so the references keep
+/// one input, and a script with a brush keeps the fusion of an aggregate grouped by a lump and the
+/// split of a group by a struct, such as a bin, that the same script without it has.
+#[tokio::test]
+async fn a_brush_keeps_the_plans_of_the_transforms() {
+    use datafusion::{common::tree_node::TreeNodeRecursion, logical_expr::LogicalPlan};
+    let brushed = |text: &str| format!("DECLARE brush SELECTION;\n{text}");
+    let shared = brushed(
+        "FROM penguins |> WHERE brush |> AGGREGATE mark_bar(x => species, y => AVG(body_mass_g), color => species) AS chart",
+    );
+    let frame = pass::analysis(&shared)
+        .dataframe(&pass::session())
+        .await
+        .unwrap();
+    let mut inputs: std::collections::BTreeMap<u64, Vec<LogicalPlan>> = Default::default();
+    (frame.clone().into_unoptimized_plan())
+        .apply_with_subqueries(|node| {
+            if let LogicalPlan::Extension(extension) = node {
+                let node = extension.node.as_any();
+                if let Some(node) = node.downcast_ref::<avenger_datafusion_shared::SharedNode>() {
+                    inputs.entry(node.id).or_default().push(node.input.clone());
+                }
+            }
+            Ok(TreeNodeRecursion::Continue)
+        })
+        .unwrap();
+    assert!(inputs.values().any(|inputs| inputs.len() > 1), "{shared}");
+    for inputs in inputs.values() {
+        assert!(inputs.windows(2).all(|pair| pair[0] == pair[1]), "{shared}");
+    }
+    frame.collect().await.unwrap();
+
+    let optimized = |text: String| async move {
+        let frame = pass::analysis(&text)
+            .dataframe(&pass::session())
+            .await
+            .unwrap();
+        frame.into_optimized_plan().unwrap()
+    };
+    let lines = |plan: &LogicalPlan, prefix: &str| -> Vec<String> {
+        let text = plan.display_indent().to_string();
+        let mut lines: Vec<String> = (text.lines())
+            .map(str::trim)
+            .filter(|line| line.starts_with(prefix))
+            .map(str::to_string)
+            .collect();
+        lines.sort();
+        lines
+    };
+    let lump = "FROM penguins
+|> EXTEND lump(island, n => 1) OVER (PARTITION BY species) AS l
+|> AGGREGATE COUNT(*) AS n GROUP BY species, l";
+    let lump_brushed = brushed(&lump.replace("FROM penguins\n", "FROM penguins\n|> WHERE brush\n"));
+    let plain = optimized(lump.to_string()).await;
+    let with_brush = optimized(lump_brushed).await;
+    assert!(lines(&plain, "Join").is_empty());
+    assert!(
+        lines(&with_brush, "Join").is_empty(),
+        "{}",
+        with_brush.display_indent()
+    );
+    let bins = "FROM penguins |> AGGREGATE mark_bar(x => bin(body_mass_g, maxbins => 20), y => COUNT(*)) AS chart";
+    let bins_brushed = brushed(&bins.replace("FROM penguins ", "FROM penguins |> WHERE brush "));
+    let plain = optimized(bins.to_string()).await;
+    let with_brush = optimized(bins_brushed).await;
+    assert_eq!(
+        lines(&plain, "Aggregate: groupBy"),
+        lines(&with_brush, "Aggregate: groupBy"),
+        "{}",
+        with_brush.display_indent()
+    );
+}

@@ -11,13 +11,14 @@ use std::{
 
 use avenger_common::time::{Duration, Instant};
 use avenger_selection::SelectionState;
-use avenger_selection_datafusion::{bind_selections, preaggregate::Focus};
+use avenger_selection_datafusion::{bind_selections, with_selection_nodes, with_selection_states};
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::SchemaRef},
-    common::{plan_err, Column, DataFusionError, ParamValues, Result},
+    common::{plan_err, Column, DataFusionError, ParamValues, Result, ScalarValue},
     execution::SessionState,
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
     physical_expr::expressions::Column as PhysicalColumn,
+    physical_plan::{execution_plan::reset_plan_states, ExecutionPlan},
 };
 use futures::{
     channel::oneshot,
@@ -25,23 +26,20 @@ use futures::{
 };
 
 use crate::{
-    cut::{cut_requests, with_results, Kept},
-    graph::{GraphInner, Nodes, QueryGraph, QueryNode},
+    cut::{cut_requests, shapes, substitute, with_results, Kept, Shape},
+    graph::{GraphInner, QueryGraph, QueryNode},
     key::{address, resolution_code, KeyParts, NodeKey, SelectionKey},
     reads::reads_owner,
     sources,
     store::{lock, Abort, Computed, Flight, FlightResult, ResultStore},
 };
 
-/// The inputs of a run: the values of the parameters, the states of the selections by the names
-/// of their placeholders without `$`, and the focus.
+/// The inputs of a run: the values of the parameters, and the states of the selections by the
+/// names of their placeholders without `$`.
 #[derive(Clone, Debug)]
 pub struct Inputs {
     pub params: ParamValues,
     pub selections: BTreeMap<String, SelectionState>,
-    /// The selection that is about to move. It changes how the run computes its results while it
-    /// preserves the query's semantics. Floating-point aggregates can differ in their rounding.
-    pub focus: Option<Focus>,
 }
 
 impl Default for Inputs {
@@ -49,9 +47,43 @@ impl Default for Inputs {
         Self {
             params: ParamValues::List(Vec::new()),
             selections: BTreeMap::new(),
-            focus: None,
         }
     }
+}
+
+/// The plans of a graph's kept nodes. A run plans a node the first time that it computes the
+/// node for a [`MemoKey`], and later runs of the graph reuse that plan.
+#[derive(Default)]
+pub(crate) struct Memos {
+    entries: HashMap<MemoKey, Arc<Memo>>,
+}
+
+/// The most plans that a graph holds. A graph that reaches this number drops all its plans and
+/// plans its nodes again as its runs compute them.
+const MEMOS: usize = 1024;
+
+/// What a node's plans depend on besides the node's subplan: the columns that a run computes, the
+/// values of the parameters that the subplan reads, and the versions of the sources that it
+/// scans. The states of the selections are not part of the key, because a computation binds them
+/// to the plan.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct MemoKey {
+    node: usize,
+    columns: Vec<usize>,
+    params: Vec<ScalarValue>,
+    versions: Vec<u64>,
+}
+
+/// The physical plans of a node's memo, by the shapes of its inputs' results.
+type Physical = HashMap<Vec<Option<Shape>>, Arc<dyn ExecutionPlan>>;
+
+/// The plans of a node for one [`MemoKey`]. `logical` is the node's optimized plan, with its
+/// `selected` calls replaced by selection nodes. `physical` holds a physical plan for each
+/// combination of shapes of the node's inputs that a computation met, with its selections'
+/// operators unbound. Each computation binds a copy of the physical plan to the states of its run.
+pub(crate) struct Memo {
+    logical: LogicalPlan,
+    physical: std::sync::Mutex<Physical>,
 }
 
 /// A run's batches of each plan, the nodes that it resolved, and what it did with each.
@@ -59,7 +91,7 @@ impl Default for Inputs {
 pub struct Run {
     /// The batches of each plan, in the order of the plans that `compile` took.
     pub batches: Vec<Vec<RecordBatch>>,
-    /// The nodes that the run resolved: the direct plans', or the variant's for the focus.
+    /// The nodes that the run resolved.
     pub nodes: Arc<[QueryNode]>,
     /// The outcome of each node, in the order of `nodes`.
     pub outcomes: Vec<Outcome>,
@@ -101,13 +133,12 @@ pub struct Output {
     pub columns: Vec<String>,
 }
 
-/// The key of a run: the keys of its plans' top nodes and its focus, which identify the inputs
-/// that its plans read. Runs with equal keys return the same rows. What they compute depends on
-/// the results that the store keeps.
+/// The key of a run: the keys of its plans' top nodes, which identify the inputs that its plans
+/// read. Runs with equal keys return the same rows. What they compute depends on the results that
+/// the store keeps.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunKey {
     tops: Vec<TopKey>,
-    focus: Option<Focus>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -127,6 +158,20 @@ fn versions(graph: &GraphInner) -> HashMap<usize, u64> {
         .collect()
 }
 
+/// The values of the parameters that `node` reads, in the order of its reads.
+fn param_values(node: &QueryNode, inputs: &Inputs) -> Result<Vec<ScalarValue>> {
+    (node.reads.params.iter())
+        .map(|id| Ok(inputs.params.get_placeholders_with_values(id)?.value))
+        .collect()
+}
+
+/// The versions of the sources that `node` scans, in the order of its sources.
+fn source_versions(node: &QueryNode, versions: &HashMap<usize, u64>) -> Vec<u64> {
+    (node.sources.iter())
+        .map(|(_, provider)| versions.get(&address(provider)).copied().unwrap_or(0))
+        .collect()
+}
+
 /// The key of `node` for `inputs`.
 fn node_key(
     graph: &GraphInner,
@@ -134,9 +179,7 @@ fn node_key(
     inputs: &Inputs,
     versions: &HashMap<usize, u64>,
 ) -> Result<NodeKey> {
-    let params = (node.reads.params.iter())
-        .map(|id| Ok(inputs.params.get_placeholders_with_values(id)?.value))
-        .collect::<Result<Vec<_>>>()?;
+    let params = param_values(node, inputs)?;
     let selections = (node.reads.selections.iter())
         .map(|(parameter, owners)| {
             let state = selection_state(inputs, parameter)?;
@@ -155,9 +198,7 @@ fn node_key(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    let versions = (node.sources.iter())
-        .map(|(_, provider)| versions.get(&address(provider)).copied().unwrap_or(0))
-        .collect();
+    let versions = source_versions(node, versions);
     Ok(NodeKey::new(KeyParts {
         identity: node.identity.clone(),
         params,
@@ -178,19 +219,16 @@ fn selection_state<'a>(inputs: &'a Inputs, parameter: &str) -> Result<&'a Select
 pub(crate) fn run_key(graph: &QueryGraph, inputs: &Inputs) -> Result<RunKey> {
     let inner = &graph.inner;
     let versions = versions(inner);
-    let tops = (inner.direct.tops.iter())
+    let tops = (inner.tops.iter())
         .map(|top| {
-            let node = &inner.direct.nodes[*top];
+            let node = &inner.nodes[*top];
             Ok(match node.kept {
                 true => TopKey::Kept(node_key(inner, node, inputs, &versions)?),
                 false => TopKey::Fresh(FRESH.fetch_add(1, Ordering::Relaxed)),
             })
         })
         .collect::<Result<_>>()?;
-    Ok(RunKey {
-        tops,
-        focus: inputs.focus.clone(),
-    })
+    Ok(RunKey { tops })
 }
 
 /// A wait for a computation, by a run or by a computation that reads its result, which counts as
@@ -218,16 +256,42 @@ type KeptFuture = BoxFuture<'static, Result<Arc<Kept>, Arc<DataFusionError>>>;
 /// cut that the plan scans, and its waits for the computations of those results, which it holds
 /// until it finishes.
 struct Job {
-    plan: LogicalPlan,
+    plan: Planned,
     inputs: Vec<Option<KeptFuture>>,
     _waiting: Vec<Waiting>,
+}
+
+/// The plan of a computation, whose `selected` calls are selection nodes, and the inputs of its
+/// run.
+enum Planned {
+    /// The memo of a kept node. The computation reuses the memo's physical plan and binds it to
+    /// the states of its run.
+    Memo {
+        memo: Arc<Memo>,
+        inputs: Arc<Inputs>,
+    },
+    /// The optimized plan of a node that is not kept, which calls a volatile or a stable
+    /// function. Each computation plans it, in a session that holds the states of its run.
+    PerRun {
+        plan: LogicalPlan,
+        inputs: Arc<Inputs>,
+    },
+}
+
+impl Planned {
+    fn logical(&self) -> &LogicalPlan {
+        match self {
+            Planned::Memo { memo, .. } => &memo.logical,
+            Planned::PerRun { plan, .. } => plan,
+        }
+    }
 }
 
 /// A computation's job before the run sends it: the sender, the optimized plan, and whether the
 /// plan scans each of the node's cuts.
 struct Unsent {
     sender: oneshot::Sender<Job>,
-    plan: LogicalPlan,
+    plan: Planned,
     present: Vec<bool>,
 }
 
@@ -243,30 +307,133 @@ enum Resolution {
     },
 }
 
-/// The columns `columns` of `node`'s plan, bound for `inputs` and optimized with `state`.
-fn planned(
-    node: &QueryNode,
-    columns: &BTreeSet<usize>,
-    inputs: &Inputs,
-    state: &SessionState,
-) -> Result<LogicalPlan> {
+/// The columns `columns` of `node`'s plan.
+fn projected(node: &QueryNode, columns: &BTreeSet<usize>) -> Result<LogicalPlan> {
     let schema = node.plan.schema();
-    let plan = match columns.len() == schema.fields().len() {
-        true => node.plan.clone(),
+    match columns.len() == schema.fields().len() {
+        true => Ok(node.plan.clone()),
         false => {
             let exprs: Vec<Expr> = (columns.iter())
                 .map(|index| Expr::Column(Column::from(schema.qualified_field(*index))))
                 .collect();
             LogicalPlanBuilder::from(node.plan.clone())
                 .project(exprs)?
-                .build()?
+                .build()
+        }
+    }
+}
+
+/// `plan`, a node's plan, with selection nodes over the fields that `graph` holds, its parameters
+/// replaced by their values in `inputs`, and optimized with `state`.
+fn optimized(
+    graph: &GraphInner,
+    plan: LogicalPlan,
+    inputs: &Inputs,
+    state: &SessionState,
+) -> Result<LogicalPlan> {
+    let plan =
+        with_selection_nodes(plan, &graph.fields)?.with_param_values(inputs.params.clone())?;
+    state.optimize(&plan)
+}
+
+/// The plan of a computation of the columns `columns` of the node at `index` for `inputs`. For a
+/// kept node, the plan is the graph's memo for those columns, the values of the parameters that
+/// the node reads, and the versions of its sources, which this function creates on first use.
+/// For another node, the plan is the node's optimized plan.
+fn planned(
+    graph: &GraphInner,
+    index: usize,
+    node: &QueryNode,
+    columns: &BTreeSet<usize>,
+    inputs: &Arc<Inputs>,
+    versions: &HashMap<usize, u64>,
+    state: &SessionState,
+) -> Result<Planned> {
+    let plan = projected(node, columns)?;
+    if !node.kept {
+        return Ok(Planned::PerRun {
+            plan: optimized(graph, plan, inputs, state)?,
+            inputs: inputs.clone(),
+        });
+    }
+    let key = MemoKey {
+        node: index,
+        columns: columns.iter().copied().collect(),
+        params: param_values(node, inputs)?,
+        versions: source_versions(node, versions),
+    };
+    let found = lock(&graph.memos).entries.get(&key).cloned();
+    let memo = match found {
+        Some(memo) => memo,
+        None => {
+            let memo = Arc::new(Memo {
+                logical: optimized(graph, plan, inputs, state)?,
+                physical: std::sync::Mutex::new(HashMap::new()),
+            });
+            let mut memos = lock(&graph.memos);
+            if memos.entries.len() >= MEMOS {
+                memos.entries.clear();
+            }
+            memos.entries.insert(key, memo.clone());
+            memo
         }
     };
-    let states: Vec<(&str, &SelectionState)> = (inputs.selections.iter())
-        .map(|(name, state)| (name.as_str(), state))
-        .collect();
-    let plan = bind_selections(plan, &states)?.with_param_values(inputs.params.clone())?;
-    state.optimize(&plan)
+    Ok(Planned::Memo {
+        memo,
+        inputs: inputs.clone(),
+    })
+}
+
+/// A copy of `state` that plans without dynamic filters, for the physical plans that a graph's
+/// computations reuse. DataFusion does not support a second execution of a plan that uses
+/// dynamic filters, also after `reset_plan_states`.
+fn reusable(state: &SessionState) -> SessionState {
+    let mut state = state.clone();
+    let optimizer = &mut state.config_mut().options_mut().optimizer;
+    optimizer.enable_dynamic_filter_pushdown = false;
+    optimizer.enable_topk_dynamic_filter_pushdown = false;
+    optimizer.enable_join_dynamic_filter_pushdown = false;
+    optimizer.enable_aggregate_dynamic_filter_pushdown = false;
+    state
+}
+
+/// The physical plan of a computation whose inputs' results are `results`, with its selections'
+/// operators bound to the states of its run.
+///
+/// A node that is not kept is planned here, in a session that binds the operators as it plans. A
+/// kept node reuses the physical plan that its memo holds for the shapes of `results`, with the
+/// leaf of each cut reading its result in `results`, and plans one when the memo holds none.
+async fn physical(
+    plan: Planned,
+    results: &[Option<Arc<Kept>>],
+    state: &SessionState,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    let (memo, inputs) = match plan {
+        Planned::PerRun { plan, inputs } => {
+            let plan = with_results(plan, results)?;
+            let session = with_selection_states(state, inputs.selections.clone());
+            return (session.query_planner())
+                .create_physical_plan(&plan, &session)
+                .await;
+        }
+        Planned::Memo { memo, inputs } => (memo, inputs),
+    };
+    let target = state.config_options().execution.target_partitions;
+    let shape = shapes(results, target);
+    let found = lock(&memo.physical).get(&shape).cloned();
+    let plan = match found {
+        Some(plan) => substitute(plan, results, target)?,
+        None => {
+            let plan = with_results(memo.logical.clone(), results)?;
+            let session = reusable(state);
+            let plan = (session.query_planner())
+                .create_physical_plan(&plan, &session)
+                .await?;
+            lock(&memo.physical).insert(shape, plan.clone());
+            plan
+        }
+    };
+    reset_plan_states(bind_selections(plan, &inputs.selections)?)
 }
 
 /// Removes a computation from the store when it is dropped: when its task finishes, panics, or
@@ -369,11 +536,7 @@ async fn compute(
         .map(|present| present.then(|| computed.next().expect("a result for each cut")))
         .collect();
     let started = Instant::now();
-    let plan = with_results(job.plan, &results)?;
-    let physical = state
-        .query_planner()
-        .create_physical_plan(&plan, state)
-        .await?;
+    let physical = physical(job.plan, &results, state).await?;
     // One partition gives the rows in an order that a reader can depend on, and the plan can
     // declare which order it is.
     let properties = physical.properties();
@@ -433,25 +596,22 @@ fn output(node: &QueryNode, kept: &Kept) -> Output {
     }
 }
 
-/// Add the requests of the optimized `plan` of `node` to the nodes that it reads, when `only`
-/// accepts them. A cut that the optimizer removed requests nothing, and its node is not read.
-/// The presence of each cut in the plan, by position.
+/// Adds the columns that the optimized `plan` of `node` reads through each of its cuts to the
+/// requests of the nodes below the cuts, and marks those nodes as needed. Returns whether the
+/// plan scans each cut, by position: a cut that the optimizer removed requests nothing, and its
+/// node is not read.
 fn request(
-    nodes: &Nodes,
     node: &QueryNode,
     plan: &LogicalPlan,
     requests: &mut [BTreeSet<usize>],
     needed: &mut [bool],
-    only: impl Fn(&QueryNode) -> bool,
 ) -> Result<Vec<bool>> {
     let wanted = cut_requests(plan, node.inputs.len())?;
     for (position, columns) in wanted.iter().enumerate() {
         let input = node.inputs[position];
         if let Some(columns) = columns {
-            if only(&nodes.nodes[input]) {
-                requests[input].extend(columns.iter().copied());
-                needed[input] = true;
-            }
+            requests[input].extend(columns.iter().copied());
+            needed[input] = true;
         }
     }
     Ok(wanted.iter().map(Option::is_some).collect())
@@ -459,23 +619,18 @@ fn request(
 
 pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
     let inner = &graph.inner;
-    let read: BTreeSet<usize> = (inner.direct.nodes.iter())
+    let read: BTreeSet<usize> = (inner.nodes.iter())
         .flat_map(|node| node.sources.iter().map(|(_, provider)| address(provider)))
         .collect();
     sources::check(&inner.store, &read.into_iter().collect::<Vec<_>>()).await?;
 
-    let nodes: Arc<Nodes> = match &inputs.focus {
-        Some(focus) if focus.serves(selection_state(inputs, &focus.parameter)?) => {
-            graph.resolved(Some(focus))?
-        }
-        _ => inner.direct.clone(),
-    };
-    let forced = !Arc::ptr_eq(&nodes, &inner.direct);
+    let nodes = inner.nodes.clone();
+    let shared = Arc::new(inputs.clone());
     let mut state = inner.state.clone();
     state.mark_start_execution();
 
     let versions = versions(inner);
-    let keys = (nodes.nodes.iter())
+    let keys = (nodes.iter())
         .map(|node| match node.kept {
             true => node_key(inner, node, inputs, &versions).map(Some),
             false => Ok(None),
@@ -484,22 +639,12 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
 
     // The first pass: resolve the nodes from the top down, so each node's readers have requested
     // their columns before it resolves.
-    let count = nodes.nodes.len();
+    let count = nodes.len();
     let mut requests: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); count];
     let mut needed = vec![false; count];
-    for top in &nodes.tops {
+    for top in &inner.tops {
         needed[*top] = true;
-        requests[*top] = (0..nodes.nodes[*top].plan.schema().fields().len()).collect();
-    }
-    if forced {
-        // The cells resolve for the first move, through the nodes of their rollups with every
-        // column, which a move can read even when this run reads none of them.
-        for (index, node) in nodes.nodes.iter().enumerate() {
-            if !node.replaces.is_empty() {
-                needed[index] = true;
-                requests[index] = (0..node.plan.schema().fields().len()).collect();
-            }
-        }
+        requests[*top] = (0..nodes[*top].plan.schema().fields().len()).collect();
     }
     let mut resolutions: Vec<Resolution> = (0..count).map(|_| Resolution::NotRead).collect();
     let mut waiting = Vec::new();
@@ -509,14 +654,13 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
             if !needed[index] {
                 continue;
             }
-            let node = &nodes.nodes[index];
+            let node = &nodes[index];
             let mut columns = requests[index].clone();
             if columns.is_empty() && !node.plan.schema().fields().is_empty() {
                 // A reader that needs only the rows, such as `count(*)`, keeps one column. A
                 // node without columns keeps only its rows.
                 columns.insert(0);
             }
-            let reads_cells = forced && node.inputs.iter().any(|input| nodes.nodes[*input].cells);
             let mut store = inner.store.state();
             if let Some(key) = &keys[index] {
                 let found = match store.hit(key, &columns) {
@@ -529,11 +673,6 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
                 if let Some(found) = found {
                     drop(store);
                     resolutions[index] = found;
-                    if reads_cells {
-                        // The cells below the hit resolve for the first move.
-                        let plan = planned(node, &columns, inputs, &state)?;
-                        request(&nodes, node, &plan, &mut requests, &mut needed, |n| n.cells)?;
-                    }
                     continue;
                 }
             }
@@ -589,8 +728,8 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
                 columns.iter().copied().collect(),
                 widened,
             );
-            let plan = planned(node, &columns, inputs, &state)?;
-            let present = request(&nodes, node, &plan, &mut requests, &mut needed, |_| true)?;
+            let plan = planned(inner, index, node, &columns, &shared, &versions, &state)?;
+            let present = request(node, plan.logical(), &mut requests, &mut needed)?;
             resolutions[index] = Resolution::Computing {
                 flight,
                 job: Some(Box::new(Unsent {
@@ -627,7 +766,7 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
             plan,
             present,
         } = *unsent;
-        let node = &nodes.nodes[index];
+        let node = &nodes[index];
         let mut job_inputs = Vec::new();
         let mut job_waiting = Vec::new();
         for (input, present) in node.inputs.iter().zip(present) {
@@ -663,7 +802,7 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
     let mut results: Vec<Option<Arc<Kept>>> = vec![None; count];
     let mut failed = None;
     for (index, resolution) in resolutions.iter().enumerate() {
-        let node = &nodes.nodes[index];
+        let node = &nodes[index];
         let outcome = match resolution {
             Resolution::NotRead => Outcome::NotRead,
             Resolution::Hit(kept) => {
@@ -699,9 +838,9 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
         return Err(DataFusionError::Shared(error));
     }
 
-    let batches = (nodes.tops.iter())
+    let batches = (inner.tops.iter())
         .map(|top| {
-            let node = &nodes.nodes[*top];
+            let node = &nodes[*top];
             let kept = results[*top].as_ref().expect("a top node resolves");
             let schema: SchemaRef = Arc::new(node.plan.schema().as_arrow().clone());
             let columns: Vec<usize> = (0..schema.fields().len()).collect();
@@ -710,7 +849,10 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
         .collect::<Result<_>>()?;
     Ok(Run {
         batches,
-        nodes: nodes.nodes.clone(),
+        nodes: nodes.clone(),
         outcomes,
     })
 }
+
+#[cfg(test)]
+mod tests;

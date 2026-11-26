@@ -1,7 +1,6 @@
-//! Binding selections' states to a plan: each `selected` call on a state's placeholder lowers to
-//! a filter of that state, and each `in_keys` call to a check of the owner's clauses. A plan that
-//! runs with either call still in it fails with an error that names the selection that was not
-//! registered.
+//! The binding of pre-aggregation's `in_keys` calls to selections' states, and the function
+//! rewrite that makes planning fail when a plan still contains a `selected` or an `in_keys` call on
+//! a placeholder.
 
 use std::{any::Any, collections::BTreeMap};
 
@@ -22,27 +21,15 @@ use datafusion::{
 };
 
 use crate::{
+    call::is_selected,
     functions::{owners_clauses, InKeys},
-    lower::{fold_options, is_selected, Call},
 };
 
-/// `plan` with each `selected` call whose state is a placeholder that `states` names, such as
-/// `("brush", &state)` for `$brush`, lowered to a filter of that state, and each `in_keys` call
-/// of a pre-aggregation's rollup to a check of the owner's clauses in that state. The state never becomes a
-/// value of the plan, so planning does not copy or format the state's values. Bind the plan's
-/// other placeholders with `with_param_values` afterwards, and give the calls' options as
-/// constants. A `selected` call whose placeholder `states` does not name fails when the plan runs,
-/// with an error that names its selection.
-///
-/// Bind an unoptimized plan, such as from `DataFrame::into_unoptimized_plan`. A `selected` call
-/// names no columns until it is bound, so the optimizer's projection pushdown can drop the
-/// columns that its conditions read, and binding then fails for a column that the input does not
-/// have. The lowered call takes those columns as its arguments, so optimizing after binding keeps
-/// them.
-pub fn bind_selections(
-    plan: LogicalPlan,
-    states: &[(&str, &SelectionState)],
-) -> Result<LogicalPlan> {
+/// `plan` with each `in_keys` call of a pre-aggregation's rollup whose state is a placeholder
+/// that `states` names, such as `("brush", &state)` for `$brush`, lowered to a check of the
+/// owner's clauses in that state. Bind an unoptimized plan, before
+/// [`with_selection_nodes`](crate::with_selection_nodes) replaces its `selected` calls.
+pub fn bind_keys(plan: LogicalPlan, states: &[(&str, &SelectionState)]) -> Result<LogicalPlan> {
     let states: BTreeMap<String, &SelectionState> = (states.iter())
         .map(|(name, state)| (format!("${}", name.trim_start_matches('$')), *state))
         .collect();
@@ -64,8 +51,8 @@ pub fn bind_selections(
     .data()
 }
 
-/// `expr` lowered for its state when it is a `selected` call or an `in_keys` call that takes the
-/// state, on one of the placeholders of `states`.
+/// `expr` lowered for its state when it is an `in_keys` call that takes the state, on one of the
+/// placeholders of `states`.
 fn bind(
     expr: Expr,
     schema: &DFSchema,
@@ -81,10 +68,6 @@ fn bind(
     let Some(state) = state else {
         return Ok(Transformed::no(expr));
     };
-    if is_selected(func) {
-        let call = Call::new((*state).clone(), &fold_options(args, schema)?)?;
-        return Ok(Transformed::yes(call.lower(schema)?));
-    }
     match (marker(func), args.as_slice()) {
         (Some(_), [_, Expr::Literal(owner, _), keys]) => {
             let clauses = owners_clauses(state, owner.try_as_str().flatten());
@@ -101,10 +84,10 @@ pub(crate) fn marker(func: &ScalarUDF) -> Option<&InKeys> {
     in_keys.takes_state().then_some(in_keys)
 }
 
-/// The function rewrite that fails for a `selected` or an `in_keys` call that `bind_selections`
-/// did not lower,
-/// with an error that names the selection that was not registered. DataFusion applies function
-/// rewrites before it plans the rest of the query.
+/// The function rewrite that makes planning fail, with an error that names the selection, for a
+/// `selected` call that `with_selection_nodes` did not replace or an `in_keys` call that
+/// `bind_keys` did not bind. DataFusion applies function rewrites before it plans the rest of the
+/// query.
 #[derive(Debug)]
 pub(crate) struct Unbound;
 

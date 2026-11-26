@@ -2,14 +2,18 @@
 //! returns the rows of the direct plan, within the rounding of regrouped floating-point arithmetic,
 //! and its cells subplans do not read the moving clauses.
 
-use std::sync::Arc;
+mod common;
+
+use std::{collections::BTreeMap, sync::Arc};
 
 use avenger_scales::scales::linear::LinearScale;
 use avenger_selection::{Clause, Condition, PixelGrid, PolygonCells, Resolution, SelectionState};
 use avenger_selection_datafusion::{
-    bind_selections,
-    preaggregate::{prepare, DirectReason, Focus, FocusDimension, Preaggregation, Strategy},
-    selection_reads, Owners, SelectionRead,
+    preaggregate::{
+        bind_keys, prepare, DirectReason, Focus, FocusDimension, Preaggregation, Strategy,
+    },
+    selection_reads, with_selection_nodes, with_selection_states, Owners, SelectionFields,
+    SelectionRead,
 };
 use datafusion::{
     arrow::{
@@ -19,6 +23,7 @@ use datafusion::{
         util::display::array_value_to_string,
     },
     common::tree_node::TreeNodeRecursion,
+    dataframe::DataFrame,
     logical_expr::LogicalPlan,
     prelude::SessionContext,
 };
@@ -69,8 +74,7 @@ fn table() -> RecordBatch {
 }
 
 fn context() -> SessionContext {
-    let mut ctx = SessionContext::new();
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = common::session();
     ctx.register_batch("flights", table()).unwrap();
     ctx
 }
@@ -114,9 +118,39 @@ fn carriers(values: &[&str]) -> Condition {
     )
 }
 
+/// A plan with its `in_keys` calls bound and its `selected` calls replaced by selection nodes,
+/// with the states that bind its selections' operators. Two are equal when their plans are, so a
+/// plan that reads a moving clause differs between two states only through its `in_keys` calls.
+struct Bound {
+    plan: LogicalPlan,
+    states: BTreeMap<String, SelectionState>,
+}
+
+impl PartialEq for Bound {
+    fn eq(&self, other: &Bound) -> bool {
+        self.plan == other.plan
+    }
+}
+
+impl std::fmt::Debug for Bound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.plan.display_indent())
+    }
+}
+
+/// `plan` with `states` bound by their placeholders' names.
+fn bind_all(plan: LogicalPlan, states: &[(&str, &SelectionState)]) -> Bound {
+    let plan = bind_keys(plan, states).unwrap();
+    let plan = with_selection_nodes(plan, &SelectionFields::new()).unwrap();
+    Bound {
+        plan,
+        states: common::states(states),
+    }
+}
+
 /// `plan` with `state` bound to `$s`.
-fn bind(plan: LogicalPlan, state: &SelectionState) -> LogicalPlan {
-    bind_selections(plan, &[("s", state)]).unwrap()
+fn bind(plan: LogicalPlan, state: &SelectionState) -> Bound {
+    bind_all(plan, &[("s", state)])
 }
 
 /// Whether `part` is a subplan of `plan`.
@@ -141,7 +175,7 @@ async fn replaces(
     direct: &LogicalPlan,
     prepared: &LogicalPlan,
     preaggregation: &Preaggregation,
-    bind: impl Fn(&LogicalPlan) -> LogicalPlan,
+    bind: impl Fn(&LogicalPlan) -> Bound,
 ) {
     assert!(contains(direct, preaggregation.aggregate()));
     assert!(contains(preaggregation.rollup(), preaggregation.cells()));
@@ -175,9 +209,10 @@ async fn rows(ctx: &SessionContext, plan: LogicalPlan, state: &SelectionState) -
     rows_of(ctx, bind(plan, state)).await
 }
 
-/// The rows of the bound plan `plan`, sorted by their text and their numbers.
-async fn rows_of(ctx: &SessionContext, plan: LogicalPlan) -> Vec<Row> {
-    let frame = ctx.execute_logical_plan(plan).await.unwrap();
+/// The rows of the bound plan `bound`, sorted by their text and their numbers.
+async fn rows_of(ctx: &SessionContext, bound: Bound) -> Vec<Row> {
+    let state = with_selection_states(&ctx.state(), bound.states);
+    let frame = DataFrame::new(state, bound.plan);
     let schema = Arc::new(frame.schema().as_arrow().clone());
     let batches = frame.collect().await.unwrap();
     // A batch's own schema, which a cast to a string type can make differ from the plan's.
@@ -660,9 +695,7 @@ async fn concatenated_plots_prepare_each_of_their_aggregates() {
     );
     let mut cells = Vec::new();
     for state in delay_states() {
-        let bind = |plan: &LogicalPlan| {
-            bind_selections(plan.clone(), &[("s", &state), ("t", &click)]).unwrap()
-        };
+        let bind = |plan: &LogicalPlan| bind_all(plan.clone(), &[("s", &state), ("t", &click)]);
         let direct = rows_of(&ctx, bind(&plan)).await;
         assert!(!direct.is_empty());
         assert_eq!(rows_of(&ctx, bind(&prepared.plan)).await, direct);

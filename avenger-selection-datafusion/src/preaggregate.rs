@@ -16,6 +16,8 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
+pub use crate::bind::bind_keys;
+
 use avenger_datafusion_aggregate_state::{merge, state, Family};
 use avenger_selection::{Condition, PixelGrid, Resolution, SelectionState};
 use datafusion::{
@@ -34,8 +36,8 @@ use datafusion::{
 };
 
 use crate::{
+    call::{fold_options, is_selected, Options},
     functions::{InKeys, PixelCell, SELECTED_PARAMETERS},
-    lower::{fold_options, is_selected, Options},
 };
 
 /// The selection that is about to move: its parameter in the query, the owner whose clause

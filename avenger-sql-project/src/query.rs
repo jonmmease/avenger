@@ -1,7 +1,9 @@
 //! The query of a chart script, ready to run: its frame, unrun, and its collect through the
 //! project's store of results.
 
-use avenger_query_graph::{Inputs, ResultStore, SourceOptions, StoreConfig};
+use std::sync::Arc;
+
+use avenger_query_graph::{Inputs, QueryGraph, ResultStore, SourceOptions, StoreConfig};
 use avenger_sql::analysis::PlannedQuery;
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::SchemaRef},
@@ -47,6 +49,9 @@ pub struct ChartQuery {
     frame: DataFrame,
     ctx: SessionContext,
     store: ResultStore,
+    /// The graph of the query, which the first collect compiles. A clone of the query with other
+    /// clauses shares the graph, so its collects reuse the plans that the graph's runs planned.
+    graph: Arc<std::sync::OnceLock<QueryGraph>>,
 }
 
 impl std::fmt::Debug for ChartQuery {
@@ -69,6 +74,7 @@ impl ChartQuery {
             frame,
             ctx: ctx.clone(),
             store: store.clone(),
+            graph: Arc::new(std::sync::OnceLock::new()),
         })
     }
 
@@ -112,14 +118,13 @@ impl ChartQuery {
 
     /// The rows of the query, run through the project's store, as [`ChartQuery`] describes.
     pub async fn collect(&self) -> Result<Vec<RecordBatch>> {
-        for table in listing_tables(&self.query.plan)? {
-            let options = SourceOptions {
-                materialize: false,
-                ttl: Some(std::time::Duration::ZERO),
-            };
-            self.store.set_source_options(&table, options);
-        }
-        let graph = (self.store).compile(&self.ctx.state(), vec![self.query.plan.clone()])?;
+        let graph = match self.graph.get() {
+            Some(graph) => graph.clone(),
+            None => {
+                let graph = self.compile()?;
+                self.graph.get_or_init(|| graph).clone()
+            }
+        };
         let selections = (self.query.selections.iter())
             .map(|(name, state)| {
                 (
@@ -131,10 +136,32 @@ impl ChartQuery {
         let inputs = Inputs {
             params: self.query.params.clone(),
             selections,
-            ..Inputs::default()
         };
         let run = graph.run(&inputs).await?;
         Ok(run.batches.into_iter().next().unwrap_or_default())
+    }
+}
+
+impl ChartQuery {
+    /// The graph of the query's plan, whose listing tables a run checks before it reuses a result
+    /// that reads them.
+    fn compile(&self) -> Result<QueryGraph> {
+        for table in listing_tables(&self.query.plan)? {
+            let options = SourceOptions {
+                materialize: false,
+                ttl: Some(std::time::Duration::ZERO),
+            };
+            self.store.set_source_options(&table, options);
+        }
+        let fields = (self.query.fields.iter())
+            .map(|(name, fields)| {
+                (
+                    avenger_sql::analysis::selection_placeholder(name),
+                    fields.clone(),
+                )
+            })
+            .collect();
+        (self.store).compile_with_fields(&self.ctx.state(), vec![self.query.plan.clone()], fields)
     }
 }
 

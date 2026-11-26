@@ -5,15 +5,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use avenger_selection_datafusion::{
-    preaggregate::{prepare, Focus, Strategy},
-    SelectionRead,
-};
+use avenger_datafusion_shared::SharedNode;
+use avenger_selection_datafusion::{SelectionFields, SelectionRead};
 use datafusion::{
     catalog::TableProvider,
     common::{
         plan_err,
-        tree_node::{Transformed, TreeNode, TreeNodeRecursion},
+        tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion},
         Result, TableReference,
     },
     datasource::source_as_provider,
@@ -25,13 +23,10 @@ use crate::{
     cut::{cut_scan, CutSource},
     key::{address, settings_hash, Identity},
     reads::Reads,
-    run::{Inputs, Run, RunKey},
+    run::{Inputs, Memos, Run, RunKey},
     split::split_filters,
-    store::{defaults, lock, resolve, ResultStore, Source},
+    store::{defaults, resolve, ResultStore, Source},
 };
-
-/// The number of foci whose variants a graph keeps.
-const VARIANTS: usize = 4;
 
 /// The id of a graph in its store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -55,21 +50,20 @@ pub(crate) struct GraphInner {
     pub store: ResultStore,
     pub state: SessionState,
     pub settings: u64,
-    /// The plans as `compile` took them, which a focus prepares.
-    pub plans: Vec<LogicalPlan>,
-    pub direct: Arc<Nodes>,
-    pub variants: Mutex<Vec<(Focus, Arc<Nodes>)>>,
-}
-
-/// The nodes of a graph's direct plans or of a variant, in an order where each node follows the
-/// nodes that it reads, with the top node of each plan.
-pub(crate) struct Nodes {
+    /// The nodes of the graph's plans, in an order where each node follows the nodes that it
+    /// reads.
     pub nodes: Arc<[QueryNode]>,
+    /// The top node of each plan.
     pub tops: Vec<usize>,
+    /// The columns that each selection's test can read, which the selections' operators of the
+    /// nodes' plans read.
+    pub fields: SelectionFields,
+    /// The plans of the kept nodes that the graph's runs planned, which later runs reuse.
+    pub memos: Mutex<Memos>,
 }
 
 /// A node: its plan, with each cut as a scan, the inputs that its own operators read, the nodes
-/// that it reads, whether its result is kept, and the aggregates that its rollups replace.
+/// that it reads, and whether its result is kept.
 #[derive(Clone, Debug)]
 pub struct QueryNode {
     pub(crate) plan: LogicalPlan,
@@ -84,9 +78,6 @@ pub struct QueryNode {
     pub(crate) inputs: Vec<usize>,
     pub(crate) top_of: Vec<usize>,
     pub(crate) kept: bool,
-    pub(crate) replaces: Vec<LogicalPlan>,
-    /// Whether the node is the cells subplan of a pre-aggregation.
-    pub(crate) cells: bool,
 }
 
 impl std::fmt::Debug for Identity {
@@ -132,11 +123,6 @@ impl QueryNode {
     pub fn kept(&self) -> bool {
         self.kept
     }
-
-    /// The aggregates that the node's rollups replace.
-    pub fn replaces(&self) -> &[LogicalPlan] {
-        &self.replaces
-    }
 }
 
 impl QueryGraph {
@@ -144,19 +130,21 @@ impl QueryGraph {
         store: ResultStore,
         state: &SessionState,
         plans: Vec<LogicalPlan>,
+        fields: SelectionFields,
     ) -> Result<Self> {
         if plans.is_empty() {
             return plan_err!("a graph needs a plan");
         }
-        let direct = Arc::new(Builder::compile(&store, state, &plans, &[])?);
+        let (nodes, tops) = Builder::compile(&store, state, &plans)?;
         let graph = Self {
             inner: Arc::new(GraphInner {
                 id: store.graph_id(),
                 settings: settings_hash(state),
                 state: state.clone(),
-                plans,
-                direct,
-                variants: Mutex::new(Vec::new()),
+                nodes,
+                tops,
+                fields,
+                memos: Mutex::new(Memos::default()),
                 store,
             }),
         };
@@ -169,7 +157,7 @@ impl QueryGraph {
     fn record_sources(&self) {
         let session = &self.inner.state;
         let mut state = self.inner.store.state();
-        for node in self.inner.direct.nodes.iter() {
+        for node in self.inner.nodes.iter() {
             for (table, provider) in &node.sources {
                 let source = (state.sources.entry(address(provider))).or_insert_with(|| Source {
                     provider: provider.clone(),
@@ -190,54 +178,9 @@ impl QueryGraph {
         }
     }
 
-    /// The nodes of the graph's direct plans, or of its variant for `focus`.
-    pub fn nodes(&self, focus: Option<&Focus>) -> Result<Arc<[QueryNode]>> {
-        Ok(self.resolved(focus)?.nodes.clone())
-    }
-
-    /// The nodes for `focus`: the direct plans' without one, or the variant's.
-    pub(crate) fn resolved(&self, focus: Option<&Focus>) -> Result<Arc<Nodes>> {
-        let Some(focus) = focus else {
-            return Ok(self.inner.direct.clone());
-        };
-        let mut variants = lock(&self.inner.variants);
-        if let Some(position) = variants.iter().position(|(kept, _)| kept == focus) {
-            let variant = variants.remove(position);
-            let nodes = variant.1.clone();
-            variants.push(variant);
-            return Ok(nodes);
-        }
-        let mut substitutions = Vec::new();
-        let mut prepared = Vec::new();
-        for plan in &self.inner.plans {
-            let ready = prepare(plan, focus)?;
-            for strategy in &ready.strategies {
-                if let Strategy::Preaggregated(preaggregation) = strategy {
-                    let rollup = split_filters(preaggregation.rollup().clone())?;
-                    let cells = split_filters(preaggregation.cells().clone())?;
-                    substitutions.push(Substitution {
-                        providers: providers(&rollup)?,
-                        cells_providers: providers(&cells)?,
-                        rollup,
-                        aggregate: split_filters(preaggregation.aggregate().clone())?,
-                        cells,
-                        replaced: preaggregation.aggregate().clone(),
-                    });
-                }
-            }
-            prepared.push(ready.plan);
-        }
-        let nodes = Arc::new(Builder::compile(
-            &self.inner.store,
-            &self.inner.state,
-            &prepared,
-            &substitutions,
-        )?);
-        if variants.len() == VARIANTS {
-            variants.remove(0);
-        }
-        variants.push((focus.clone(), nodes.clone()));
-        Ok(nodes)
+    /// The nodes of the graph's plans.
+    pub fn nodes(&self) -> Arc<[QueryNode]> {
+        self.inner.nodes.clone()
     }
 
     /// The key of a run with `inputs`, for a `Task` request. Runs nothing.
@@ -250,24 +193,10 @@ impl QueryGraph {
         crate::run::run(self, inputs).await
     }
 
-    /// A Graphviz DOT graph of the nodes of the direct plans, or of the variant for `focus`.
-    pub fn to_dot(&self, focus: Option<&Focus>) -> Result<String> {
-        Ok(crate::dot::to_dot(&self.nodes(focus)?, None))
+    /// A Graphviz DOT graph of the nodes of the graph's plans.
+    pub fn to_dot(&self) -> String {
+        crate::dot::to_dot(&self.nodes(), None)
     }
-}
-
-/// A rollup of a variant, with the aggregate that it replaces and its cells subplan, each with
-/// its filters split as the variant's plans are.
-pub(crate) struct Substitution {
-    rollup: LogicalPlan,
-    /// The providers that the rollup scans, by address, which DataFusion's equality of plans
-    /// does not compare.
-    providers: Vec<usize>,
-    cells_providers: Vec<usize>,
-    aggregate: LogicalPlan,
-    cells: LogicalPlan,
-    /// The aggregate as the plan wrote it.
-    replaced: LogicalPlan,
 }
 
 /// What the cut rule needs to know of a subplan.
@@ -285,7 +214,9 @@ struct Info {
 struct Builder<'a> {
     store: &'a ResultStore,
     session: &'a SessionState,
-    substitutions: &'a [Substitution],
+    /// The inputs that [`unshare`] took out of the plans' shared nodes. Each is cut into a graph
+    /// node of its own, so every reader of one input reads the same result.
+    shared: HashSet<LogicalPlan>,
     nodes: Vec<QueryNode>,
     index: HashMap<Identity, usize>,
     infos: HashMap<*const LogicalPlan, Info>,
@@ -298,15 +229,15 @@ impl<'a> Builder<'a> {
         store: &'a ResultStore,
         session: &'a SessionState,
         plans: &[LogicalPlan],
-        substitutions: &'a [Substitution],
-    ) -> Result<Nodes> {
+    ) -> Result<(Arc<[QueryNode]>, Vec<usize>)> {
+        let mut shared = HashSet::new();
         let plans: Vec<LogicalPlan> = (plans.iter().cloned())
-            .map(split_filters)
+            .map(|plan| unshare(split_filters(plan)?, &mut shared))
             .collect::<Result<_>>()?;
         let mut builder = Builder {
             store,
             session,
-            substitutions,
+            shared,
             nodes: Vec::new(),
             index: HashMap::new(),
             infos: HashMap::new(),
@@ -318,10 +249,7 @@ impl<'a> Builder<'a> {
             builder.nodes[top].top_of.push(position);
             tops.push(top);
         }
-        Ok(Nodes {
-            nodes: builder.nodes.into(),
-            tops,
-        })
+        Ok((builder.nodes.into(), tops))
     }
 
     fn info(&mut self, plan: &LogicalPlan) -> Result<Info> {
@@ -365,6 +293,9 @@ impl<'a> Builder<'a> {
         if below.reads.volatile {
             return Ok(false);
         }
+        if self.shared.contains(child) {
+            return Ok(true);
+        }
         let above = self.info(op)?;
         if below.scan_like {
             return Ok(below.materialized && !above.scan_like);
@@ -377,24 +308,18 @@ impl<'a> Builder<'a> {
         if self.known.is_empty() {
             return Ok(false);
         }
-        let (_, _, identity) = self.identify(child)?;
+        let (_, identity) = self.identify(child)?;
         Ok(self.known.contains(&identity))
     }
 
-    /// The direct form of `plan`, the tables that it scans with their providers, and its
-    /// identity.
+    /// The tables that `plan` scans with their providers, and its identity.
     #[allow(clippy::type_complexity)]
     fn identify(
         &self,
         plan: &LogicalPlan,
-    ) -> Result<(
-        LogicalPlan,
-        Vec<(TableReference, Arc<dyn TableProvider>)>,
-        Identity,
-    )> {
-        let direct = self.direct_form(plan)?;
+    ) -> Result<(Vec<(TableReference, Arc<dyn TableProvider>)>, Identity)> {
         let mut sources = Vec::new();
-        direct.apply_with_subqueries(|node| {
+        plan.apply_with_subqueries(|node| {
             if let LogicalPlan::TableScan(scan) = node {
                 let provider = source_as_provider(&scan.source)?;
                 sources.push((scan.table_name.clone(), provider));
@@ -405,50 +330,21 @@ impl<'a> Builder<'a> {
             .iter()
             .map(|(_, provider)| provider.clone())
             .collect();
-        let identity = Identity::new(direct.clone(), scanned);
-        Ok((direct, sources, identity))
-    }
-
-    /// The substitution whose rollup `plan` is: an equal plan over the same providers.
-    fn rollup_of(&self, plan: &LogicalPlan) -> Result<Option<&'a Substitution>> {
-        for substitution in self.substitutions {
-            if substitution.rollup == *plan && providers(plan)? == substitution.providers {
-                return Ok(Some(substitution));
-            }
-        }
-        Ok(None)
-    }
-
-    /// The subplan with each rollup replaced by the aggregate that it replaces.
-    fn direct_form(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
-        if self.substitutions.is_empty() {
-            return Ok(plan.clone());
-        }
-        Ok(plan
-            .clone()
-            .transform_down_with_subqueries(|node| match self.rollup_of(&node)? {
-                Some(substitution) => Ok(Transformed::new(
-                    substitution.aggregate.clone(),
-                    true,
-                    TreeNodeRecursion::Jump,
-                )),
-                None => Ok(Transformed::no(node)),
-            })?
-            .data)
+        let identity = Identity::new(plan.clone(), scanned);
+        Ok((sources, identity))
     }
 
     /// The node of the subplan `plan`, which compiles it on first use.
     fn node(&mut self, plan: &LogicalPlan) -> Result<usize> {
-        let (direct, sources, identity) = self.identify(plan)?;
-        let reads = Reads::of_plan(&direct)?;
+        let (sources, identity) = self.identify(plan)?;
+        let reads = Reads::of_plan(plan)?;
         if !reads.volatile {
             if let Some(index) = self.index.get(&identity) {
                 return Ok(*index);
             }
         }
         let mut inputs = Vec::new();
-        let mut replaces = Vec::new();
-        let cut = self.cut_below(plan, &mut inputs, &mut replaces, false)?;
+        let cut = self.cut_below(plan, &mut inputs, false)?;
         let own = Reads::of_plan(&cut)?;
         let mut tables = Vec::new();
         cut.apply_with_subqueries(|node| {
@@ -459,14 +355,6 @@ impl<'a> Builder<'a> {
             }
             Ok(TreeNodeRecursion::Continue)
         })?;
-        let cells = match (self.substitutions.iter()).any(|s| s.cells == *plan) {
-            true => {
-                let scanned = providers(plan)?;
-                (self.substitutions.iter())
-                    .any(|s| s.cells == *plan && s.cells_providers == scanned)
-            }
-            false => false,
-        };
         let node = QueryNode {
             plan: cut,
             identity: identity.clone(),
@@ -478,8 +366,6 @@ impl<'a> Builder<'a> {
             sources,
             inputs,
             top_of: Vec::new(),
-            replaces,
-            cells,
         };
         let index = self.nodes.len();
         if node.kept {
@@ -496,12 +382,8 @@ impl<'a> Builder<'a> {
         &mut self,
         op: &LogicalPlan,
         inputs: &mut Vec<usize>,
-        replaces: &mut Vec<LogicalPlan>,
         recursive: bool,
     ) -> Result<LogicalPlan> {
-        if let Some(substitution) = self.rollup_of(op)? {
-            replaces.push(substitution.replaced.clone());
-        }
         let recursive = recursive || matches!(op, LogicalPlan::RecursiveQuery(_));
         let mut children = Vec::new();
         for child in op.inputs() {
@@ -510,7 +392,7 @@ impl<'a> Builder<'a> {
                 inputs.push(node);
                 children.push(cut_scan(child, inputs.len() - 1)?);
             } else {
-                children.push(self.cut_below(child, inputs, replaces, recursive)?);
+                children.push(self.cut_below(child, inputs, recursive)?);
             }
         }
         if children.is_empty() {
@@ -528,16 +410,29 @@ impl<'a> Builder<'a> {
     }
 }
 
-/// The addresses of the providers that `plan` scans, in the order of its scans.
-fn providers(plan: &LogicalPlan) -> Result<Vec<usize>> {
-    let mut providers = Vec::new();
-    plan.apply_with_subqueries(|node| {
-        if let LogicalPlan::TableScan(scan) = node {
-            if let Ok(provider) = source_as_provider(&scan.source) {
-                providers.push(address(&provider));
-            }
+/// Replaces each shared node of `plan` with its input, and adds the input to `shared`, which the
+/// builder cuts into a graph node of its own. A shared node whose input calls a volatile or a
+/// stable function stays as it is.
+///
+/// A shared node runs its input once for all the references to it in one plan. The graph gives
+/// the same guarantee, because it runs a node once for all the node's readers. The graph needs
+/// the input as a node of its own: a `SharedExec` does not expose the plan of its input as a
+/// child, so a run could not bind the selections' operators inside it or point its cuts' leaves
+/// at the run's results.
+fn unshare(plan: LogicalPlan, shared: &mut HashSet<LogicalPlan>) -> Result<LogicalPlan> {
+    plan.transform_up_with_subqueries(|node| {
+        let LogicalPlan::Extension(extension) = &node else {
+            return Ok(Transformed::no(node));
+        };
+        let Some(shared_node) = (extension.node.as_any()).downcast_ref::<SharedNode>() else {
+            return Ok(Transformed::no(node));
+        };
+        if Reads::of_plan(&shared_node.input)?.volatile {
+            return Ok(Transformed::no(node));
         }
-        Ok(TreeNodeRecursion::Continue)
-    })?;
-    Ok(providers)
+        let input = shared_node.input.clone();
+        shared.insert(input.clone());
+        Ok(Transformed::yes(input))
+    })
+    .data()
 }

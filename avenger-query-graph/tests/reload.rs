@@ -55,7 +55,7 @@ async fn a_store_without_results_adds_no_cut() {
     let ctx = context();
     let new = compile(&ctx, &materialized(), &new_top()).await;
     // The scan and the count with its new top.
-    assert_eq!(new.nodes(None).unwrap().len(), 2);
+    assert_eq!(new.nodes().len(), 2);
 }
 
 #[tokio::test]
@@ -73,7 +73,7 @@ async fn a_kept_subplan_inside_a_recursive_query_is_not_cut() {
          UNION ALL SELECT n + 1 FROM t WHERE n < $max) SELECT * FROM t"
     );
     let graph = compile(&ctx, &store, &sql).await;
-    assert_eq!(graph.nodes(None).unwrap().len(), 1);
+    assert_eq!(graph.nodes().len(), 1);
     let values = inputs(&[("max", ScalarValue::from(1000i64))], &[]);
     let run = graph.run(&values).await.unwrap();
     assert_eq!(

@@ -4,6 +4,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
+use avenger_physical_graph::cut::{CutInputExec, CutScan};
 use datafusion::{
     arrow::{
         array::{RecordBatch, RecordBatchOptions},
@@ -120,6 +121,7 @@ pub(crate) fn with_results(
             };
             let table = KeptTable {
                 schema: cut.schema.clone(),
+                input: cut.input,
                 kept,
             };
             let source = datafusion::datasource::provider_as_source(Arc::new(table));
@@ -211,10 +213,11 @@ impl Kept {
     }
 }
 
-/// A kept result as a table, with the schema of the cut's scan.
+/// A kept result as a table, with the schema of the cut's scan and the position of its input.
 #[derive(Debug)]
 struct KeptTable {
     schema: SchemaRef,
+    input: usize,
     kept: Arc<Kept>,
 }
 
@@ -235,52 +238,122 @@ impl TableProvider for KeptTable {
         _filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let kept = &self.kept;
-        let schema = project_schema(&self.schema, Some(&kept.columns))?;
-        let batches = kept.project(&kept.columns, schema.clone())?;
-        let position = |column: usize| kept.columns.iter().position(|kept| *kept == column);
-        let projection = match projection {
-            Some(projection) => Some(
-                (projection.iter())
-                    .map(|column| match position(*column) {
-                        Some(position) => Ok(position),
-                        None => internal_err!("a kept result lacks the column at {column}"),
-                    })
-                    .collect::<Result<Vec<_>>>()?,
-            ),
-            None => None,
+        let cut = CutScan {
+            input: self.input,
+            schema: self.schema.clone(),
+            projection: projection.cloned(),
+            limit,
         };
-        // Ordered batches replay in their order in one partition, with the ordering that the plan
-        // above can use, so a limit above the cut keeps the rows that it keeps without the cut.
-        // Other batches spread over the session's partitions, so the plan above reads them in
-        // parallel.
-        if !kept.ordered {
-            let count = (state.config_options().execution.target_partitions)
-                .min(batches.len())
-                .max(1);
-            let mut partitions = vec![Vec::new(); count];
-            for (index, batch) in batches.into_iter().enumerate() {
-                partitions[index % count].push(batch);
-            }
-            let source = MemorySourceConfig::try_new(&partitions, schema, projection)?;
-            return Ok(DataSourceExec::from_data_source(source.with_limit(limit)));
-        }
-        let ordering: Vec<PhysicalSortExpr> = (kept.ordering.iter())
-            .map_while(|(column, options)| {
-                let position = position(*column)?;
-                let field = schema.field(position);
-                Some(PhysicalSortExpr::new(
-                    Arc::new(PhysicalColumn::new(field.name(), position)),
-                    *options,
-                ))
-            })
-            .collect();
-        let mut source = MemorySourceConfig::try_new(&[batches], schema, projection)?;
-        if let Some(ordering) = LexOrdering::new(ordering) {
-            source = source.try_with_sort_information(vec![ordering])?;
-        }
-        Ok(DataSourceExec::from_data_source(source.with_limit(limit)))
+        let partitions = state.config_options().execution.target_partitions;
+        let scan = kept_scan(&cut, &self.kept, partitions)?;
+        Ok(Arc::new(CutInputExec::new(cut, scan)))
     }
+}
+
+/// The number of partitions of the scan of `kept` in a session of `target` partitions.
+fn partitions(kept: &Kept, target: usize) -> usize {
+    match kept.ordered {
+        true => 1,
+        false => target.min(kept.batches.len()).max(1),
+    }
+}
+
+/// The scan of `kept` through the cut `cut`. Ordered batches replay in their order in one
+/// partition, with the ordering that the plan above can use, so a limit above the cut keeps the
+/// rows that it keeps without the cut. Other batches spread over the session's `target`
+/// partitions, so the plan above reads them in parallel.
+pub(crate) fn kept_scan(
+    cut: &CutScan,
+    kept: &Kept,
+    target: usize,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    let schema = project_schema(&cut.schema, Some(&kept.columns))?;
+    let batches = kept.project(&kept.columns, schema.clone())?;
+    let position = |column: usize| kept.columns.iter().position(|kept| *kept == column);
+    let projection = match &cut.projection {
+        Some(projection) => Some(
+            (projection.iter())
+                .map(|column| match position(*column) {
+                    Some(position) => Ok(position),
+                    None => internal_err!("a kept result lacks the column at {column}"),
+                })
+                .collect::<Result<Vec<_>>>()?,
+        ),
+        None => None,
+    };
+    if !kept.ordered {
+        let count = partitions(kept, target);
+        let mut parts = vec![Vec::new(); count];
+        for (index, batch) in batches.into_iter().enumerate() {
+            parts[index % count].push(batch);
+        }
+        let source = MemorySourceConfig::try_new(&parts, schema, projection)?;
+        return Ok(DataSourceExec::from_data_source(
+            source.with_limit(cut.limit),
+        ));
+    }
+    let ordering: Vec<PhysicalSortExpr> = (kept.ordering.iter())
+        .map_while(|(column, options)| {
+            let position = position(*column)?;
+            let field = schema.field(position);
+            Some(PhysicalSortExpr::new(
+                Arc::new(PhysicalColumn::new(field.name(), position)),
+                *options,
+            ))
+        })
+        .collect();
+    let mut source = MemorySourceConfig::try_new(&[batches], schema, projection)?;
+    if let Some(ordering) = LexOrdering::new(ordering) {
+        source = source.try_with_sort_information(vec![ordering])?;
+    }
+    Ok(DataSourceExec::from_data_source(
+        source.with_limit(cut.limit),
+    ))
+}
+
+/// What of a kept result decides the properties of its scan: its columns, whether it is ordered,
+/// its ordering, and the number of its partitions in a session of `target` partitions. A physical
+/// plan that one computation planned serves another whose inputs have the same shapes.
+pub(crate) type Shape = (Vec<usize>, bool, Vec<(usize, SortOptions)>, usize);
+
+/// The shape of each input's result, or `None` for an input that the plan does not scan.
+pub(crate) fn shapes(results: &[Option<Arc<Kept>>], target: usize) -> Vec<Option<Shape>> {
+    (results.iter())
+        .map(|kept| {
+            kept.as_ref().map(|kept| {
+                let partitions = partitions(kept, target);
+                (
+                    kept.columns.clone(),
+                    kept.ordered,
+                    kept.ordering.clone(),
+                    partitions,
+                )
+            })
+        })
+        .collect()
+}
+
+/// `plan`, a physical plan of a node, with each cut's leaf reading `results[input]`.
+pub(crate) fn substitute(
+    plan: Arc<dyn ExecutionPlan>,
+    results: &[Option<Arc<Kept>>],
+    target: usize,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
+    Ok(plan
+        .transform_down(|node| {
+            let Some(leaf) = node.downcast_ref::<CutInputExec>() else {
+                return Ok(Transformed::no(node));
+            };
+            let cut = leaf.cut().clone();
+            let Some(kept) = results.get(cut.input).cloned().flatten() else {
+                return internal_err!("a cut's leaf has no result");
+            };
+            let scan = kept_scan(&cut, &kept, target)?;
+            let leaf: Arc<dyn ExecutionPlan> = Arc::new(CutInputExec::new(cut, scan));
+            Ok(Transformed::new(leaf, true, TreeNodeRecursion::Jump))
+        })?
+        .data)
 }
 
 #[cfg(test)]

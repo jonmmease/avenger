@@ -7,10 +7,12 @@ description = "Filters and pre-aggregation of DataFusion queries by avenger sele
 readme = "README.md"
 
 [dependencies]
+async-trait = { workspace = true }
 avenger-selection = { path = "../avenger-selection" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 datafusion = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 datafusion = { workspace = true, features = ["sql", "nested_expressions"] }

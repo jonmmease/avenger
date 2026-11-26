@@ -13,7 +13,7 @@ use std::{
 };
 
 use avenger_query_graph::{Inputs, QueryGraph, ResultStore};
-use common::{exact, inputs, outcomes, state};
+use common::{inputs, outcomes};
 use datafusion::{
     arrow::{
         array::{Float64Array, RecordBatch, StringArray},
@@ -215,19 +215,18 @@ async fn a_run_that_needs_another_column_starts_a_wider_computation() {
     let (tickets, _) = watch::channel(BTreeSet::new());
     let (scans, _) = register(&ctx, "a", Gate::Tickets(tickets.clone()));
     let store = common::store();
-    // The lower node keeps only `k` when the brush is empty, and `k` and `x` when it tests `x`.
-    let graph = graph(
+    // Two graphs read one lower node: the first only its `k`, the second its `k` and `x`.
+    let lower = "(SELECT * FROM a WHERE k <> 'z')";
+    let narrow_graph = graph(&ctx, &store, &format!("SELECT k FROM {lower} WHERE k > $p")).await;
+    let wide_graph = graph(
         &ctx,
         &store,
-        "SELECT k, count(*) AS n FROM (SELECT * FROM a WHERE k <> 'z') \
-         WHERE selected($s) GROUP BY k",
+        &format!("SELECT k, x FROM {lower} WHERE k > $p"),
     )
     .await;
-    let empty = inputs(&[], &[("s", avenger_selection::SelectionState::default())]);
-    let boxed = inputs(&[], &[("s", state(vec![("x", exact("x", 2.0, 8.0))]))]);
-    let narrow = spawn(&graph, empty.clone());
+    let narrow = spawn(&narrow_graph, inputs(&[("p", ScalarValue::from("a"))], &[]));
     until(|| scans.load(Ordering::SeqCst) == 1).await;
-    let wide = spawn(&graph, boxed.clone());
+    let wide = spawn(&wide_graph, inputs(&[("p", ScalarValue::from("a"))], &[]));
     until(|| scans.load(Ordering::SeqCst) == 2).await;
     // The wider computation finishes first, and the narrower one finishes later.
     tickets.send_modify(|released| {
@@ -238,12 +237,12 @@ async fn a_run_that_needs_another_column_starts_a_wider_computation() {
         released.insert(1);
     });
     narrow.await.unwrap();
-    // The kept result is the wider one, so a run that tests `x` hits it.
+    // The kept result is the wider one, so a run that reads `x` hits it.
     tickets.send_modify(|released| {
         released.extend(3..10);
     });
-    let other = inputs(&[], &[("s", state(vec![("x", exact("x", 1.0, 4.0))]))]);
-    let run = graph.run(&other).await.unwrap();
+    let other = inputs(&[("p", ScalarValue::from("b"))], &[]);
+    let run = wide_graph.run(&other).await.unwrap();
     assert_eq!(outcomes(&run), ["hit", "computed"]);
     assert_eq!(scans.load(Ordering::SeqCst), 2);
 }
@@ -455,7 +454,7 @@ fn run_through_a_pause(shutdown: bool) {
         }))
         .build();
         let graph = common::store().compile(&state, vec![plan]).unwrap();
-        assert_eq!(graph.nodes(None).unwrap().len(), 2);
+        assert_eq!(graph.nodes().len(), 2);
         graph
     });
     // A pending task drops only once a worker has closed the runtime's tasks.

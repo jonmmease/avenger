@@ -6,6 +6,7 @@ use std::{
 };
 
 use avenger_common::time::{Duration, Instant};
+use avenger_selection_datafusion::SelectionFields;
 use datafusion::{
     catalog::TableProvider,
     common::{DataFusionError, ResolvedTableReference, Result, TableReference},
@@ -240,7 +241,19 @@ impl ResultStore {
     /// Cut each plan of one document, an unoptimized plan whose parameters and selection states
     /// are placeholders, into one graph, which runs with `state`'s settings and runtime.
     pub fn compile(&self, state: &SessionState, plans: Vec<LogicalPlan>) -> Result<QueryGraph> {
-        QueryGraph::compile(self.clone(), state, plans)
+        self.compile_with_fields(state, plans, SelectionFields::new())
+    }
+
+    /// [`compile`](Self::compile) with the columns that each selection's tests can read, by the
+    /// name of its placeholder without `$`, so a node computes only those columns of its input for
+    /// the tests. A selection that `fields` does not name tests every column of its input.
+    pub fn compile_with_fields(
+        &self,
+        state: &SessionState,
+        plans: Vec<LogicalPlan>,
+        fields: SelectionFields,
+    ) -> Result<QueryGraph> {
+        QueryGraph::compile(self.clone(), state, plans, fields)
     }
 
     pub(crate) fn config(&self) -> &StoreConfig {

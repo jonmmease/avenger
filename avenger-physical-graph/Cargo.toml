@@ -10,24 +10,23 @@ readme = "README.md"
 arrow = { workspace = true }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
 datafusion-common = { workspace = true }
+datafusion-execution = { workspace = true }
 datafusion-expr = { workspace = true }
+datafusion-physical-expr = { workspace = true }
+datafusion-physical-plan = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# DataFusion draws identifiers, which need the browser's source of random numbers on the web.
+# DataFusion's metrics stamp each operator's start and end with chrono's clock, which reads the
+# browser's clock only with `wasmbind`.
+chrono = { workspace = true, features = ["wasmbind"] }
+# DataFusion draws random numbers and identifiers, which need the browser's source on the web.
+getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
 
 [dev-dependencies]
 datafusion-datasource = { workspace = true }
-datafusion-execution = { workspace = true }
 datafusion-functions-aggregate = { workspace = true }
-datafusion-physical-expr = { workspace = true }
-datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-# DataFusion's metrics stamp each operator's start and end with chrono's clock, which reads the
-# browser's clock only with `wasmbind`.
-chrono = { workspace = true, features = ["wasmbind"] }
-# DataFusion's execution draws random numbers, which need the browser's source on the web.
-getrandom = { version = "0.3", features = ["wasm_js"] }
 wasm-bindgen-test = "0.3"

@@ -124,8 +124,8 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
 }
 
 /// The query planner of avenger's extension nodes: DataFusion's default planner, with the
-/// extension planners of `impute` and of shared inputs. A session has one query planner, so it
-/// plans every extension node of avenger.
+/// extension planners of `impute`, of shared inputs, and of selections' operators. A session has
+/// one query planner, so it plans every extension node of avenger.
 #[derive(Debug)]
 pub struct QueryPlanner;
 
@@ -138,12 +138,14 @@ impl datafusion::execution::context::QueryPlanner for QueryPlanner {
     ) -> Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
         use avenger_datafusion_shared::SharedExtensionPlanner;
         use avenger_datafusion_transforms::table_function::TableFunctionExtensionPlanner;
+        use avenger_selection_datafusion::SelectionExtensionPlanner;
         use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
         use std::sync::Arc;
 
         DefaultPhysicalPlanner::with_extension_planners(vec![
             Arc::new(TableFunctionExtensionPlanner),
             Arc::new(SharedExtensionPlanner::default()),
+            Arc::new(SelectionExtensionPlanner),
         ])
         .create_physical_plan(plan, session)
         .await

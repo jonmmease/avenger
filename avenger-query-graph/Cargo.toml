@@ -9,6 +9,8 @@ readme = "README.md"
 [dependencies]
 async-trait = { workspace = true }
 avenger-common = { path = "../avenger-common" }
+avenger-datafusion-shared = { path = "../avenger-datafusion-shared" }
+avenger-physical-graph = { path = "../avenger-physical-graph" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
 datafusion = { workspace = true }

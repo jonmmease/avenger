@@ -19,7 +19,7 @@ async fn nodes(sql: &str, materialize: bool) -> Vec<QueryNode> {
     let graph = store
         .compile(&ctx.state(), vec![plan(&ctx, sql).await])
         .unwrap();
-    graph.nodes(None).unwrap().to_vec()
+    graph.nodes().to_vec()
 }
 
 /// The parameters that each node's own operators read, with the selections as `$s`.
@@ -146,7 +146,7 @@ async fn equal_plans_share_their_top_node() {
             vec![plan(&ctx, sql).await, plan(&ctx, sql).await],
         )
         .unwrap();
-    let nodes = graph.nodes(None).unwrap();
+    let nodes = graph.nodes();
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].top_of(), [0, 1]);
 }
