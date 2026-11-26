@@ -95,7 +95,7 @@ fn options_of(arg: &ColumnarValue) -> Result<TimeUnitOptions> {
     Ok(TimeUnitOptions::of_struct(array.as_struct(), 0)?)
 }
 
-static TIMEUNIT: LazyLock<ScalarUDF> = LazyLock::new(|| {
+pub(crate) static TIMEUNIT: LazyLock<ScalarUDF> = LazyLock::new(|| {
     ScalarUDF::new_from_impl(TimeUnitScalar {
         signature: Signature::any(2, Volatility::Immutable),
     })
@@ -132,7 +132,7 @@ impl ScalarUDFImpl for TimeUnitScalar {
     }
 }
 
-static APPLY: LazyLock<ScalarUDF> = LazyLock::new(|| {
+pub(crate) static APPLY: LazyLock<ScalarUDF> = LazyLock::new(|| {
     ScalarUDF::new_from_impl(TimeUnitApply {
         signature: Signature::any(3, Volatility::Immutable),
     })
@@ -216,7 +216,7 @@ impl ScalarUDFImpl for TimeUnitApply {
     }
 }
 
-static CHOOSE: LazyLock<AggregateUDF> = LazyLock::new(|| {
+pub(crate) static CHOOSE: LazyLock<AggregateUDF> = LazyLock::new(|| {
     AggregateUDF::new_from_impl(TimeUnitChoose {
         signature: Signature::any(2, Volatility::Immutable),
     })

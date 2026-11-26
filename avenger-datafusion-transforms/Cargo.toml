@@ -10,6 +10,8 @@ readme = "README.md"
 avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 avenger-datafusion-shared = { path = "../avenger-datafusion-shared" }
 datafusion = { workspace = true, features = ["nested_expressions"] }
+datafusion-proto-common = { workspace = true }
+prost = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }

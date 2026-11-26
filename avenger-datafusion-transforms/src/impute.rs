@@ -818,17 +818,21 @@ fn constants(
 
 /// What `impute` imputes in each partition: the columns, by index, and the arguments.
 #[derive(Debug, Clone)]
-struct Spec {
-    key: usize,
-    groups: Vec<usize>,
-    val: usize,
-    fill: Fill,
-    keys: Option<Vec<ScalarValue>>,
-    extra_keys: Vec<ScalarValue>,
-    gaps: Option<Gaps>,
+pub(crate) struct Spec {
+    pub(crate) key: usize,
+    pub(crate) groups: Vec<usize>,
+    pub(crate) val: usize,
+    pub(crate) fill: Fill,
+    pub(crate) keys: Option<Vec<ScalarValue>>,
+    pub(crate) extra_keys: Vec<ScalarValue>,
+    pub(crate) gaps: Option<Gaps>,
 }
 
 impl PartitionTransform for Spec {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn transform(
         &self,
         input: &RecordBatch,

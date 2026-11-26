@@ -5,7 +5,7 @@
 //! the current row and its neighbors.
 
 pub mod matcher;
-mod node;
+pub(crate) mod node;
 pub mod pattern;
 
 pub use matcher::{Match, Skip, Tail, matches, tail_matches};

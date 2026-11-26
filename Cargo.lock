@@ -862,9 +862,11 @@ dependencies = [
  "avenger-datafusion-shared",
  "chrono",
  "datafusion",
+ "datafusion-proto-common",
  "futures",
  "getrandom 0.3.4",
  "libm",
+ "prost",
  "tokio",
 ]
 
