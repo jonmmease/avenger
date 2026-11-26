@@ -16,6 +16,7 @@ use avenger_chart_eval::{
     change, ChartEvaluator, EvalError, EvalWarning, EvaluatedPlot, ProjectionIdentity,
     ProjectionView, Registry, ScaleIdentity,
 };
+use avenger_common::time::{Duration, Instant};
 use avenger_coords::PlotCoords;
 use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
 use avenger_selection::{Clause, Condition, PixelGrid, Resolution, SelectionState};
@@ -283,6 +284,8 @@ pub struct ChartAppState {
     pub(crate) focused: Option<SelectionFocus>,
     /// The selections written since the last report, in the order of their first writes.
     written: Vec<String>,
+    /// When the app last reported a change, which throttles the reports of a gesture.
+    reported: Option<Instant>,
     /// Each lasso with keys, by its area: its paths and the keys that they wrote, so a lasso
     /// stays drawn while its owner's clause holds those keys.
     pub(crate) lassos: Vec<(SelectionArea, Lasso<Vec<Scalar>>)>,
@@ -318,6 +321,7 @@ impl ChartAppState {
             on_focus,
             focused: None,
             written: Vec::new(),
+            reported: None,
             lassos: Vec::new(),
             controls: WidgetControls::default(),
             preferences: Preferences::default(),
@@ -515,6 +519,18 @@ impl ChartAppState {
         if self.reports == Reports::Settled && !change.settled {
             return;
         }
+        // A gesture of select tools reports at most once in their throttle, and the selections that
+        // it wrote meanwhile join its next report.
+        let selecting = change.domains.is_empty()
+            && change.projections.is_empty()
+            && change.modes.is_none()
+            && !self.written.is_empty();
+        if selecting && !change.settled {
+            let throttle = self.throttle();
+            if (self.reported).is_some_and(|reported| reported.elapsed() < throttle) {
+                return;
+            }
+        }
         change.selections = std::mem::take(&mut self.written)
             .into_iter()
             .map(|name| {
@@ -529,5 +545,27 @@ impl ChartAppState {
         if let Some(on_change) = &self.on_change {
             on_change(&change);
         }
+        self.reported = Some(Instant::now());
+    }
+
+    /// The throttle of the reports of the selections written since the last report: the least
+    /// throttle of the select tools that write them.
+    fn throttle(&self) -> Duration {
+        let milliseconds = (self.declarations.iter())
+            .flat_map(|declaration| &declaration.tools)
+            .filter_map(|tool| match &tool.kind {
+                Some(proto::tool::Kind::Select(select))
+                    if self.written.contains(&select.selection) =>
+                {
+                    Some(select.throttle.unwrap_or(THROTTLE))
+                }
+                _ => None,
+            })
+            .min()
+            .unwrap_or(THROTTLE);
+        Duration::from_millis(milliseconds.into())
     }
 }
+
+/// The throttle of a select tool that sets none, in milliseconds.
+const THROTTLE: u32 = 20;

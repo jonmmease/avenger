@@ -26,6 +26,7 @@ mod reshape;
 mod rows;
 mod script;
 mod selection;
+mod selection_checks;
 mod set;
 mod transforms;
 
@@ -110,6 +111,9 @@ pub struct Analysis {
     pub file_tables: Vec<crate::data::Definition>,
     /// The script's selections, by their `DECLARE`s, in the order of the text.
     pub selections: Vec<Selection>,
+    /// The warnings of the analysis: texts that run but likely do not do what they mean, such as
+    /// a mark that filters by a selection that it writes.
+    pub warnings: Vec<Diagnostic>,
 }
 
 /// Values of a script's variables, by name, that take the place of their own values.
@@ -349,6 +353,7 @@ pub fn analyze(
             for (index, stmt) in stmts.iter().enumerate() {
                 let range = stmt.syntax().text_range();
                 let errors = pass.diagnostics.len();
+                pass.statement = index;
                 data.later(&mut pass, index);
                 let planned = pass.script_statement(stmt, &mut data);
                 if pass.diagnostics.len() != errors {
@@ -373,6 +378,7 @@ pub fn analyze(
             "avenger-sql analyzes scripts, not modules: a module is read by an IMPORT MODULE",
         ),
     }
+    pass.check_selections();
     Analysis {
         statements,
         plan,
@@ -382,6 +388,7 @@ pub fn analyze(
         lifted: pass.lifted,
         file_tables: data.definitions,
         selections: pass.selections,
+        warnings: pass.warnings,
     }
 }
 
@@ -406,6 +413,16 @@ pub(crate) struct Pass<'a> {
     variables: Vec<script::Variable>,
     /// The script's selections, by their `DECLARE`s.
     selections: Vec<Selection>,
+    /// The ids that the pass generated for the mark calls with select tools and no `id`, by the
+    /// ranges of the calls, in the order of the text.
+    generated_ids: Vec<(TextRange, String)>,
+    /// The select tools of the script's marks, and the reads of its selections, which
+    /// `check_selections` checks after the pass.
+    selection_writes: Vec<selection_checks::Write>,
+    selection_reads: Vec<selection_checks::Read>,
+    /// The index of the statement that the pass plans.
+    statement: usize,
+    warnings: Vec<Diagnostic>,
     /// The temporary tables, and the table arguments of a table function's body.
     temp_tables: Vec<WithName>,
     /// The temporary functions, and the functions of the imported modules under their paths.
@@ -463,6 +480,11 @@ impl<'a> Pass<'a> {
             with_names: Vec::new(),
             variables: Vec::new(),
             selections: Vec::new(),
+            generated_ids: Vec::new(),
+            selection_writes: Vec::new(),
+            selection_reads: Vec::new(),
+            statement: 0,
+            warnings: Vec::new(),
             temp_tables: Vec::new(),
             functions: Vec::new(),
             constants: Vec::new(),

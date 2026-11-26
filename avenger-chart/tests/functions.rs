@@ -150,9 +150,9 @@ fn an_error_holds_its_path_and_the_inputs_of_its_parameter() {
 #[test]
 fn a_mark_call_builds_the_chart_of_its_builder() {
     let mut call = mark("mark_bar").expect("a mark").call();
-    call.channel("x", ChannelArg::Field("c".into()), None, None, &[])
+    call.channel("x", ChannelArg::Field("c".into()), None, None, &[], &[])
         .unwrap();
-    call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("y", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
     let template = call.bind().unwrap();
     assert_eq!(template.columns(), ["c", "a"]);
@@ -167,13 +167,14 @@ fn a_mark_call_builds_the_chart_of_its_builder() {
 fn bare_arguments_take_the_kinds_of_their_channels() {
     let value = |array: ArrayRef| ChannelArg::Value(array);
     let mut call = mark("mark_symbol").expect("a mark").call();
-    call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("x", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
     call.channel(
         "y",
         value(Arc::new(Float64Array::from(vec![2.0]))),
         None,
         None,
+        &[],
         &[],
     )
     .unwrap();
@@ -183,6 +184,7 @@ fn bare_arguments_take_the_kinds_of_their_channels() {
         None,
         None,
         &[],
+        &[],
     )
     .unwrap();
     call.channel(
@@ -190,6 +192,7 @@ fn bare_arguments_take_the_kinds_of_their_channels() {
         ChannelArg::Field("c".into()),
         Some(Kind::Direct),
         None,
+        &[],
         &[],
     )
     .unwrap();
@@ -224,9 +227,9 @@ fn mark_options(named: Vec<(&str, Arg)>) -> Vec<Option<Arg>> {
 /// A symbol call of `table` with the mark options `named`.
 fn symbols_with(named: Vec<(&str, Arg)>) -> Chart {
     let mut call = mark("mark_symbol").expect("a mark").call();
-    call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("x", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
-    call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("y", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
     call.options(&mark_options(named)).unwrap();
     call.bind().unwrap().chart(table(), NONE).unwrap()
@@ -381,10 +384,24 @@ fn a_layer_composition_merges_the_options_of_its_charts() {
 #[test]
 fn the_rules_of_a_mark_fail_its_call() {
     let mut call = mark("mark_geo_symbol").expect("a mark").call();
-    call.channel("longitude", ChannelArg::Field("a".into()), None, None, &[])
-        .unwrap();
-    call.channel("latitude", ChannelArg::Field("a".into()), None, None, &[])
-        .unwrap();
+    call.channel(
+        "longitude",
+        ChannelArg::Field("a".into()),
+        None,
+        None,
+        &[],
+        &[],
+    )
+    .unwrap();
+    call.channel(
+        "latitude",
+        ChannelArg::Field("a".into()),
+        None,
+        None,
+        &[],
+        &[],
+    )
+    .unwrap();
     let error = call.bind().unwrap_err();
     assert!(matches!(error.reason, Reason::Mark(_)), "{error:?}");
     assert!(
@@ -398,6 +415,7 @@ fn the_rules_of_a_mark_fail_its_call() {
         ChannelArg::Field("c".into()),
         Some(Kind::Scaled),
         None,
+        &[],
         &[],
     ))
     .unwrap_err();
@@ -755,9 +773,9 @@ fn a_binding_names_the_format_syntaxes_of_each_chart_that_it_builds() {
     };
     let named = ("googlesql".to_string(), "googlesql".to_string());
     let mut call = mark("mark_symbol").expect("a mark").call();
-    call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("x", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
-    call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("y", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
     let symbols = call.bind().unwrap().chart(table(), googlesql).unwrap();
     assert_eq!(syntaxes(&symbols), named);
@@ -869,9 +887,9 @@ fn each_channel_with_a_scale_has_a_function_with_the_options_of_its_channel() {
 #[test]
 fn a_channel_function_sets_its_options_and_only_its_own_channel() {
     let mut call = mark("mark_symbol").expect("a mark").call();
-    call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("x", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
-    call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
+    call.channel("y", ChannelArg::Field("a".into()), None, None, &[], &[])
         .unwrap();
     // The options in the order of the function's, `scale`, `legend`, then `title`.
     call.channel(
@@ -880,6 +898,7 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
         None,
         channel_function("color"),
         &[None, None, Some(Arg::Str("C".into()))],
+        &[],
     )
     .unwrap();
     let error = call
@@ -888,6 +907,7 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
             ChannelArg::Field("c".into()),
             None,
             channel_function("color"),
+            &[],
             &[],
         )
         .unwrap_err();
@@ -911,6 +931,7 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
         ChannelArg::Field("c".into()),
         Some(Kind::Scaled),
         None,
+        &[],
         &[],
     ))
     .unwrap_err();

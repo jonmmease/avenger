@@ -175,6 +175,10 @@ message Select {
   repeated string scope = 5;
   // The names of the modes in which the tool is active, as for `Navigate.modes`.
   repeated string modes = 6;
+  // The least time, in milliseconds, between the reports of the tool's changes while its gesture
+  // is in progress, so a host that runs queries of the selection follows a drag at that rate. When
+  // unset, 20. Zero reports every move. The change that settles a gesture is always reported.
+  optional uint32 throttle = 7;
 }
 
 // A drag draws a box, which selects a range on the column of each channel, or a set of categories

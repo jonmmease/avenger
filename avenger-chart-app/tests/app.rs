@@ -659,6 +659,41 @@ async fn a_box_writes_the_clause_of_its_plot_and_grays_the_rows_outside_it() {
     assert_eq!(changes.last().unwrap().selection("brush").unwrap().len(), 1);
 }
 
+/// The changes that a drag of ten moves of a box with `throttle` reports.
+async fn drag_reports(throttle: u32) -> Vec<ChartChange> {
+    let select = Select::interval("brush", IntervalSelect::builder()).throttle(throttle);
+    let (mut app, _, changes) = app(scatter(cars(), vec![ToolBuilder::from(select)])).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let at = |step: f32| {
+        [
+            x + width * (0.2 + 0.05 * step),
+            y + height * (0.1 + 0.07 * step),
+        ]
+    };
+    let mut events = vec![moved(at(0.0)), mouse(ElementState::Pressed)];
+    events.extend((1..=10).map(|step| moved(at(step as f32))));
+    events.push(mouse(ElementState::Released));
+    send(&mut app, events).await;
+    let changes = changes.lock().unwrap().clone();
+    changes
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_box_reports_its_drag_at_most_once_in_its_throttle_and_always_its_settle() {
+    // The moves within a minute of the first report join the settle's report.
+    let throttled = drag_reports(60_000).await;
+    assert_eq!(throttled.len(), 2, "{throttled:?}");
+    assert_eq!(
+        throttled.last().unwrap().selection("brush").unwrap().len(),
+        1
+    );
+    assert!(throttled.last().unwrap().settled);
+    // A throttle of zero reports every move.
+    let every = drag_reports(0).await;
+    assert!(every.len() >= 10, "{every:?}");
+    assert!(every.last().unwrap().settled);
+}
+
 /// `change` after a trip through the bytes of the format, as a page sends it to its server.
 fn through_format(change: &ChartChange) -> ChartChange {
     let bytes = change.to_message().unwrap().to_bytes().unwrap();

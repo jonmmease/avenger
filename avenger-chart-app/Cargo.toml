@@ -22,6 +22,7 @@ avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-image = { path = "../avenger-image", default-features = false }
 avenger-layout = { path = "../avenger-layout" }
+avenger-common = { path = "../avenger-common" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-style = { path = "../avenger-style" }
@@ -31,7 +32,6 @@ avenger-widgets = { path = "../avenger-widgets" }
 
 [dev-dependencies]
 avenger-color = { path = "../avenger-color" }
-avenger-common = { path = "../avenger-common" }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }

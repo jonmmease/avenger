@@ -795,7 +795,15 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("TooltipField", &["column", "title", "format", "markup"]),
     (
         "Select",
-        &["selection", "interval", "point", "lasso", "scope", "modes"],
+        &[
+            "selection",
+            "interval",
+            "point",
+            "lasso",
+            "scope",
+            "modes",
+            "throttle",
+        ],
     ),
     ("IntervalSelect", &["channels", "cell"]),
     ("PointSelect", &["keys", "toggle"]),

@@ -771,7 +771,10 @@ impl Pass<'_> {
             if let Some(variable) = self.variable(&first, at) {
                 found = Some((variable, 1));
             } else if let Some(selection) = self.use_selection(&first, at) {
-                found = Some((self.read_selection(&selection, at, scope, None, &[])?, 1));
+                found = Some((
+                    self.read_selection(&selection, at, scope, None, Vec::new())?,
+                    1,
+                ));
             }
         }
         if found.is_none() {
@@ -1946,7 +1949,30 @@ impl Pass<'_> {
                 }
                 continue;
             }
-            match self.expr(&value, arg_scope) {
+            // The selection that a select tool writes, by its name.
+            let writes = fills
+                .as_ref()
+                .is_some_and(|fills| fills.builds.constructor == "select");
+            if writes && param_is("selection") {
+                match self.written_selection(&value) {
+                    Some(name) => {
+                        args.push((
+                            named,
+                            Arg::Value(Expr::Literal(ScalarValue::from(name), None)),
+                        ));
+                        strings.push(None);
+                    }
+                    None => ok = false,
+                }
+                continue;
+            }
+            // A mark's channel restyles by selections through a CASE or an IF of them.
+            let planned = self.expr(&value, arg_scope);
+            let planned = match (planned, function.family == library::Family::Mark) {
+                (Some(expr), true) => self.restyle(expr, value.syntax().text_range()),
+                (planned, _) => planned,
+            };
+            match planned {
                 Some(expr) => {
                     if marked {
                         let channel = match &named {
@@ -1978,6 +2004,18 @@ impl Pass<'_> {
                     strings.push(string_literal(&value));
                 }
                 None => ok = false,
+            }
+        }
+        // A mark whose select tool writes clauses owns them by its id, which the call generates
+        // when it writes none.
+        if function.family == library::Family::Mark {
+            self.mark_selections(list.as_ref(), &written, range);
+            if let Some(id) = self.generated_id(list.as_ref(), fname, range) {
+                args.push((
+                    Some("id".to_string()),
+                    Arg::Value(Expr::Literal(ScalarValue::from(id), None)),
+                ));
+                strings.push(None);
             }
         }
         // A plain syntax holds for the strings of the constructors in the call too, such as a
@@ -2126,6 +2164,15 @@ impl Pass<'_> {
                         order_by,
                         null_treatment,
                     );
+                    // A mark declares the script's selections in its chart, after its parameters.
+                    let mut args = args;
+                    if function.family == library::Family::Mark && !self.selections.is_empty() {
+                        let count = function.forms[0].signature.args.len();
+                        args.resize(count, Expr::Literal(ScalarValue::Null, None));
+                        args.push(crate::functions::declaration::selections_argument(
+                            &self.selections,
+                        ));
+                    }
                     let aggregate = AggregateFunction::new_udf(
                         func,
                         args,

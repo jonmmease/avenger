@@ -84,11 +84,12 @@ tool(value, navigate, tooltip, select)
   navigate: navigate(...)
   tooltip: tooltip(...)
   select: string -> selection; select(...)
-select(selection, type, scope, modes)
+select(selection, type, scope, modes, throttle)
   selection (positional, required): string
   type: string -> a member's name; type(...)
   scope: array of string
   modes: array of string
+  throttle: integer
 lasso_select(keys)
   keys: array of string
 point_select(keys, toggle)

@@ -898,7 +898,7 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
 }
 
 /// The tools that the argument `tools` of the mark call of `query` builds, before the mark places
-/// them, which a chart with a selection tool needs the selections of.
+/// them.
 async fn tools(query: &str) -> Vec<avenger_chart::proto::Tool> {
     let ctx = common::session();
     let plan = avenger_sql::sql(&ctx, query)
@@ -960,13 +960,14 @@ fn tool(kind: avenger_chart::proto::tool::Kind) -> avenger_chart::proto::Tool {
 async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
     use avenger_chart::proto::tool::Kind;
     let built = tools(
-        "FROM penguins
+        "DECLARE brush SELECTION;
+         FROM penguins
          |> AGGREGATE mark_symbol(
               x => body_mass_g,
               y => flipper_length_mm,
               tools => [
                 navigate(modes => ['pan']),
-                select('brush', type => interval(channels => ['x']), modes => ['box']),
+                select(brush, type => interval(channels => ['x']), modes => ['box'], throttle => 100),
                 tooltip(
                   nearest => TRUE,
                   max_radius => 20,
@@ -981,6 +982,7 @@ async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
     let navigate = Navigate::builder().modes(["pan"]).to_fragment().unwrap();
     let select = Select::interval("brush", IntervalSelect::builder().channels([Channel::X]))
         .modes(["box"])
+        .throttle(100)
         .to_fragment()
         .unwrap();
     let tooltip = Tooltip::builder()
@@ -1016,11 +1018,12 @@ async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
 async fn one_name_builds_a_point_scale_and_a_point_selection() {
     use avenger_chart::proto::tool::Kind;
     let built = tools(
-        "FROM penguins
+        "DECLARE pick SELECTION;
+         FROM penguins
          |> AGGREGATE mark_symbol(
               x => x(species, scale => scale(type => point(padding => 0.5))),
               y => flipper_length_mm,
-              tools => [select('pick', type => point(keys => ['species'], toggle => TRUE))],
+              tools => [select(pick, type => point(keys => ['species'], toggle => TRUE))],
             ) AS chart",
     )
     .await;

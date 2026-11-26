@@ -389,6 +389,17 @@ impl Document {
                     fixes: Vec::new(),
                 }),
         );
+        if let Analyzed::Script(analysis) = &self.analysis {
+            diagnostics.extend((analysis.warnings.iter()).map(|warning| Diagnostic {
+                range: warning.range,
+                message: warning.message.clone(),
+                help: None,
+                severity: Severity::Warning,
+                source: Source::Analysis,
+                code: None,
+                fixes: Vec::new(),
+            }));
+        }
         diagnostics.extend(self.markup_diagnostics());
         diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
         diagnostics
