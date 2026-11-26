@@ -12,10 +12,10 @@ use std::{
 
 use async_trait::async_trait;
 use avenger_sql::analysis::Overrides;
-use avenger_sql_project::{FileSource, LoadedProject, ProjectFiles};
+use avenger_sql_project::{ChartQuery, FileSource, LoadedProject, ProjectFiles};
 use datafusion::{
     arrow::{
-        array::{Int64Array, RecordBatch, StringArray},
+        array::{Date32Array, Int64Array, RecordBatch, StringArray},
         datatypes::{DataType, Field, Schema, SchemaRef},
         util::pretty::pretty_format_batches,
     },
@@ -97,11 +97,33 @@ async fn project_in(ctx: SessionContext) -> (tempfile::TempDir, LoadedProject, A
         scans: scans.clone(),
     };
     ctx.register_table("host", Arc::new(host)).unwrap();
+    ctx.register_table("events", Arc::new(events())).unwrap();
     let files = ProjectFiles::open(FileSource::directory(root.path()).unwrap())
         .await
         .unwrap();
     let project = LoadedProject::load(files, ctx).await.unwrap();
     (root, project, scans)
+}
+
+/// The host's table `events`: a key, a value, and a date in each of four months.
+fn events() -> MemTable {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("k", DataType::Utf8, false),
+        Field::new("v", DataType::Int64, false),
+        Field::new("d", DataType::Date32, false),
+    ]));
+    // Days since 1970-01-01: 2024-01-15, 2024-02-03, 2024-02-20, 2024-03-01, 2024-04-11, 2024-04-30.
+    let days = vec![19737, 19756, 19773, 19783, 19824, 19843];
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b", "a", "c", "b", "a"])),
+            Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5, 6])),
+            Arc::new(Date32Array::from(days)),
+        ],
+    )
+    .unwrap();
+    MemTable::try_new(schema, vec![vec![batch]]).unwrap()
 }
 
 fn write(root: &Path, path: &str, text: &str) {
@@ -325,29 +347,29 @@ fn chart_bytes(batches: &[RecordBatch]) -> Vec<u8> {
     }
 }
 
-#[tokio::test]
-async fn a_page_builds_the_charts_of_the_native_run() {
-    use avenger_physical_graph::page::{task_context, PageGraph};
+/// The clauses of a brush of the values `v` from `low` to `high`.
+fn brushed(low: i64, high: i64) -> Vec<avenger_selection::Clause> {
     use avenger_selection::{Clause, Condition};
-    // One partition, so the groups of the mark's items keep one order from run to run.
-    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(1);
-    let (_root, project, _) = project_in(SessionContext::new_with_config(config)).await;
-    let text = "DECLARE brush SELECTION;\n\
-                FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
-    let query = project.run_chart(CHART, text).await.unwrap();
+    let ends = Arc::new(Int64Array::from(vec![low, high]));
+    vec![Clause::new("scatter").condition(Condition::Range {
+        column: "v".into(),
+        channel: None,
+        ends,
+        exclude_end: false,
+        cells: None,
+    })]
+}
+
+/// The page of `query`, its graph's file, and the chart that the page builds for each of a series
+/// of states of the selection `brush`, each equal to the native run's chart, or the page's
+/// warnings.
+async fn page_charts(query: &ChartQuery) -> Result<(Vec<u8>, Vec<Vec<u8>>), Vec<String>> {
+    use avenger_physical_graph::page::{task_context, PageGraph};
     let page = query.page().await.unwrap();
-    assert!(page.warnings.is_empty(), "{:?}", page.warnings);
+    if !page.warnings.is_empty() {
+        return Err(page.warnings);
+    }
     let graph = PageGraph::decode(&page.bytes, Arc::new(task_context())).unwrap();
-    let brushed = |low: i64, high: i64| {
-        let ends = Arc::new(Int64Array::from(vec![low, high]));
-        vec![Clause::new("scatter").condition(Condition::Range {
-            column: "v".into(),
-            channel: None,
-            ends,
-            exclude_end: false,
-            cells: None,
-        })]
-    };
     let mut charts = Vec::new();
     for clauses in [Vec::new(), brushed(2, 3), brushed(1, 1), Vec::new()] {
         let selections = std::collections::BTreeMap::from([("brush".to_string(), clauses)]);
@@ -359,12 +381,129 @@ async fn a_page_builds_the_charts_of_the_native_run() {
         assert_eq!(chart_bytes(&ran[0]), chart_bytes(&native));
         charts.push(chart_bytes(&ran[0]));
     }
+    Ok((page.bytes, charts))
+}
+
+/// A session of one partition, so the groups of the marks' items keep one order from run to run.
+async fn one_partition() -> (tempfile::TempDir, LoadedProject) {
+    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(1);
+    let (root, project, _) = project_in(SessionContext::new_with_config(config)).await;
+    (root, project)
+}
+
+#[tokio::test]
+async fn a_page_builds_the_charts_of_the_native_run() {
+    let (_root, project) = one_partition().await;
+    let text = "DECLARE brush SELECTION;\n\
+                FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
+    let query = project.run_chart(CHART, text).await.unwrap();
+    let (bytes, charts) = page_charts(&query).await.unwrap();
     assert_ne!(charts[0], charts[1]);
     // The page's file and a brushed chart, which the browser's test of avenger-physical-graph
     // runs, written beside its baselines; accept them by copying the output over the baselines.
     let output =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-physical-graph/tests/output");
     std::fs::create_dir_all(&output).unwrap();
-    std::fs::write(output.join("bars.graph"), &page.bytes).unwrap();
+    std::fs::write(output.join("bars.graph"), &bytes).unwrap();
     std::fs::write(output.join("bars-brushed.chart"), &charts[1]).unwrap();
+}
+
+/// The cases of the survey: a chart that filters `events` by `WHERE brush` and calls one function
+/// above the filter, by the function's name.
+const SURVEY: &[(&str, &str)] = &[
+    ("UPPER", "|> SELECT UPPER(k) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart"),
+    (
+        "layer",
+        "|> AGGREGATE layer(mark_bar(x => k, y => SUM(v)), mark_symbol(x => k, y => SUM(v))) AS chart",
+    ),
+    (
+        "FORMAT_DATE",
+        "|> SELECT FORMAT_DATE('%b', d) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "PARSE_DATE",
+        "|> SELECT PARSE_DATE('%Y-%m-%d', FORMAT_DATE('%Y-%m-01', d)) AS x, v \
+         |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "CAST AS STRING",
+        "|> SELECT CAST(v * 1.5 AS STRING) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "TO_HEX",
+        "|> SELECT TO_HEX(CAST(k AS BYTES)) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "INTERVAL",
+        "|> SELECT DATE_ADD(d, INTERVAL v DAY) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "REGEXP_CONTAINS",
+        "|> SELECT IF(REGEXP_CONTAINS(k, r'^a'), 'a', 'other') AS x, v \
+         |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "FORMAT",
+        "|> SELECT FORMAT('%d', v) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "INITCAP",
+        "|> SELECT INITCAP(k) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    ("bin", "|> AGGREGATE mark_bar(x => bin(v), y => COUNT(*)) AS chart"),
+    (
+        "timeunit",
+        "|> AGGREGATE mark_bar(x => timeunit(d, unit => 'month'), y => COUNT(*)) AS chart",
+    ),
+    ("lump", "|> AGGREGATE mark_bar(x => lump(k, n => 1), y => COUNT(*)) AS chart"),
+    (
+        "stack",
+        "|> AGGREGATE mark_area(x => v, y => stack(COUNT(*)), color => k) AS chart",
+    ),
+    (
+        "impute",
+        "|> AGGREGATE COUNT(*) AS c GROUP BY k, v |> CALL impute(v, [k], c, value => 0) \
+         |> AGGREGATE mark_line(x => v, y => c, color => k) AS chart",
+    ),
+    (
+        "MATCH_RECOGNIZE",
+        "|> MATCH_RECOGNIZE(PARTITION BY k ORDER BY v MEASURES first(v) AS low, last(v) AS high \
+         PATTERN (up+) DEFINE up AS v > 0) |> AGGREGATE mark_bar(x => k, y => SUM(high)) AS chart",
+    ),
+];
+
+/// The cases of the survey whose charts do not filter in a page yet, since a page lacks their
+/// functions.
+const NOT_IN_PAGES: &[&str] = &[
+    "FORMAT_DATE",
+    "PARSE_DATE",
+    "CAST AS STRING",
+    "TO_HEX",
+    "INTERVAL",
+    "REGEXP_CONTAINS",
+    "FORMAT",
+    "INITCAP",
+    "bin",
+    "timeunit",
+    "lump",
+    "stack",
+    "impute",
+    "MATCH_RECOGNIZE",
+];
+
+#[tokio::test]
+async fn a_page_builds_the_charts_of_each_function() {
+    let (_root, project) = one_partition().await;
+    let mut wrong = Vec::new();
+    for (name, pipes) in SURVEY {
+        let text = format!("DECLARE brush SELECTION;\nFROM events |> WHERE brush {pipes}");
+        let query = project.run_chart(CHART, &text).await.unwrap();
+        let ran = page_charts(&query).await;
+        match (ran, NOT_IN_PAGES.contains(name)) {
+            (Ok(_), false) | (Err(_), true) => {}
+            (Ok(_), true) => wrong.push(format!("{name} runs in a page now")),
+            (Err(warnings), false) => wrong.push(format!("{name}: {warnings:?}")),
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
