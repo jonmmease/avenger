@@ -307,3 +307,67 @@ async fn a_step_of_a_data_script_builds_its_table_again_when_the_script_changes(
     let outcomes = edit(&mut session, &root, "data/summaries.av.sql", &lighter).await;
     assert!(ran(&outcomes).await > heavy);
 }
+
+/// The number of rows of `outcome`, a table without charts.
+async fn rows(outcome: &Outcome) -> usize {
+    let Outcome::Rows(source) = outcome else {
+        panic!("a table of rows");
+    };
+    source.count().await.unwrap()
+}
+
+/// A change of a chart's brush that writes `clauses` to the selection `name`.
+fn change(name: &str, clauses: Vec<avenger_selection::Clause>) -> avenger_chart_app::ChartChange {
+    avenger_chart_app::ChartChange {
+        selections: vec![(name.to_string(), clauses)],
+        settled: true,
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn a_brush_runs_the_chart_again_when_its_query_reads_the_selection() {
+    use avenger_selection::{Clause, Condition};
+    use std::sync::Arc;
+    let (_directory, root) = project();
+    let text = "DECLARE brush SELECTION;\nDECLARE picks SELECTION;\n\
+                FROM vega_datasets.cars |> WHERE brush |> SELECT Name, Origin\n";
+    std::fs::write(root.join("charts/linked.av.sql"), text).unwrap();
+    let usa = "FROM vega_datasets.cars |> WHERE Origin = 'USA' |> SELECT Name, Origin\n";
+    std::fs::write(root.join("charts/usa.av.sql"), usa).unwrap();
+    let chart = root.join("charts/linked.av.sql");
+    let (mut session, first) = Session::open(chart.to_str().unwrap()).await.unwrap();
+    let all = rows(&first).await;
+    let (_, expected) = Session::open(root.join("charts/usa.av.sql").to_str().unwrap())
+        .await
+        .unwrap();
+    let values = Arc::new(arrow::array::StringArray::from(vec!["USA"]));
+    let clauses = vec![Clause::new("bars").condition(Condition::values("Origin", None, values))];
+    // The query reads no `picks`, so its brush leaves the rows as they are.
+    assert!(session
+        .selected(vec![change("picks", clauses.clone())])
+        .await
+        .is_none());
+    // A brush of `brush` runs the query with its clauses.
+    let brushed = session
+        .selected(vec![change("brush", clauses)])
+        .await
+        .unwrap();
+    assert_eq!(rows(&brushed).await, rows(&expected).await);
+    assert!(rows(&brushed).await < all);
+    // An edit of the chart runs it with the clauses that the brush left.
+    let outcomes = edit(
+        &mut session,
+        &root,
+        "charts/linked.av.sql",
+        &format!("{text}\n"),
+    )
+    .await;
+    assert_eq!(rows(&outcomes[0]).await, rows(&expected).await);
+    // An empty brush selects every row again.
+    let cleared = session
+        .selected(vec![change("brush", Vec::new())])
+        .await
+        .unwrap();
+    assert_eq!(rows(&cleared).await, all);
+}

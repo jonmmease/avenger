@@ -72,6 +72,29 @@ impl ChartQuery {
         })
     }
 
+    /// The names of the selections whose states the query reads, so a host reruns it when one of
+    /// them changes, and not when another does.
+    pub fn reads(&self) -> std::collections::BTreeSet<String> {
+        self.query.reads()
+    }
+
+    /// The query with the clauses of `clauses`, by the names of their selections, as the states of
+    /// the selections that the script declares, each with its declared resolution, as a reader's
+    /// brushes wrote them. A selection that `clauses` does not name stays empty, and a name that
+    /// the script does not declare is left out.
+    pub async fn with_clauses<'c>(
+        mut self,
+        clauses: impl IntoIterator<Item = (&'c String, &'c Vec<avenger_selection::Clause>)>,
+    ) -> Result<Self> {
+        for (name, clauses) in clauses {
+            if let Some(state) = self.query.selections.get_mut(name) {
+                state.clauses = clauses.clone();
+            }
+        }
+        self.frame = self.query.dataframe(&self.ctx).await?;
+        Ok(self)
+    }
+
     /// The rows of the query as a frame, unrun.
     pub fn frame(&self) -> &DataFrame {
         &self.frame

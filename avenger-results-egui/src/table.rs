@@ -73,6 +73,8 @@ pub struct Env<'a> {
     pub preferences: &'a Preferences,
     pub engine: &'a LabelEngine,
     pub images: &'a Images,
+    /// The selections that the live charts share.
+    pub(crate) links: &'a crate::links::Links,
 }
 
 #[derive(Default)]
@@ -414,6 +416,39 @@ impl LiveCells {
         }
     }
 
+    /// The live charts.
+    pub(crate) fn charts(&self) -> impl Iterator<Item = &LiveChart> {
+        self.charts.values()
+    }
+
+    /// Gives each live chart whose cell `result` still has a chart that chart, when it differs
+    /// from the chart of the cell in `before`, keeping its views and its selections, so a chart
+    /// that the new result leaves as it was keeps its gesture, and drops the others.
+    pub fn update(
+        &mut self,
+        before: Option<&QueryResult>,
+        result: &QueryResult,
+        state: &RenderState,
+    ) {
+        let gone: Vec<CellKey> = (self.charts.keys())
+            .filter(|key| result.chart(key.0, key.1).is_none())
+            .copied()
+            .collect();
+        for key in gone {
+            if let Some(chart) = self.charts.remove(&key) {
+                chart.free(state);
+            }
+        }
+        for (key, chart) in &self.charts {
+            let old = before.and_then(|before| before.chart(key.0, key.1));
+            match result.chart(key.0, key.1) {
+                Some(new) if old != Some(new) => chart.set_chart(new.clone()),
+                _ => {}
+            }
+        }
+        self.failed.clear();
+    }
+
     /// Restyles the live charts for a new theme, keeping their views and selections.
     pub fn restyle(&self, cascade: &Arc<Cascade>, preferences: &Preferences) {
         for chart in self.charts.values() {
@@ -476,11 +511,15 @@ impl LiveCells {
                 env.runtime,
                 ui.ctx(),
                 env.state,
-                None,
+                Some(
+                    env.links
+                        .on_change(egui::Id::new(("live cell", self.result, key)), ui.ctx()),
+                ),
             );
             self.spent += started.elapsed();
             match built {
                 Ok(chart) => {
+                    env.links.join(&chart);
                     self.charts.insert(key, chart);
                 }
                 Err(_) => {

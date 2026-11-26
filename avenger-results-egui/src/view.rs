@@ -12,6 +12,7 @@ use eframe::{egui, egui_wgpu::RenderState};
 
 use crate::charts::Images;
 use crate::exec::Exec;
+use crate::links::Links;
 use crate::live::{LiveChart, OnChange};
 use crate::paged::{PagedTable, RowSource};
 use crate::state::ChartState;
@@ -52,8 +53,10 @@ pub struct ResultView {
     /// Whether the chart cells of the table run their charts' apps, so that they pan, zoom, and
     /// show tooltips, one cell at a time.
     pub interactive: bool,
-    /// The host's callback of the changes of the chart that fills the view.
+    /// The host's callback of the changes of the live charts.
     on_change: Option<OnChange>,
+    /// The selections that the live charts share.
+    links: Links,
 }
 
 impl Default for ResultView {
@@ -69,6 +72,7 @@ impl Default for ResultView {
             scenes: channel(),
             interactive: false,
             on_change: None,
+            links: Links::default(),
         }
     }
 }
@@ -78,8 +82,9 @@ impl ResultView {
         Self::default()
     }
 
-    /// Has `on_change` hear the changes of the gestures of the chart that fills the view, a result
-    /// of one chart, from its next build, as a host that shows the chart's state apart needs.
+    /// Has `on_change` hear the changes of the gestures of the view's live charts: the chart that
+    /// fills the view, the chart cell that the user opened, and the live chart cells, each after
+    /// its clauses went to the view's other live charts.
     pub fn set_on_change(&mut self, on_change: impl Fn(&ChartChange) + Send + Sync + 'static) {
         self.on_change = Some(Arc::new(on_change));
     }
@@ -111,12 +116,27 @@ impl ResultView {
             Shape::Chart => result.chart(0, 0).cloned(),
             Shape::Table => None,
         };
+        // The live charts of the cells that still hold charts take them, with their views and
+        // their selections, and the cells draw again.
+        let before = self.result.as_ref().map(|(_, before)| before.clone());
+        let unchanged = |key: CellKey, chart: &Chart| {
+            (before.as_ref()).and_then(|before| before.chart(key.0, key.1)) == Some(chart)
+        };
         self.cells.reset(id, state);
-        self.live_cells.reset(id, state);
-        if let Some((_, mut opened)) = self.opened.take() {
-            opened.clear(state);
+        self.live_cells.update(before.as_deref(), &result, state);
+        if let Some((key, mut opened)) = self.opened.take() {
+            match (result.chart(key.0, key.1), &opened.chart) {
+                (Some(chart), Some(live)) => {
+                    if !unchanged(key, chart) {
+                        live.set_chart(chart.clone());
+                    }
+                    self.opened = Some((key, opened));
+                }
+                _ => opened.clear(state),
+            }
         }
         match (chart, &self.pane.chart) {
+            (Some(chart), Some(_)) if unchanged((0, 0), &chart) => {}
             (Some(chart), Some(pane)) => pane.set_chart(chart),
             // A new chart of the pane builds when the view lays out, at the view's size.
             _ => self.pane.clear(state),
@@ -183,6 +203,18 @@ impl ResultView {
         while let Ok(scene) = self.scenes.1.try_recv() {
             self.cells.receive(scene);
         }
+        let (pane, opened, live) = (&self.pane, &self.opened, &self.live_cells);
+        let changes = self.links.take(|| {
+            let mut charts: Vec<&LiveChart> = live.charts().collect();
+            charts.extend(pane.chart.iter());
+            charts.extend(opened.iter().flat_map(|(_, opened)| opened.chart.iter()));
+            charts
+        });
+        if let Some(on_change) = &self.on_change {
+            for change in &changes {
+                on_change(change);
+            }
+        }
         if let Some((id, table)) = &mut self.paged {
             return table.show(ui, shared.runtime, *id);
         }
@@ -195,19 +227,12 @@ impl ResultView {
             preferences: shared.preferences,
             engine: shared.engine,
             images: shared.images,
+            links: &self.links,
         };
         if result.shape() == Shape::Chart {
             let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
             let chart = result.chart(0, 0).expect("a single chart");
-            let on_change = self.on_change.clone();
-            return (self.pane).show(
-                ui,
-                rect,
-                chart,
-                egui::Id::new(("live chart", id)),
-                &env,
-                on_change,
-            );
+            return (self.pane).show(ui, rect, chart, egui::Id::new(("live chart", id)), &env);
         }
         if let Some((key, pane)) = &mut self.opened {
             let key = *key;
@@ -223,7 +248,7 @@ impl ResultView {
             let mut error = None;
             if let Some(chart) = result.chart(key.0, key.1) {
                 let chart_id = egui::Id::new(("opened chart", id, key));
-                error = pane.show(ui, rect, chart, chart_id, &env, None);
+                error = pane.show(ui, rect, chart, chart_id, &env);
             }
             // Escape goes back unless it is the chart's: the chart hears keys while it has the
             // focus or the pointer.
@@ -275,7 +300,6 @@ impl Pane {
         chart: &Chart,
         id: egui::Id,
         env: &Env<'_>,
-        on_change: Option<OnChange>,
     ) -> Option<String> {
         let mut error = None;
         if self.chart.is_none() && !self.failed {
@@ -291,10 +315,13 @@ impl Pane {
                 env.runtime,
                 ui.ctx(),
                 env.state,
-                on_change,
+                Some(env.links.on_change(id, ui.ctx())),
             );
             match built {
-                Ok(chart) => self.chart = Some(chart),
+                Ok(chart) => {
+                    env.links.join(&chart);
+                    self.chart = Some(chart);
+                }
                 Err(message) => {
                     self.failed = true;
                     error = Some(format!("The chart cannot run: {message}"));

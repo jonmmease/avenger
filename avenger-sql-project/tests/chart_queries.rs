@@ -276,3 +276,36 @@ async fn collect_all(
     }
     rows
 }
+
+#[tokio::test]
+async fn a_chart_reruns_with_the_clauses_of_its_selections() {
+    use avenger_selection::{Clause, Condition};
+    let (_root, project, _) = project().await;
+    let text = "DECLARE brush SELECTION;\nDECLARE other SELECTION;\n\
+                FROM host |> WHERE brush |> ORDER BY v";
+    let query = project.run_chart(CHART, text).await.unwrap();
+    // The query reads `brush`, so only a new state of `brush` reruns it.
+    assert_eq!(query.reads().into_iter().collect::<Vec<_>>(), ["brush"]);
+    let values = Arc::new(StringArray::from(vec!["a"]));
+    let clauses = vec![Clause::new("scatter").condition(Condition::values("k", None, values))];
+    let states = [("brush".to_string(), clauses)];
+    let query = query
+        .with_clauses(states.iter().map(|(name, clauses)| (name, clauses)))
+        .await
+        .unwrap();
+    let rows = pretty_format_batches(&query.collect().await.unwrap())
+        .unwrap()
+        .to_string();
+    let framed = pretty_format_batches(&query.frame().clone().collect().await.unwrap())
+        .unwrap()
+        .to_string();
+    let expected = "\
++---+---+
+| k | v |
++---+---+
+| a | 1 |
+| a | 3 |
++---+---+";
+    assert_eq!(rows, expected);
+    assert_eq!(framed, expected);
+}
