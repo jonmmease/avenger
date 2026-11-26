@@ -19,8 +19,9 @@ use avenger_chart::functions::{ChannelFunction, Kind};
 /// argument that calls one of them, alone or as the value of a channel function, as an encoding of
 /// its kind.
 ///
-/// It is volatile, so the simplifier does not fold a call of a constant into the constant before
-/// a mark function binds its call.
+/// It never runs: a mark function reads its call when it binds, and the call fails to evaluate,
+/// so the simplifier keeps a call of a constant instead of folding it into the constant, while
+/// the function stays immutable, so a cache of results keeps the charts that call it.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) struct KindFunction {
     kind: Kind,
@@ -31,7 +32,7 @@ impl KindFunction {
     pub(crate) fn new(kind: Kind) -> Self {
         Self {
             kind,
-            signature: Signature::any(1, Volatility::Volatile),
+            signature: Signature::any(1, Volatility::Immutable),
         }
     }
 }
@@ -57,9 +58,18 @@ impl ScalarUDFImpl for KindFunction {
         Ok(args.arg_fields[0].clone())
     }
 
-    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        Ok(first(args))
+    fn invoke_with_args(&self, _: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        unrun(self.name())
     }
+}
+
+/// The error of a call of a marker that runs: a mark function reads it when it binds, so it runs
+/// only outside a mark's channel, which the analysis rejects, or while the simplifier tries to fold
+/// it, which keeps the call after this error.
+fn unrun<T>(name: &str) -> Result<T> {
+    datafusion::common::exec_err!(
+        "{name}() is read by the mark function whose channel holds it, and does not run on its own"
+    )
 }
 
 /// The channel function of a channel with a scale, `name(value, <options>)`, whose result is
@@ -67,7 +77,7 @@ impl ScalarUDFImpl for KindFunction {
 /// options. A mark function reads a channel argument that calls it as an encoding with those
 /// options.
 ///
-/// It is volatile, as [`KindFunction`] is.
+/// It never runs, as [`KindFunction`] does not.
 #[derive(Debug)]
 pub(crate) struct ChannelUdf {
     function: &'static ChannelFunction,
@@ -78,7 +88,7 @@ impl ChannelUdf {
     pub(crate) fn new(function: &'static ChannelFunction) -> Self {
         Self {
             function,
-            signature: Signature::user_defined(Volatility::Volatile),
+            signature: Signature::user_defined(Volatility::Immutable),
         }
     }
 }
@@ -118,17 +128,9 @@ impl ScalarUDFImpl for ChannelUdf {
         Ok(args.arg_fields[0].clone())
     }
 
-    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        Ok(first(args))
+    fn invoke_with_args(&self, _: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        unrun(self.name())
     }
-}
-
-/// The value of a call of a channel function or a marker: its first argument.
-fn first(args: ScalarFunctionArgs) -> ColumnarValue {
-    args.args
-        .into_iter()
-        .next()
-        .expect("a channel function takes its value first")
 }
 
 /// A channel argument of a mark as its calls give it: the channel function that wraps it with
@@ -208,7 +210,7 @@ pub(crate) fn map_value(expr: &Expr, f: &mut impl FnMut(&Expr) -> Expr) -> Expr 
 /// [`avenger_chart::proto::Predicate`], whose rows draw its `value`. The renderer tests the
 /// predicates, so no query reads the selections.
 ///
-/// It is volatile, as [`KindFunction`] is.
+/// It never runs, as [`KindFunction`] does not.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) struct RestyleFunction {
     signature: Signature,
@@ -217,7 +219,7 @@ pub(crate) struct RestyleFunction {
 impl RestyleFunction {
     pub(crate) fn new() -> Self {
         Self {
-            signature: Signature::variadic_any(Volatility::Volatile),
+            signature: Signature::variadic_any(Volatility::Immutable),
         }
     }
 }
@@ -243,8 +245,8 @@ impl ScalarUDFImpl for RestyleFunction {
         Ok(args.arg_fields[0].clone())
     }
 
-    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        Ok(first(args))
+    fn invoke_with_args(&self, _: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        unrun(self.name())
     }
 }
 
