@@ -423,11 +423,11 @@ fn charts_lists_the_names_that_render_takes() {
     assert_eq!((status, stderr.as_str()), (0, ""));
     assert_eq!(
         stdout,
-        "charts/by-origin.av.sql: chart\ncharts/origins.av.sql: chart\ncharts/weather/warm-days.av.sql: chart\nreports/linked.qmd#1: chart\nreports/linked.qmd#2: chart\nreports/linked.qmd#3: chart\nreports/overview.qmd#fig-weather: chart\nreports/overview.qmd#2: no charts\n"
+        "charts/by-origin.av.sql: chart\ncharts/origins.av.sql: chart\ncharts/weather/warm-days.av.sql: chart\nreports/linked.qmd#1: chart\nreports/linked.qmd#2: chart\nreports/linked.qmd#3: chart\nreports/linked.qmd#4: chart\nreports/overview.qmd#fig-weather: chart\nreports/overview.qmd#2: no charts\n"
     );
     let (status, value) = json(&root, &["charts"]);
     assert_eq!(status, 0);
-    let cell = &value["charts"][6];
+    let cell = &value["charts"][7];
     assert_eq!(
         (
             cell["target"].as_str(),
