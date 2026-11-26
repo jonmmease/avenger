@@ -1,0 +1,35 @@
+[package]
+name = "avenger-sql-web"
+version = "0.1.0"
+edition = "2021"
+description = "A WebAssembly library that builds avenger charts and projects from avenger-sql in a page, with the features of an editor"
+license = "BSD-3-Clause"
+repository = "https://github.com/jonmmease/avenger"
+readme = "README.md"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+avenger-chart = { path = "../avenger-chart" }
+avenger-query-web = { path = "../avenger-query-web" }
+avenger-sql = { path = "../avenger-sql", features = ["parquet"] }
+avenger-sql-language = { path = "../avenger-sql-language" }
+avenger-sql-project = { path = "../avenger-sql-project" }
+datafusion = { workspace = true }
+serde = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.107"
+serde-wasm-bindgen = "0.6.5"
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+
+[dev-dependencies]
+futures = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
