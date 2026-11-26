@@ -477,16 +477,6 @@ const SURVEY: &[(&str, &str)] = &[
     ),
 ];
 
-/// The cases of the survey whose charts do not filter in a page yet, since a page lacks their
-/// functions.
-const NOT_IN_PAGES: &[&str] = &[
-    "bin",
-    "timeunit",
-    "lump",
-    "stack",
-    "impute",
-    "MATCH_RECOGNIZE",
-];
 
 #[tokio::test]
 async fn a_page_builds_the_charts_of_each_function() {
@@ -495,11 +485,8 @@ async fn a_page_builds_the_charts_of_each_function() {
     for (name, pipes) in SURVEY {
         let text = format!("DECLARE brush SELECTION;\nFROM events |> WHERE brush {pipes}");
         let query = project.run_chart(CHART, &text).await.unwrap();
-        let ran = page_charts(&query).await;
-        match (ran, NOT_IN_PAGES.contains(name)) {
-            (Ok(_), false) | (Err(_), true) => {}
-            (Ok(_), true) => wrong.push(format!("{name} runs in a page now")),
-            (Err(warnings), false) => wrong.push(format!("{name}: {warnings:?}")),
+        if let Err(warnings) = page_charts(&query).await {
+            wrong.push(format!("{name}: {warnings:?}"));
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");

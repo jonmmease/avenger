@@ -10,7 +10,7 @@ use avenger_selection::SelectedOptions;
 use avenger_selection_datafusion::SelectionExec;
 use datafusion_common::{exec_datafusion_err, not_impl_err, project_schema, Result};
 use datafusion_execution::TaskContext;
-use datafusion_expr::{AggregateUDF, ScalarUDF};
+use datafusion_expr::{AggregateUDF, ScalarUDF, WindowUDF};
 use datafusion_physical_plan::{empty::EmptyExec, ExecutionPlan};
 use datafusion_proto::{
     physical_plan::{
@@ -33,9 +33,10 @@ const COMPOSITION: u8 = 3;
 const SELECTION: u8 = 4;
 const HOST: u8 = 5;
 
-/// The codec of the functions that a host adds to a graph's plans beyond DataFusion's, such as the
-/// library of avenger-sql, which travel as their names and the bytes of their state, so a page
-/// that knows the same host decodes the functions that the host planned.
+/// The codec of the functions and the plan nodes that a host adds to a graph's plans beyond
+/// DataFusion's, such as the library and the transforms of avenger-sql, which travel as their names
+/// and the bytes of their state, so a page that knows the same host decodes what the host planned.
+/// A host leaves out the kinds that it adds none of.
 pub trait HostCodec: Debug + Send + Sync {
     /// The host's name, such as `avenger-sql`, which a session's hosts hold once.
     fn name(&self) -> &str;
@@ -45,6 +46,40 @@ pub trait HostCodec: Debug + Send + Sync {
 
     /// The function named `name` with the state `bytes`, when it is one of the host's functions.
     fn decode_udf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<ScalarUDF>>>;
+
+    /// The bytes of the state of `udaf`, when it is one of the host's aggregate functions.
+    fn encode_udaf(&self, _udaf: &AggregateUDF) -> Option<Result<Vec<u8>>> {
+        None
+    }
+
+    /// The aggregate function named `name` with the state `bytes`, when it is one of the host's.
+    fn decode_udaf(&self, _name: &str, _bytes: &[u8]) -> Option<Result<Arc<AggregateUDF>>> {
+        None
+    }
+
+    /// The bytes of the state of `udwf`, when it is one of the host's window functions.
+    fn encode_udwf(&self, _udwf: &WindowUDF) -> Option<Result<Vec<u8>>> {
+        None
+    }
+
+    /// The window function named `name` with the state `bytes`, when it is one of the host's.
+    fn decode_udwf(&self, _name: &str, _bytes: &[u8]) -> Option<Result<Arc<WindowUDF>>> {
+        None
+    }
+
+    /// The bytes of `plan` without its children, when it is one of the host's plan nodes.
+    fn encode_plan(&self, _plan: &dyn ExecutionPlan) -> Option<Result<Vec<u8>>> {
+        None
+    }
+
+    /// The plan node of `bytes` over the decoded `children`, when `bytes` are one of the host's.
+    fn decode_plan(
+        &self,
+        _bytes: &[u8],
+        _children: &[Arc<dyn ExecutionPlan>],
+    ) -> Option<Result<Arc<dyn ExecutionPlan>>> {
+        None
+    }
 }
 
 /// The hosts whose functions a graph's plans call, which a session holds as an extension of its
@@ -176,6 +211,11 @@ impl PhysicalExtensionCodec for GraphCodec {
         if let Some((&SELECTION, bytes)) = buf.split_first() {
             return self.decode_selection(bytes, inputs, ctx, converter);
         }
+        if let Some((&HOST, bytes)) = buf.split_first() {
+            return (self.hosts.0.iter())
+                .find_map(|host| host.decode_plan(bytes, inputs))
+                .unwrap_or_else(|| not_impl_err!("a page does not know a plan node of its graph"));
+        }
         let Some((&CUT, bytes)) = buf.split_first() else {
             return not_impl_err!("a plan that a graph's codec does not know");
         };
@@ -228,6 +268,12 @@ impl PhysicalExtensionCodec for GraphCodec {
             buf.push(SELECTION);
             return bytes.encode(buf).map_err(invalid);
         }
+        if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_plan(node.as_ref()))
+        {
+            buf.push(HOST);
+            buf.extend(bytes?);
+            return Ok(());
+        }
         let Some(leaf) = node.downcast_ref::<CutInputExec>() else {
             return not_impl_err!("a graph's codec does not encode {}", node.name());
         };
@@ -265,6 +311,9 @@ impl PhysicalExtensionCodec for GraphCodec {
 
     fn try_decode_udaf(&self, name: &str, buf: &[u8]) -> Result<Arc<AggregateUDF>> {
         match buf.split_first() {
+            Some((&HOST, bytes)) => (self.hosts.0.iter())
+                .find_map(|host| host.decode_udaf(name, bytes))
+                .unwrap_or_else(|| not_impl_err!("a page does not know the aggregate {name}")),
             Some((&MARK, bytes)) => Ok(Arc::new(AggregateUDF::new_from_impl(
                 MarkInstance::from_bytes(bytes)?,
             ))),
@@ -276,6 +325,11 @@ impl PhysicalExtensionCodec for GraphCodec {
     }
 
     fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
+        if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_udaf(node)) {
+            buf.push(HOST);
+            buf.extend(bytes?);
+            return Ok(());
+        }
         let inner = node.inner().as_ref() as &dyn std::any::Any;
         if let Some(mark) = inner.downcast_ref::<MarkInstance>() {
             buf.push(MARK);
@@ -283,6 +337,23 @@ impl PhysicalExtensionCodec for GraphCodec {
         } else if let Some(composition) = inner.downcast_ref::<CompositionInstance>() {
             buf.push(COMPOSITION);
             buf.extend(composition.to_bytes()?);
+        }
+        Ok(())
+    }
+
+    fn try_decode_udwf(&self, name: &str, buf: &[u8]) -> Result<Arc<WindowUDF>> {
+        match buf.split_first() {
+            Some((&HOST, bytes)) => (self.hosts.0.iter())
+                .find_map(|host| host.decode_udwf(name, bytes))
+                .unwrap_or_else(|| not_impl_err!("a page does not know the window {name}")),
+            _ => not_impl_err!("a graph's codec does not know the window {name}"),
+        }
+    }
+
+    fn try_encode_udwf(&self, node: &WindowUDF, buf: &mut Vec<u8>) -> Result<()> {
+        if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_udwf(node)) {
+            buf.push(HOST);
+            buf.extend(bytes?);
         }
         Ok(())
     }
