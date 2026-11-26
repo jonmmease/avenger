@@ -1,14 +1,14 @@
 # avenger-chart-web
 
-A WebAssembly library that renders avenger chart messages in HTML canvases. A server builds a chart, such as with the builders of `avenger-chart` or a script of avenger-sql, and sends the bytes of its message. A page draws the chart with the tools that the chart declares, such as navigation and tooltips. The library holds no DataFusion, no SQL, and no fonts, and draws through the browser's WebGPU. Its `<avenger-chart>` element, plain JavaScript in `element/`, loads it once for a page and draws each chart as it nears the screen.
+A WebAssembly library that renders avenger chart messages in HTML canvases. A server builds a chart, such as with the builders of `avenger-chart` or a script of avenger-sql, and sends the bytes of its message. A page draws the chart with the tools that the chart declares, such as navigation and tooltips. The library holds no DataFusion, no SQL, and no fonts, and draws through the browser's WebGPU. Its `<avenger-chart>` element, plain JavaScript in `element/`, loads it once for a page and draws each chart as it nears the screen. avenger-query-web builds on this library and runs a document's queries in the page, so its charts follow the reader's selections without a server.
 
 ## Build
 
 ```bash
-avenger-chart-web/scripts/build.sh [OUT_DIR]
+avenger-chart-web/scripts/build.sh [CRATE] [OUT_DIR]
 ```
 
-The script builds the package into `pkg/`, or `OUT_DIR`, with wasm-pack, the `release-size` profile, and `wasm-opt -Oz`, and prints the sizes of its module and its glue. On macOS, a crate with C code builds for wasm32 with Homebrew's LLVM, which the script uses when it is installed.
+The script builds the package of `CRATE`, this crate by default or a crate that builds on it, such as `avenger-query-web`, into the crate's `pkg/`, or `OUT_DIR`, with wasm-pack, the `release-size` profile, and `wasm-opt -Oz`, and prints the sizes of its module and its glue. The package's files take the crate's name, such as `avenger_query_web_bg.wasm`. On macOS, a crate with C code builds for wasm32 with Homebrew's LLVM, which the script uses when it is installed.
 
 ## The element
 
@@ -37,6 +37,7 @@ start({
 - In a revealjs deck, which lays every slide out in one place, only the charts of the present slide hold views, and a change of slide creates and frees them. A pointer on a slide that revealjs scales lands in the canvas's own pixels.
 - With one color scheme, a chart draws in it on its background. With two, a chart draws on a transparent canvas and follows the `quarto-light` and `quarto-dark` classes of `body`, as the light and dark themes of Quarto switch.
 - Until its canvas draws, an element takes no room. Inside a Quarto figure or cell, it then hides the chart's images, each with the wrapper of its output, and shows them again when its view goes away, so a page without WebGPU, or whose library fails to load, keeps its images.
+- An element can draw a chart of a document's graph instead of its own bytes: `graph` names the graph's file, relative to `start`'s `graphs` URL, and `output` the graph's output. The elements of one graph share one decoded graph and their selections: a change of one element's selections restyles the others at once, and when the graph's queries read the selection, the graph runs again in the page and each element whose chart changed draws its new chart with its views and its brushes. Such an element reports every change, at most once in its tool's throttle during a gesture, unless its `reports` attribute says otherwise. Graphs run in avenger-query-web's library, which `glue` and `wasm` name instead of this one's. With this library, an element of a graph keeps its images, and the page warns once.
 - Once the element is defined (`await customElements.whenDefined("avenger-chart")`), it fires an `avenger-change` event, which bubbles, for each change by the reader, whose `detail` is the view's change. Its `reports` attribute picks the changes: `settled`, by default, or `every`, as the view's option names them. `setChart(bytes, options)`, `setState(bytes, parts)`, `setMode(name, on)`, `clearSelection(name)`, and `resetViews()` update it in place, at once or when its next view appears, and `state(parts)` gives the bytes of its state. As its view leaves, the element saves the view's state, its selections, its modes, and its views, and its next view applies it, then the calls since, in order, so a brush survives a scroll away and back. A chart that `setChart` replaced keeps the element's room and the first chart's images hidden.
 
 ## The library
