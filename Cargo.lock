@@ -1450,6 +1450,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-sql-web"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart",
+ "avenger-query-web",
+ "avenger-sql",
+ "avenger-sql-language",
+ "avenger-sql-project",
+ "datafusion",
+ "futures",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "avenger-streaming"
 version = "0.1.0"
 dependencies = [
