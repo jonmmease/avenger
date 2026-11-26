@@ -4,16 +4,14 @@
 
 use std::sync::Arc;
 
-use avenger_chart::list_value;
-use datafusion::{
-    arrow::{
-        array::{new_empty_array, Array, ArrayRef, AsArray, UInt32Array},
-        compute::{concat, lexsort_to_indices, take, SortColumn, SortOptions},
-        datatypes::{DataType, Field, FieldRef},
-    },
-    common::{Result, ScalarValue},
-    logical_expr::{function::StateFieldsArgs, SortExpr},
+use arrow::{
+    array::{new_empty_array, Array, ArrayRef, AsArray, UInt32Array},
+    compute::{concat, lexsort_to_indices, take, SortColumn, SortOptions},
+    datatypes::{DataType, Field, FieldRef},
 };
+use avenger_chart::list_value;
+use datafusion_common::{Result, ScalarValue};
+use datafusion_expr::{function::StateFieldsArgs, SortExpr};
 
 /// The fields of the partial state of an aggregate whose arguments have the types `types`: a list
 /// of each argument, then of each key of its `ORDER BY`.

@@ -3,18 +3,16 @@
 
 use std::sync::Arc;
 
+use arrow::{
+    array::{ArrayRef, RecordBatch, RecordBatchOptions},
+    datatypes::{DataType, FieldRef, Schema},
+};
 use avenger_chart::{chart_field, functions::MarkTemplate};
-use datafusion::{
-    arrow::{
-        array::{ArrayRef, RecordBatch, RecordBatchOptions},
-        datatypes::{DataType, FieldRef, Schema},
-    },
-    common::{exec_datafusion_err, Result, ScalarValue},
-    logical_expr::{
-        function::{AccumulatorArgs, StateFieldsArgs},
-        utils::AggregateOrderSensitivity,
-        Accumulator, AggregateUDFImpl, Signature, SortExpr, Volatility,
-    },
+use datafusion_common::{exec_datafusion_err, Result, ScalarValue};
+use datafusion_expr::{
+    function::{AccumulatorArgs, StateFieldsArgs},
+    utils::AggregateOrderSensitivity,
+    Accumulator, AggregateUDFImpl, Signature, SortExpr, Volatility,
 };
 
 use super::rows::{self, Rows};
@@ -23,7 +21,7 @@ use super::rows::{self, Rows};
 /// options of its draw order. It takes the data arguments of the call, then the keys of its
 /// `ORDER BY`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct MarkInstance {
+pub struct MarkInstance {
     template: MarkTemplate,
     fields: Vec<FieldRef>,
     order: Vec<(bool, bool)>,
@@ -31,11 +29,7 @@ pub(crate) struct MarkInstance {
 }
 
 impl MarkInstance {
-    pub(crate) fn new(
-        template: MarkTemplate,
-        fields: Vec<FieldRef>,
-        order_by: &[SortExpr],
-    ) -> Self {
+    pub fn new(template: MarkTemplate, fields: Vec<FieldRef>, order_by: &[SortExpr]) -> Self {
         Self {
             template,
             fields,
