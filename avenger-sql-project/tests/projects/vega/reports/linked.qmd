@@ -37,3 +37,11 @@ FROM vega_datasets.cars
 |> WHERE brush
 |> AGGREGATE mark_bar(x => format_date('%Y', CAST(Year AS DATE)), y => count(*)) AS chart
 ```
+
+The weights of the cars that the brush selects, in bins that `bin` computes in the page.
+
+```{avenger-sql}
+FROM vega_datasets.cars
+|> WHERE brush
+|> AGGREGATE mark_bar(x => bin(Weight_in_lbs), y => count(*)) AS chart
+```
