@@ -49,9 +49,11 @@ use datafusion_proto::{
 
 use crate::codec::GraphCodec;
 
-/// The physical plan of `node`, decoded in `ctx` with the graph's codec.
+/// The physical plan of `node`, decoded in `ctx` with the graph's codec and the functions of the
+/// hosts of `ctx`'s configuration.
 pub fn decode(node: &PhysicalPlanNode, ctx: &TaskContext) -> Result<Arc<dyn ExecutionPlan>> {
-    let context = PhysicalPlanDecodeContext::new(ctx, &GraphCodec);
+    let codec = GraphCodec::of(ctx);
+    let context = PhysicalPlanDecodeContext::new(ctx, &codec);
     Page.proto_to_execution_plan(node, &context)
 }
 

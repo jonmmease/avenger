@@ -34,13 +34,17 @@ use crate::types;
 /// The text of `value`, a `DATE`, a `TIME`, a `DATETIME`, or a `TIMESTAMP` in the time zone
 /// `zone`, in `format` with the names of `locale`, or `NULL` where it fails when `safe`.
 pub(super) fn format(zone: Zone, locale: Locale, safe: bool, format: Expr, value: Expr) -> Expr {
-    let udf = FormatDatetime {
+    format_udf(zone, locale, safe).call(vec![format, value])
+}
+
+/// The function of [`format`].
+pub(super) fn format_udf(zone: Zone, locale: Locale, safe: bool) -> ScalarUDF {
+    ScalarUDF::new_from_impl(FormatDatetime {
         zone,
         locale,
         safe,
         signature: Signature::any(2, Volatility::Immutable),
-    };
-    ScalarUDF::new_from_impl(udf).call(vec![format, value])
+    })
 }
 
 /// The value of `kind` that the string `value` holds in `format`, with the time zone `zone` for a
@@ -53,30 +57,34 @@ pub(super) fn parse(
     format: Expr,
     value: Expr,
 ) -> Expr {
-    let udf = ParseDatetime {
+    parse_udf(kind, zone, locale, safe).call(vec![format, value])
+}
+
+/// The function of [`parse`].
+pub(super) fn parse_udf(kind: Kind, zone: Zone, locale: Locale, safe: bool) -> ScalarUDF {
+    ScalarUDF::new_from_impl(ParseDatetime {
         kind,
         zone,
         locale,
         safe,
         signature: Signature::any(2, Volatility::Immutable),
-    };
-    ScalarUDF::new_from_impl(udf).call(vec![format, value])
+    })
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct FormatDatetime {
-    zone: Zone,
-    locale: Locale,
-    safe: bool,
+pub(super) struct FormatDatetime {
+    pub(super) zone: Zone,
+    pub(super) locale: Locale,
+    pub(super) safe: bool,
     signature: Signature,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct ParseDatetime {
-    kind: Kind,
-    zone: Zone,
-    locale: Locale,
-    safe: bool,
+pub(super) struct ParseDatetime {
+    pub(super) kind: Kind,
+    pub(super) zone: Zone,
+    pub(super) locale: Locale,
+    pub(super) safe: bool,
     signature: Signature,
 }
 

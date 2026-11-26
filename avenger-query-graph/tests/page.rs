@@ -42,7 +42,7 @@ async fn a_page_runs_the_rows_of_the_native_graph() {
         .await
         .unwrap();
     assert!(page.warnings.is_empty(), "{:?}", page.warnings);
-    let graph = PageGraph::decode(&page.bytes, Arc::new(task_context())).unwrap();
+    let graph = PageGraph::decode(&page.bytes, Arc::new(task_context(Default::default()))).unwrap();
     assert_eq!(graph.reads(), ["brush".to_string()].into());
     let states = [
         None,

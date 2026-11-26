@@ -364,12 +364,17 @@ fn brushed(low: i64, high: i64) -> Vec<avenger_selection::Clause> {
 /// of states of the selection `brush`, each equal to the native run's chart, or the page's
 /// warnings.
 async fn page_charts(query: &ChartQuery) -> Result<(Vec<u8>, Vec<Vec<u8>>), Vec<String>> {
-    use avenger_physical_graph::page::{task_context, PageGraph};
+    use avenger_physical_graph::{
+        codec::Hosts,
+        page::{task_context, PageGraph},
+    };
     let page = query.page().await.unwrap();
     if !page.warnings.is_empty() {
         return Err(page.warnings);
     }
-    let graph = PageGraph::decode(&page.bytes, Arc::new(task_context())).unwrap();
+    // A page that knows avenger-sql's library, as avenger-query-web's does.
+    let hosts = Hosts::default().with(avenger_sql::library::codec::host());
+    let graph = PageGraph::decode(&page.bytes, Arc::new(task_context(hosts))).unwrap();
     let mut charts = Vec::new();
     for clauses in [Vec::new(), brushed(2, 3), brushed(1, 1), Vec::new()] {
         let selections = std::collections::BTreeMap::from([("brush".to_string(), clauses)]);
@@ -475,14 +480,6 @@ const SURVEY: &[(&str, &str)] = &[
 /// The cases of the survey whose charts do not filter in a page yet, since a page lacks their
 /// functions.
 const NOT_IN_PAGES: &[&str] = &[
-    "FORMAT_DATE",
-    "PARSE_DATE",
-    "CAST AS STRING",
-    "TO_HEX",
-    "INTERVAL",
-    "REGEXP_CONTAINS",
-    "FORMAT",
-    "INITCAP",
     "bin",
     "timeunit",
     "lump",

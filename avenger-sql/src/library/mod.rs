@@ -28,6 +28,7 @@ mod array;
 mod avenger;
 mod bytes;
 mod cast_string;
+pub mod codec;
 mod conditional;
 pub mod context;
 mod datetime;

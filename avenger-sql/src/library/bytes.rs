@@ -26,7 +26,7 @@ pub(crate) fn bytes_bitwise(op: &str, x: Expr, y: Option<Expr>) -> Expr {
     BYTES_BITWISE.call(args)
 }
 
-static BYTES_BITWISE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
+pub(super) static BYTES_BITWISE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
     Arc::new(ScalarUDF::new_from_impl(BytesBitwise {
         signature: Signature::variadic_any(Volatility::Immutable),
     }))

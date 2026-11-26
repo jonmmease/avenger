@@ -8,6 +8,7 @@ use std::{
 };
 
 use avenger_physical_graph::{
+    codec::Hosts,
     kept::{shapes, Kept},
     page::{
         decode_plan, encode_plan, projected, task_context, GraphFile, NodeFile, OutputFile,
@@ -91,7 +92,10 @@ impl QueryGraph {
         let mut page_plans: Vec<Option<Vec<u8>>> = vec![None; count];
         let mut warnings = Vec::new();
         let target = state.config_options().execution.target_partitions;
-        let page_context = task_context();
+        // The functions of the hosts that the session registered, such as avenger-sql's library,
+        // travel with the plans, and the check decodes each plan as a page that knows them does.
+        let hosts = Hosts::of(state.config());
+        let page_context = task_context(hosts.clone());
         for index in 0..count {
             let Some(plan) = plans[index].take() else {
                 continue;
@@ -118,7 +122,7 @@ impl QueryGraph {
             let template = memo.and_then(|memo| memo.physical(&shapes(&read, target)));
             let encoded = match (template, readable) {
                 // The plan runs in a page when it decodes with the page's functions alone.
-                (Some(template), true) => encode_plan(template)
+                (Some(template), true) => encode_plan(template, &hosts)
                     .and_then(|bytes| decode_plan(&bytes, &page_context).map(|_| bytes))
                     .map_err(|error| error.to_string()),
                 (None, _) => {

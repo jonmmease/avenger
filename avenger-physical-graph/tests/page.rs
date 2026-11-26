@@ -31,7 +31,7 @@ fn chart(batches: &[RecordBatch]) -> Vec<u8> {
 }
 
 async fn runs() {
-    let graph = PageGraph::decode(GRAPH, Arc::new(task_context())).unwrap();
+    let graph = PageGraph::decode(GRAPH, Arc::new(task_context(Default::default()))).unwrap();
     let empty = graph.run(&BTreeMap::new()).await.unwrap();
     let brushed = graph.run(&brushed()).await.unwrap();
     assert_eq!(chart(&brushed[0]), BRUSHED);

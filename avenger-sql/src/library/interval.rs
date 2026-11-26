@@ -175,9 +175,9 @@ enum Unit {
     Nanos = 2,
 }
 
-static MAKE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Make, 3));
-static MULTIPLY: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Multiply, 2));
-static DIVIDE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Divide, 2));
+pub(super) static MAKE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Make, 3));
+pub(super) static MULTIPLY: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Multiply, 2));
+pub(super) static DIVIDE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Divide, 2));
 
 fn udf(op: Op, args: usize) -> Arc<ScalarUDF> {
     Arc::new(ScalarUDF::new_from_impl(IntervalFunction {

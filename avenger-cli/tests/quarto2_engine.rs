@@ -517,7 +517,7 @@ fn the_charts_of_a_document_share_one_graph_whose_selections_filter_them() {
     // The graph runs without the project: a brush of the scatter's horsepower filters the bars,
     // and leaves the scatter's chart as it is.
     let bytes = std::fs::read(root.join("_avenger/graphs").join(&graphs[0])).unwrap();
-    let graph = PageGraph::decode(&bytes, Arc::new(task_context())).unwrap();
+    let graph = PageGraph::decode(&bytes, Arc::new(task_context(Default::default()))).unwrap();
     let chart = |batches: &[arrow::array::RecordBatch]| {
         use arrow::array::AsArray;
         batches[0].column(0).as_binary_view().value(0).to_vec()

@@ -314,7 +314,7 @@ fn initcap(value: &str, delimiters: &str) -> String {
     out
 }
 
-static INITCAP: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
+pub(super) static INITCAP: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
     Arc::new(ScalarUDF::new_from_impl(Initcap {
         signature: Signature::variadic_any(Volatility::Immutable),
     }))

@@ -17,6 +17,7 @@ avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-chart-web = { path = "../avenger-chart-web" }
 avenger-physical-graph = { path = "../avenger-physical-graph" }
 avenger-selection = { path = "../avenger-selection" }
+avenger-sql = { path = "../avenger-sql" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.107"
