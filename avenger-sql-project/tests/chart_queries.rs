@@ -185,6 +185,11 @@ async fn an_unchanged_chart_runs_again_from_its_kept_result() {
     let (_root, project, scans) = project().await;
     let texts = [
         "FROM host |> AGGREGATE SUM(v) AS total GROUP BY k |> ORDER BY k",
+        // Charts whose channels call `value`, `datum`, a channel function, and a restyle, over
+        // the rows of the table and over an aggregate of them.
+        "DECLARE brush SELECTION;\nFROM host |> AGGREGATE mark_symbol(x => x(v, title => 'V'), y => v, \
+         fill => IF(brush, value('red'), value('gray')), opacity => datum(0.5)) AS chart",
+        "FROM host |> AGGREGATE mark_bar(x => k, y => SUM(v), fill => value('red')) AS chart",
         // A table of files, whose listing a run checks before it reuses a result that reads it.
         "CREATE TEMP EXTERNAL TABLE sales OPTIONS (format = 'CSV', uris = ['data/files/sales.csv']);\n\
          FROM host JOIN sales USING (k) |> SELECT k, v, amount |> ORDER BY v",
