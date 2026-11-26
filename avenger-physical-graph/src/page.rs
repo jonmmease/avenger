@@ -262,7 +262,7 @@ pub fn task_context() -> TaskContext {
 /// The physical plan of the bytes `bytes`, a node's plan in a graph's file, decoded in `ctx`.
 pub fn decode_plan(bytes: &[u8], ctx: &TaskContext) -> Result<Arc<dyn ExecutionPlan>> {
     let node = PhysicalPlanNode::decode(bytes).map_err(invalid)?;
-    node.try_into_physical_plan(ctx, &GraphCodec)
+    crate::decode::decode(&node, ctx)
 }
 
 /// The bytes of the physical plan `plan` in a graph's file.

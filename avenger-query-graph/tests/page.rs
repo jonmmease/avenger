@@ -10,12 +10,15 @@ use avenger_selection::{Clause, Resolution, SelectionState};
 use common::{context, exact, inputs, plan, rows, store};
 use datafusion::scalar::ScalarValue;
 
-const PLANS: [&str; 3] = [
+const PLANS: [&str; 4] = [
     "SELECT carrier, count(*) AS n, sum(distance) AS total FROM flights \
      WHERE year = $year AND selected($brush) GROUP BY carrier ORDER BY carrier",
     "SELECT carrier, avg(delay) AS mean FROM flights \
      WHERE selected($brush, exclude_own => true, owner => 'delays') GROUP BY carrier ORDER BY carrier",
     "SELECT year, count(*) AS n FROM flights GROUP BY year ORDER BY year",
+    // A top-k sort, whose filter tightens as it runs, so a page's plan must travel without the
+    // state of the run that computed its initial result.
+    "SELECT carrier, delay FROM flights WHERE selected($brush) ORDER BY delay DESC, carrier LIMIT 5",
 ];
 
 fn clauses(low: f64, high: f64) -> Vec<Clause> {
