@@ -164,6 +164,13 @@ impl ScaleImpl for BandScale {
         config: &ScaleConfig,
         values: &ArrayRef,
     ) -> Result<ArrayRef, AvengerScaleError> {
+        // No values take no positions, such as the rows of a chart that has none, whatever the
+        // domain.
+        if values.is_empty() {
+            return Ok(Arc::new(
+                arrow::array::Float32Array::from(Vec::<f32>::new()),
+            ));
+        }
         let range_values = build_range_values(config)?;
         let range_array = Arc::new(Float64Array::from(range_values));
         let ordinal_scale = OrdinalScale;
