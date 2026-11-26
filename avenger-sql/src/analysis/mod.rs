@@ -384,7 +384,7 @@ pub fn analyze(
             "avenger-sql analyzes scripts, not modules: a module is read by an IMPORT MODULE",
         ),
     }
-    pass.check_selections();
+    pass.check_selections(root);
     Analysis {
         statements,
         plan,

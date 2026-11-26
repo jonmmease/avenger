@@ -467,4 +467,11 @@ FROM penguins
     );
     let text = text.replace("WHERE brush", "WHERE selected(brush, exclude => 'scatter')");
     assert!(warnings(&text).is_empty());
+    // A filter of another query of the statement, which the mark's rows never pass through.
+    let text = "DECLARE brush SELECTION;
+FROM penguins
+|> AGGREGATE mark_symbol(x => body_mass_g, y => bill_length_mm, id => 'scatter', tools => [select(brush)]) AS chart
+|> CROSS JOIN (FROM penguins |> WHERE brush |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS bars)";
+    assert!(warnings(text).is_empty(), "{:?}", warnings(text));
+    assert!(pass::errors(text).is_empty(), "{:?}", pass::errors(text));
 }
