@@ -35,8 +35,11 @@ pub struct Selection {
 /// The name of the placeholder of the state of the selection `name`, without its `$`, as a run
 /// binds it.
 pub fn placeholder(name: &str) -> String {
-    format!("__sel_{name}")
+    format!("{PLACEHOLDER}{name}")
 }
+
+/// The prefix of the name of the placeholder of a selection's state.
+const PLACEHOLDER: &str = "__sel_";
 
 /// Whether `declare` declares selections: its type is `SELECTION`.
 pub(super) fn declares_selection(declare: &ast::DeclareStmt) -> bool {
@@ -377,10 +380,13 @@ fn restyled(value: &Expr) -> Result<Expr, String> {
                 .into(),
         );
     }
-    // The pass gives a CASE without an ELSE a NULL one.
+    // The pass gives a CASE without an ELSE a NULL one, cast to the type of its values.
     let default = (case.else_expr.as_ref()).filter(|default| {
-        !matches!(default.as_ref(), Expr::Literal(value, _) if value.is_null())
-            && !matches!(default.as_ref(), Expr::Cast(cast) if matches!(cast.expr.as_ref(), Expr::Literal(value, _) if value.is_null()))
+        let uncast = match default.as_ref() {
+            Expr::Cast(cast) => cast.expr.as_ref(),
+            default => default,
+        };
+        !matches!(uncast, Expr::Literal(value, _) if value.is_null())
     });
     let Some(default) = default else {
         return Err(
@@ -389,13 +395,14 @@ fn restyled(value: &Expr) -> Result<Expr, String> {
                 .into(),
         );
     };
+    let values = (case.when_then_expr.iter()).map(|(_, then)| then.as_ref());
+    if values.chain([default.as_ref()]).any(reads_selection) {
+        return Err(
+            "the values of a restyle are values of the channel, which read no selection".into(),
+        );
+    }
     let mut conditions = Vec::with_capacity(case.when_then_expr.len());
     for (when, then) in &case.when_then_expr {
-        if reads_selection(then) || reads_selection(default) {
-            return Err(
-                "the values of a restyle are values of the channel, which read no selection".into(),
-            );
-        }
         conditions.push((predicate(when)?.encode_to_vec(), (**then).clone()));
     }
     Ok(crate::functions::kind::restyle(
@@ -419,7 +426,7 @@ fn predicate(when: &Expr) -> Result<avenger_chart::proto::Predicate, String> {
             let Some(Expr::Placeholder(Placeholder { id, .. })) = call.args.first() else {
                 return Err("a selection's test reads its state".into());
             };
-            let selection = (id.trim_start_matches('$').strip_prefix("__sel_"))
+            let selection = (id.trim_start_matches('$').strip_prefix(PLACEHOLDER))
                 .expect("the state of a selection")
                 .to_string();
             let literal = |index: usize| match call.args.get(index) {
