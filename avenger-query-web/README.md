@@ -34,10 +34,10 @@ avenger-chart-web/scripts/build.sh avenger-query-web [OUT_DIR]
 
 ## Sizes
 
-The build of the Quarto runtime measured these sizes on 2026-11-26, with avenger-sql's library:
+The build of the Quarto runtime measured these sizes on 2026-11-26, with avenger-sql's library and transforms:
 
 | File | Raw | gzip | Brotli |
 |---|---|---|---|
-| `avenger_query_web_bg.wasm` | 18.82 MB | 6.29 MB | 4.21 MB |
+| `avenger_query_web_bg.wasm` | 19.00 MB | 6.37 MB | 4.26 MB |
 
-Over avenger-chart-web's module, it holds DataFusion's operators of the plans of charts, their decoders, DataFusion's scalar, nested, aggregate, and window functions, the functions of avenger's marks and compositions, and the functions of avenger-sql's library, which decode by their names and state. It links avenger-sql's library alone: avenger-sql's parser, its analysis, and DataFusion's planners and optimizer stay out of the module.
+Over avenger-chart-web's module, it holds DataFusion's operators of the plans of charts, their decoders, DataFusion's scalar, nested, aggregate, and window functions, the functions of avenger's marks and compositions, and the functions of avenger-sql's library and its transforms, which decode by their names and state. It links avenger-sql's library alone: avenger-sql's parser, its analysis, and DataFusion's planners and optimizer stay out of the module.
