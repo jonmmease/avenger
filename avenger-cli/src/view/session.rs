@@ -5,7 +5,9 @@
 //! a table that it reads changed or it imports a module. A change of a data file loads the data
 //! scripts that read it, and runs the chart again on the same terms. A change of a stylesheet
 //! restyles the chart without running it, and a change of the manifest opens the project again.
-//! A change of another chart does nothing.
+//! A change of another chart does nothing. A brush that writes a selection that the chart's query
+//! reads runs the query that the last run planned again, with the brush's clauses, so it plans
+//! nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -53,6 +55,10 @@ pub struct Session {
     selections: BTreeMap<String, Vec<Clause>>,
     /// The selections that the query of the last run reads.
     reads: BTreeSet<String>,
+    /// The query that the last run planned, without the clauses of its selections, whose graph
+    /// the runs of later changes of the selections run again, until a change of the files plans
+    /// the chart again.
+    query: Option<avenger_sql_project::ChartQuery>,
 }
 
 impl Session {
@@ -78,6 +84,7 @@ impl Session {
             target,
             selections,
             reads: BTreeSet::new(),
+            query: None,
         };
         let outcome = session.run().await;
         Ok((session, outcome))
@@ -96,7 +103,22 @@ impl Session {
         }
         match changed.is_disjoint(&self.reads) {
             true => None,
-            false => Some(self.run().await),
+            false => Some(self.rerun().await),
+        }
+    }
+
+    /// Runs the query of the last run again with the clauses of the selections, without planning
+    /// the chart again, or runs the chart when the last run planned no query.
+    async fn rerun(&mut self) -> Outcome {
+        let Some(query) = self.query.clone() else {
+            return self.run().await;
+        };
+        match query.with_clauses(&self.selections).await {
+            Ok(query) => outcome(&self.target, Planned::Query(Box::new(query))).await,
+            Err(error) => match self.target.failure(error) {
+                Failure::Reports(reports) => Outcome::Failed(lines(&reports)),
+                Failure::Usage(error) => Outcome::Failed(vec![error]),
+            },
         }
     }
 
@@ -146,12 +168,14 @@ impl Session {
         let planned = match plan_target(&self.target).await {
             Ok(Planned::Query(query)) => {
                 self.reads = query.reads();
+                self.query = Some((*query).clone());
                 let query = query.with_clauses(&self.selections).await;
                 (query.map(|query| Planned::Query(Box::new(query))))
                     .map_err(|error| self.target.failure(error))
             }
             planned => {
                 self.reads.clear();
+                self.query = None;
                 planned
             }
         };
