@@ -248,20 +248,27 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
 }
 
 /// The argument of a mark call that declares the script's selections `selections` in its chart,
-/// which the pass appends after the mark's parameters: a list of the selections' names, each with
-/// its resolution, as `'global'`, `'union'`, or `'intersect'`.
-pub(crate) fn selections_argument(selections: &[(String, &str)]) -> Expr {
+/// which the pass appends after the mark's parameters: a list of each selection's name and its
+/// resolution, by the name of its value of the format's `SelectionResolution`.
+pub(crate) fn selections_argument(selections: &[crate::analysis::Selection]) -> Expr {
+    use avenger_chart::proto::SelectionResolution;
+    use avenger_selection::Resolution;
     use datafusion::common::ScalarValue;
-    let names: Vec<ScalarValue> = (selections.iter())
-        .flat_map(|(name, resolution)| {
+    let values: Vec<ScalarValue> = (selections.iter())
+        .flat_map(|selection| {
+            let resolution = match selection.resolution {
+                Resolution::Global => SelectionResolution::Global,
+                Resolution::Union => SelectionResolution::Union,
+                Resolution::Intersect => SelectionResolution::Intersect,
+            };
             [
-                ScalarValue::from(name.as_str()),
-                ScalarValue::from(*resolution),
+                ScalarValue::from(selection.name.as_str()),
+                ScalarValue::from(resolution.as_str_name()),
             ]
         })
         .collect();
     Expr::Literal(
-        ScalarValue::List(ScalarValue::new_list_nullable(&names, &DataType::Utf8)),
+        ScalarValue::List(ScalarValue::new_list_nullable(&values, &DataType::Utf8)),
         None,
     )
 }
@@ -280,16 +287,13 @@ fn declared_selections(
     };
     let values = list.value(0);
     let values = values.as_string::<i32>();
-    let resolution = |text: &str| match text {
-        "global" => Ok(SelectionResolution::Global),
-        "union" => Ok(SelectionResolution::Union),
-        "intersect" => Ok(SelectionResolution::Intersect),
-        other => internal_err!("no resolution `{other}`"),
-    };
     (0..values.len() / 2)
         .map(|index| {
-            let name = values.value(2 * index).to_string();
-            Ok((name, resolution(values.value(2 * index + 1))?))
+            let (name, resolution) = (values.value(2 * index), values.value(2 * index + 1));
+            match SelectionResolution::from_str_name(resolution) {
+                Some(resolution) => Ok((name.to_string(), resolution)),
+                None => internal_err!("no resolution `{resolution}`"),
+            }
         })
         .collect()
 }

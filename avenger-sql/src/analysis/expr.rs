@@ -2159,7 +2159,9 @@ impl Pass<'_> {
                     if function.family == library::Family::Mark && !self.selections.is_empty() {
                         let count = function.forms[0].signature.args.len();
                         args.resize(count, Expr::Literal(ScalarValue::Null, None));
-                        args.push(self.selections_argument());
+                        args.push(crate::functions::declaration::selections_argument(
+                            &self.selections,
+                        ));
                     }
                     let aggregate = AggregateFunction::new_udf(
                         func,
