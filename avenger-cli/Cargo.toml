@@ -24,6 +24,7 @@ avenger-pdf = { path = "../avenger-pdf" }
 avenger-results-egui = { path = "../avenger-results-egui" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 # Parquet, for the data files that data scripts read and the rows of `query --output parquet`.
+avenger-selection = { path = "../avenger-selection" }
 avenger-sql = { path = "../avenger-sql", features = ["parquet"] }
 avenger-sql-language = { path = "../avenger-sql-language" }
 avenger-sql-project = { path = "../avenger-sql-project" }

@@ -7,6 +7,7 @@
 //! restyles the chart without running it, and a change of the manifest opens the project again.
 //! A change of another chart does nothing.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,7 +20,9 @@ use avenger_sql_project::{
 };
 
 use avenger_chart::results::is_chart_field;
+use avenger_chart_app::ChartChange;
 use avenger_results_egui::{RowSource, RowStream};
+use avenger_selection::Clause;
 use datafusion::{arrow::datatypes::SchemaRef, dataframe::DataFrame};
 use futures::{future::LocalBoxFuture, StreamExt};
 
@@ -40,10 +43,16 @@ pub enum Outcome {
     Restyled(ProjectStylesheet),
 }
 
-/// The chart of a window: the chart's name, as the command took it, and its loaded project.
+/// The chart of a window: the chart's name, as the command took it, its loaded project, and the
+/// clauses of its selections, as the brushes of its charts wrote them, which its runs read.
 pub struct Session {
     chart: String,
     target: Target,
+    /// The clauses of each selection that a chart's brush wrote, which every run keeps, through
+    /// the edits of the chart's files.
+    selections: BTreeMap<String, Vec<Clause>>,
+    /// The selections that the query of the last run reads.
+    reads: BTreeSet<String>,
 }
 
 impl Session {
@@ -51,6 +60,15 @@ impl Session {
     /// of either as `FILE:LINE`, and runs the chart. A chart whose project does not open fails,
     /// and a chart with errors opens with them.
     pub async fn open(chart: &str) -> Result<(Session, Outcome), String> {
+        Self::open_with(chart, BTreeMap::new()).await
+    }
+
+    /// Opens the project of `chart`, as [`Session::open`] does, with the clauses `selections` of
+    /// its selections.
+    async fn open_with(
+        chart: &str,
+        selections: BTreeMap<String, Vec<Clause>>,
+    ) -> Result<(Session, Outcome), String> {
         let target = load(chart).await.map_err(|failure| match failure {
             Failure::Usage(error) => error,
             Failure::Reports(reports) => lines(&reports).join("\n"),
@@ -58,9 +76,28 @@ impl Session {
         let mut session = Session {
             chart: chart.to_string(),
             target,
+            selections,
+            reads: BTreeSet::new(),
         };
         let outcome = session.run().await;
         Ok((session, outcome))
+    }
+
+    /// What the selections that the changes `changes` of the charts' brushes wrote do to the
+    /// chart: a run with their new clauses when its query reads one of them, or nothing, since
+    /// the charts restyle by them on their own.
+    pub async fn selected(&mut self, changes: Vec<ChartChange>) -> Option<Outcome> {
+        let mut changed = BTreeSet::new();
+        for change in changes {
+            for (name, clauses) in change.selections {
+                changed.insert(name.clone());
+                self.selections.insert(name, clauses);
+            }
+        }
+        match changed.is_disjoint(&self.reads) {
+            true => None,
+            false => Some(self.run().await),
+        }
     }
 
     /// The directory that the window watches: the project's root, or the directory of a loose
@@ -106,7 +143,19 @@ impl Session {
             Failure::Reports(reports) => Outcome::Failed(lines(&reports)),
             Failure::Usage(error) => Outcome::Failed(vec![error]),
         };
-        match plan_target(&self.target).await {
+        let planned = match plan_target(&self.target).await {
+            Ok(Planned::Query(query)) => {
+                self.reads = query.reads();
+                let query = query.with_clauses(&self.selections).await;
+                (query.map(|query| Planned::Query(Box::new(query))))
+                    .map_err(|error| self.target.failure(error))
+            }
+            planned => {
+                self.reads.clear();
+                planned
+            }
+        };
+        match planned {
             Ok(planned) => outcome(&self.target, planned).await,
             Err(failure) => failed(failure),
         }
@@ -118,7 +167,7 @@ impl Session {
         if let (Ok((file, Some(_))), Some(line)) = (split_line(&self.chart), self.target.line) {
             self.chart = format!("{file}:{line}");
         }
-        match Session::open(&self.chart).await {
+        match Session::open_with(&self.chart, self.selections.clone()).await {
             Ok((session, outcome)) => {
                 let restyled = Outcome::Restyled(session.target.stylesheet.clone());
                 *self = session;

@@ -304,6 +304,12 @@ pub struct PlannedQuery {
 }
 
 impl PlannedQuery {
+    /// The names of the selections whose states the query reads, as a filter or another test of
+    /// its rows does, so a new state of another selection leaves its rows as they are.
+    pub fn reads(&self) -> std::collections::BTreeSet<String> {
+        selection::reads(&self.plan)
+    }
+
     /// The rows of the query, with the states of its selections and the values of its variables
     /// bound, as a DataFrame of `ctx`, unrun.
     pub async fn dataframe(
@@ -378,7 +384,7 @@ pub fn analyze(
             "avenger-sql analyzes scripts, not modules: a module is read by an IMPORT MODULE",
         ),
     }
-    pass.check_selections();
+    pass.check_selections(root);
     Analysis {
         statements,
         plan,

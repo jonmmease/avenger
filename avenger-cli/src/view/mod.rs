@@ -63,6 +63,7 @@ pub(crate) struct Sink {
     ctx: egui::Context,
     closed: Arc<AtomicBool>,
     events: crossbeam_channel::Receiver<WindowEvent>,
+    changes: crossbeam_channel::Receiver<ChartChange>,
 }
 
 impl Sink {
@@ -81,6 +82,12 @@ impl Sink {
     /// What the window reports: the state of the chart that fills it.
     pub(crate) fn events(&self) -> &crossbeam_channel::Receiver<WindowEvent> {
         &self.events
+    }
+
+    /// The changes of the charts' gestures that write selections, from every live chart of the
+    /// window.
+    pub(crate) fn changes(&self) -> &crossbeam_channel::Receiver<ChartChange> {
+        &self.changes
     }
 
     /// Closes the window.
@@ -159,12 +166,17 @@ impl Window {
         let (sender, messages) = channel();
         let closed = Arc::new(AtomicBool::new(false));
         let (events, window_events) = crossbeam_channel::unbounded();
-        // The chart's app reports each gesture that settles, from its own thread.
+        // The charts' apps report each gesture that settles, and the gestures that write
+        // selections, which the session's runs read.
         let (settle, settled) = channel();
+        let (selections, changes) = crossbeam_channel::unbounded();
         let mut view = ResultView::new();
         {
             let ctx = cc.egui_ctx.clone();
             view.set_on_change(move |change| {
+                if !change.selections.is_empty() {
+                    let _ = selections.send(change.clone());
+                }
                 if change.settled {
                     let _ = settle.send(change.clone());
                     ctx.request_repaint();
@@ -177,6 +189,7 @@ impl Window {
                 ctx: cc.egui_ctx.clone(),
                 closed: closed.clone(),
                 events: window_events,
+                changes,
             };
             std::thread::Builder::new()
                 .name("avenger-view".into())
@@ -440,7 +453,20 @@ fn follow(chart: String, sink: Sink) {
         };
         // `view` shows the chart's state in the chart alone, so its reports go unread.
         while sink.events().try_recv().is_ok() {}
-        let _ = wakes.recv_timeout(wait);
+        crossbeam_channel::select! {
+            recv(wakes) -> _ => {}
+            recv(sink.changes()) -> change => {
+                // The changes that arrived meanwhile run once, with the newest clauses.
+                let mut changes: Vec<ChartChange> = change.into_iter().collect();
+                changes.extend(sink.changes().try_iter());
+                if let Some(outcome) = runtime.block_on(session.selected(changes)) {
+                    if !send(Message::Outcome(outcome)) {
+                        return;
+                    }
+                }
+            }
+            default(wait) => {}
+        }
     }
 }
 

@@ -107,6 +107,17 @@ impl LiveChart {
         })
     }
 
+    /// The id of the chart in egui.
+    pub fn id(&self) -> egui::Id {
+        self.id
+    }
+
+    /// Sets the clauses of the selection `name`, as another chart's brush wrote them. The chart
+    /// reports no change.
+    pub fn set_clauses(&self, name: &str, clauses: Vec<avenger_selection::Clause>) {
+        self.updates.set_clauses(name, clauses);
+    }
+
     /// Replaces the chart with `chart`, keeping the views of pans and zooms and the clauses of
     /// the selections, as a chart update does by default.
     pub fn set_chart(&self, chart: Chart) {

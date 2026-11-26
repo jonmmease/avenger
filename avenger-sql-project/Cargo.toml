@@ -7,6 +7,7 @@ readme = "README.md"
 
 [dependencies]
 avenger-query-graph = { path = "../avenger-query-graph" }
+avenger-selection = { path = "../avenger-selection" }
 avenger-sql = { path = "../avenger-sql" }
 avenger-sql-language = { path = "../avenger-sql-language" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }

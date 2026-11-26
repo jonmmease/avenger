@@ -9,7 +9,10 @@ use super::{
     selection::{named, select_calls, single_name},
     Diagnostic, Pass,
 };
-use avenger_sql_syntax::{ast, TextRange};
+use avenger_sql_syntax::{
+    ast::{self, AstNode},
+    SyntaxNode, TextRange,
+};
 
 /// The positional channels, whose columns a box or a lasso tests when its tool names none.
 const POSITIONS: [&str; 6] = ["x", "y", "theta", "radius", "longitude", "latitude"];
@@ -150,7 +153,7 @@ impl Pass<'_> {
     /// The errors of the reads of selections whose rows lack a field of the selection, and of
     /// `exclude` ids that name no mark that writes it, and the warnings of a mark that filters by
     /// its own selection. A selection that no tool of the script writes has nothing to check.
-    pub(super) fn check_selections(&mut self) {
+    pub(super) fn check_selections(&mut self, root: &SyntaxNode) {
         let reads = std::mem::take(&mut self.selection_reads);
         let writes = std::mem::take(&mut self.selection_writes);
         for read in &reads {
@@ -200,10 +203,15 @@ impl Pass<'_> {
             if read.restyle {
                 continue;
             }
-            for write in writers
-                .iter()
-                .filter(|write| write.statement == read.statement)
-            {
+            // A read filters the rows of a mark when it comes before the mark in the mark's own
+            // pipe query, and not in a query that the mark's query joins or reads otherwise.
+            let pipeline = query_of(root, read.range);
+            let filters = |write: &&&Write| {
+                write.statement == read.statement
+                    && read.range.start() < write.mark.start()
+                    && query_of(root, write.mark) == pipeline
+            };
+            for write in writers.iter().filter(filters) {
                 let skipped =
                     (read.excluded.iter()).any(|(id, _)| write.id.as_deref() == Some(id.as_str()));
                 if skipped {
@@ -230,6 +238,13 @@ impl Pass<'_> {
             }
         }
     }
+}
+
+/// The range of the innermost query of `root` that holds `range`.
+fn query_of(root: &SyntaxNode, range: TextRange) -> Option<TextRange> {
+    let element = root.covering_element(range);
+    let node = element.as_node().cloned().or_else(|| element.parent())?;
+    (node.ancestors().find_map(ast::Query::cast)).map(|query| query.syntax().text_range())
 }
 
 /// The name of the function that `call` calls, in lower case, when it has one name.

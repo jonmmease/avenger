@@ -8,6 +8,7 @@ pub mod charts;
 pub mod exec;
 mod gpu;
 mod input;
+mod links;
 mod live;
 pub mod paged;
 mod state;

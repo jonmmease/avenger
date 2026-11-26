@@ -41,6 +41,27 @@ pub fn placeholder(name: &str) -> String {
 /// The prefix of the name of the placeholder of a selection's state.
 const PLACEHOLDER: &str = "__sel_";
 
+/// The names of the selections whose states `plan` reads, by the placeholders of its `selected`
+/// calls.
+pub(super) fn reads(
+    plan: &datafusion::logical_expr::LogicalPlan,
+) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    let _ = plan.apply_with_subqueries(|node| {
+        node.apply_expressions(|expr| {
+            expr.apply(|expr| {
+                if let Expr::Placeholder(Placeholder { id, .. }) = expr {
+                    if let Some(name) = id.trim_start_matches('$').strip_prefix(PLACEHOLDER) {
+                        names.insert(name.to_string());
+                    }
+                }
+                Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+            })
+        })
+    });
+    names
+}
+
 /// Whether `declare` declares selections: its type is `SELECTION`.
 pub(super) fn declares_selection(declare: &ast::DeclareStmt) -> bool {
     let Some(ast::Type::NamedType(named)) = declare.ty() else {
