@@ -66,6 +66,7 @@ members = [
     "examples/image-resources",
     "examples/facet-wrap",
     "examples/cross-filter",
+    "examples/sql-monaco",
     "examples/chart-facets",
     "examples/chart-web",
     "examples/chart-crossfilter",
