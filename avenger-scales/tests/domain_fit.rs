@@ -593,6 +593,11 @@ fn scales_without_a_domain_fail_until_fitted() {
     assert!(BandScale::unfitted((0.0, 100.0))
         .scale_to_numeric(&strings(&["a"]))
         .is_err());
+    // No values take no positions, as of a chart that has no rows.
+    let none = BandScale::unfitted((0.0, 100.0))
+        .scale_to_numeric(&strings(&[]))
+        .unwrap();
+    assert!(none.is_empty());
 }
 
 /// A scale defined outside avenger-scales: a logit scale, linear in `ln(p / (1 − p))`.
