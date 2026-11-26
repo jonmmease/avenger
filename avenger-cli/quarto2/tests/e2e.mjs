@@ -74,7 +74,7 @@ assert.deepEqual(readdirSync(join(project, "_avenger")), ["runtime"]);
 const config = JSON.parse(interactive.match(/id="avenger-runtime">([\s\S]*?)<\/script>/)[1].replaceAll("<\\/", "</"));
 assert.equal(config.runtime, "_avenger/runtime/");
 assert.equal(config.version, readFileSync(join(project, "_avenger", "runtime", "HASH"), "utf8"));
-assert.ok(readdirSync(join(project, "_avenger", "runtime")).includes("avenger_chart_web_bg.wasm.gz"));
+assert.ok(readdirSync(join(project, "_avenger", "runtime")).includes("avenger_query_web_bg.wasm.gz"));
 // A page's image keeps no set size, so it shrinks to a narrow page as other images do.
 assert.match(interactiveFigure, /<img src="interactive_files\/figure-html\/[^"]+\.svg"[^>]*class="img-fluid"/);
 assert.doesNotMatch(page, /avenger-runtime/);

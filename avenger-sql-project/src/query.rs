@@ -148,25 +148,83 @@ impl ChartQuery {
     /// their results for empty selections, and a warning for each subplan that reads a selection
     /// and does not run in a page.
     pub async fn page(&self) -> Result<avenger_query_graph::Page> {
-        let graph = (self.store).compile_page(
-            &self.ctx.state(),
-            vec![self.query.plan.clone()],
-            self.fields(),
-        )?;
-        let selections = (self.query.selections.iter())
-            .map(|(name, state)| {
+        Self::page_of(std::slice::from_ref(self)).await
+    }
+
+    /// The file of one graph of `queries`, the queries of one document's charts, such as the cells
+    /// of a Quarto document, for a page, whose outputs are the queries' rows in order. The queries
+    /// share their selections, and a variable that two of them read takes one value, or the file
+    /// is an error.
+    pub async fn page_of(queries: &[ChartQuery]) -> Result<avenger_query_graph::Page> {
+        use datafusion::common::{plan_err, ParamValues};
+        let Some(first) = queries.first() else {
+            return plan_err!("a page needs a query");
+        };
+        let mut fields = avenger_selection_datafusion::SelectionFields::new();
+        let mut selections = Vec::new();
+        let mut values: std::collections::HashMap<
+            String,
+            datafusion::common::metadata::ScalarAndMetadata,
+        > = std::collections::HashMap::new();
+        for query in queries {
+            for (placeholder, columns) in query.fields() {
+                let merged = match (fields.get(&placeholder), columns) {
+                    (Some(Some(known)), Some(columns)) => {
+                        let mut known = known.clone();
+                        for column in columns {
+                            if !known.contains(&column) {
+                                known.push(column);
+                            }
+                        }
+                        Some(known)
+                    }
+                    (None, columns) => columns,
+                    _ => None,
+                };
+                fields.insert(placeholder, merged);
+            }
+            for (name, state) in &query.query.selections {
                 let placeholder = avenger_sql::analysis::selection_placeholder(name);
-                avenger_physical_graph::page::SelectionFile::of(
-                    name,
-                    &placeholder,
-                    state.resolution,
-                )
-            })
+                if !selections
+                    .iter()
+                    .any(|(known, _): &(String, _)| known == name)
+                {
+                    selections.push((
+                        name.clone(),
+                        avenger_physical_graph::page::SelectionFile::of(
+                            name,
+                            &placeholder,
+                            state.resolution,
+                        ),
+                    ));
+                }
+            }
+            if let ParamValues::Map(map) = &query.query.params {
+                for (id, value) in map {
+                    match values.get(id) {
+                        Some(known) if known.value != value.value => {
+                            return plan_err!(
+                                "the variable `{id}` has another value in another chart of the \
+                                 document, which one page's graph cannot hold"
+                            )
+                        }
+                        _ => {
+                            values.insert(id.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let plans = queries
+            .iter()
+            .map(|query| query.query.plan.clone())
             .collect();
+        let graph = (first.store).compile_page(&first.ctx.state(), plans, fields)?;
         let inputs = Inputs {
-            params: self.query.params.clone(),
+            params: ParamValues::Map(values),
             selections: Default::default(),
         };
+        let selections = selections.into_iter().map(|(_, file)| file).collect();
         graph.page(&inputs, selections).await
     }
 

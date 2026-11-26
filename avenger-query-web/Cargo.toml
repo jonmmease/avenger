@@ -1,0 +1,24 @@
+[package]
+name = "avenger-query-web"
+version = "0.1.0"
+edition = "2021"
+description = "A WebAssembly library that runs a document's queries in a page, so its avenger charts follow the reader's selections without a server"
+license = "BSD-3-Clause"
+repository = "https://github.com/jonmmease/avenger"
+readme = "README.md"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+arrow = { workspace = true }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-app = { path = "../avenger-chart-app" }
+avenger-chart-web = { path = "../avenger-chart-web" }
+avenger-physical-graph = { path = "../avenger-physical-graph" }
+avenger-selection = { path = "../avenger-selection" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.107"
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
