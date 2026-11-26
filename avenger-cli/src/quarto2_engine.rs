@@ -27,7 +27,10 @@
 use std::path::PathBuf;
 
 use avenger_chart::{results::Shape, Chart};
-use avenger_sql_project::qmd::{FigFormat, Qmd};
+use avenger_sql_project::{
+    qmd::{FigFormat, Qmd},
+    ChartQuery,
+};
 use avenger_style::ColorScheme;
 use base64::Engine as _;
 use serde::Deserialize;
@@ -36,7 +39,8 @@ use serde_json::{json, Value};
 use crate::{
     cells, quarto2_runtime,
     render::{
-        result_image, run_target, Failure, Format, Image, Options, Project, Renderer, Target,
+        collect_target, plan_target, result_image, Failure, Format, Image, Options, Planned,
+        Project, Renderer, Target,
     },
     report::{Output, Report},
 };
@@ -212,6 +216,9 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
         _ => None,
     };
     let mut interactive = false;
+    // The cells whose charts act in the page: each one's response and output, its query, and the
+    // size of its image, which one graph of the document's queries draws in the page.
+    let mut graphed: Vec<(usize, usize, ChartQuery, [f32; 2])> = Vec::new();
     let mut responses = Vec::with_capacity(document.cells.len());
     for (index, cell) in document.cells.iter().enumerate() {
         let number = index + 1;
@@ -249,7 +256,7 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
             Err(failure) => Err(failure),
         };
         let outputs = match drawn {
-            Ok((images, value)) => {
+            Ok((images, value, query)) => {
                 let tagged = images.len() > 1;
                 let size = images.first().map(|image| image.size);
                 let mut outputs: Vec<Value> = (images.into_iter().zip(&schemes))
@@ -262,8 +269,12 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
                         output
                     })
                     .collect();
+                // A chart that declares a tool or a widget acts in the page, and so does a chart of
+                // a document that declares a selection, which another chart can restyle or filter.
                 let chart = value.filter(|chart| {
-                    project_dir.is_some() && chart.is_interactive() && browser_draws(chart.root())
+                    project_dir.is_some()
+                        && (chart.is_interactive() || !chart.selections().is_empty())
+                        && browser_draws(chart.root())
                 });
                 let element = match (chart, size) {
                     (Some(chart), Some(size)) => match element(&chart, size)? {
@@ -293,6 +304,9 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
                                 );
                             }
                         }
+                    }
+                    if let Some(query) = query {
+                        graphed.push((responses.len(), outputs.len(), query, size));
                     }
                     outputs.push(element);
                     interactive = true;
@@ -325,6 +339,7 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
     let header = match (interactive, project_dir) {
         (true, Some(dir)) => match quarto2_runtime::write(&dir) {
             Ok(folder) => {
+                graph(&dir, &graphed, &mut responses, &mut warnings).await;
                 let entry = &project.files.manifest().style.stylesheet;
                 let styles = (project.root.as_deref())
                     .and_then(|root| quarto2_runtime::styles(root, entry, &project.stylesheet));
@@ -342,6 +357,61 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
         header,
         warnings,
     })
+}
+
+/// Writes the graph of the queries of the cells `graphed` for the page, and points their elements
+/// at it, so the page's charts take their selections from each other and follow them without a
+/// server. A graph that does not build leaves each element with its own chart, which restyles by
+/// the others but does not filter, with a warning.
+async fn graph(
+    dir: &std::path::Path,
+    graphed: &[(usize, usize, ChartQuery, [f32; 2])],
+    responses: &mut [Value],
+    warnings: &mut Vec<String>,
+) {
+    if graphed.is_empty() {
+        return;
+    }
+    let queries: Vec<ChartQuery> = graphed
+        .iter()
+        .map(|(_, _, query, _)| query.clone())
+        .collect();
+    // The graph of the cells' charts, baked in the session of a page, as a file.
+    let encoded = async {
+        let session = avenger_sql::bake::baked_session()?;
+        let graph = ChartQuery::chart_graph_of(&queries)?;
+        graph.bake(&session.state()).await?.encode().await
+    };
+    let name = match encoded.await {
+        Ok(encoded) => {
+            for warning in encoded.warnings {
+                warnings.push(format!("a chart does not filter in the page: {warning}"));
+            }
+            quarto2_runtime::write_graph(dir, &encoded.bytes)
+        }
+        Err(error) => Err(error.to_string()),
+    };
+    let name = match name {
+        Ok(name) => name,
+        Err(error) => {
+            warnings.push(format!(
+                "the charts restyle by their selections but do not filter in the page: {error}"
+            ));
+            return;
+        }
+    };
+    for (output, (response, at, _, size)) in graphed.iter().enumerate() {
+        let html = format!(
+            "<avenger-chart width=\"{}\" height=\"{}\" graph=\"{name}\" output=\"{output}\"></avenger-chart>",
+            size[0].round(),
+            size[1].round(),
+        );
+        responses[*response]["outputs"][*at] = json!({
+            "output_type": "display_data",
+            "data": {"text/html": html},
+            "metadata": {},
+        });
+    }
 }
 
 /// The color schemes `names` of a request, at least one, each once.
@@ -372,16 +442,21 @@ fn content_class(scheme: ColorScheme) -> &'static str {
     }
 }
 
-/// The images of `target`, which runs once, drawn in each of `schemes`, in order, and its chart,
-/// when its result is one chart.
+/// The images of `target`, which runs once, drawn in each of `schemes`, in order, its chart, when
+/// its result is one chart, and its query.
 async fn images(
     target: &Target,
     format: Format,
     options: &mut Options,
     schemes: &[ColorScheme],
     renderer: &Renderer,
-) -> Result<(Vec<Image>, Option<Chart>), Failure> {
-    let result = run_target(target).await?;
+) -> Result<Drawn, Failure> {
+    let planned = plan_target(target).await?;
+    let query = match &planned {
+        Planned::Query(query) => Some((**query).clone()),
+        Planned::Step(_) => None,
+    };
+    let result = collect_target(target, planned).await?;
     let mut images = Vec::with_capacity(schemes.len());
     for scheme in schemes {
         options.color_scheme = *scheme;
@@ -390,8 +465,11 @@ async fn images(
     let chart = (result.shape() == Shape::Chart)
         .then(|| result.chart(0, 0).cloned())
         .flatten();
-    Ok((images, chart))
+    Ok((images, chart, query))
 }
+
+/// A cell's images, its chart when its result is one chart, and its query.
+type Drawn = (Vec<Image>, Option<Chart>, Option<ChartQuery>);
 
 /// Whether the browser's library draws the node `node` as its image draws it: it leaves out geo
 /// plots, whose projections and tiles it does not build, and fetches no images, so a chart with

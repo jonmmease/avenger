@@ -335,8 +335,8 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
     let folder = &root.join("_avenger/runtime");
     assert_eq!(folders, std::slice::from_ref(folder));
     for file in [
-        "avenger_chart_web_bg.wasm.gz",
-        "avenger_chart_web.js",
+        "avenger_query_web_bg.wasm.gz",
+        "avenger_query_web.js",
         "avenger-chart.js",
         "fonts/Lato-Regular.ttf.gz",
         "HASH",
