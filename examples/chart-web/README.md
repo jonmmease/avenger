@@ -15,7 +15,7 @@ cargo run --release -p chart-web --bin build-charts
 Build the library into `site/lib/`:
 
 ```bash
-avenger-chart-web/scripts/build.sh examples/chart-web/site/lib
+avenger-chart-web/scripts/build.sh avenger-chart-web examples/chart-web/site/lib
 ```
 
 Serve the site:

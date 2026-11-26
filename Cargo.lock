@@ -1216,6 +1216,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-query-web"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-web",
+ "avenger-query-graph",
+ "avenger-selection",
+ "avenger-sql",
+ "js-sys",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "avenger-render-fixtures"
 version = "0.0.8"
 dependencies = [
