@@ -326,6 +326,7 @@ fn a_cell_renders_by_its_number_or_its_label_and_all_renders_each_chart() {
             "all/reports-linked.qmd-2.svg",
             "all/reports-linked.qmd-3.svg",
             "all/reports-linked.qmd-4.svg",
+            "all/reports-linked.qmd-5.svg",
             "all/reports-overview.qmd-1.svg",
         ]
     );
