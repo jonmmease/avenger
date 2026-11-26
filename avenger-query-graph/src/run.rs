@@ -10,6 +10,7 @@ use std::{
 };
 
 use avenger_common::time::{Duration, Instant};
+use avenger_physical_graph::kept::{shapes, substitute, Kept, Shape};
 use avenger_selection::SelectionState;
 use avenger_selection_datafusion::{bind_selections, with_selection_nodes, with_selection_states};
 use datafusion::{
@@ -17,7 +18,6 @@ use datafusion::{
     common::{plan_err, Column, DataFusionError, ParamValues, Result, ScalarValue},
     execution::SessionState,
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
-    physical_expr::expressions::Column as PhysicalColumn,
     physical_plan::{execution_plan::reset_plan_states, ExecutionPlan},
 };
 use futures::{
@@ -26,10 +26,9 @@ use futures::{
 };
 
 use crate::{
-    cut::{cut_requests, shapes, substitute, with_results, Kept, Shape},
+    cut::{cut_requests, with_results},
     graph::{GraphInner, QueryGraph, QueryNode},
-    key::{address, resolution_code, KeyParts, NodeKey, SelectionKey},
-    reads::reads_owner,
+    key::{address, KeyParts, NodeKey, SelectionKey},
     sources,
     store::{lock, Abort, Computed, Flight, FlightResult, ResultStore},
 };
@@ -151,7 +150,7 @@ enum TopKey {
 static FRESH: AtomicU64 = AtomicU64::new(0);
 
 /// The versions of the store's sources, by the addresses of their providers.
-fn versions(graph: &GraphInner) -> HashMap<usize, u64> {
+pub(crate) fn versions(graph: &GraphInner) -> HashMap<usize, u64> {
     let state = graph.store.state();
     (state.sources.iter())
         .map(|(address, source)| (*address, source.version))
@@ -182,20 +181,10 @@ fn node_key(
     let params = param_values(node, inputs)?;
     let selections = (node.reads.selections.iter())
         .map(|(parameter, owners)| {
-            let state = selection_state(inputs, parameter)?;
-            let clauses: Vec<u64> = (state.clauses.iter())
-                .filter(|clause| reads_owner(owners, &clause.owner))
-                .map(|clause| clause.fingerprint())
-                .collect();
-            // A test that keeps no clause selects every row, whatever the resolution.
-            let resolution = match clauses.is_empty() {
-                true => None,
-                false => Some(resolution_code(state.resolution)),
-            };
-            Ok(SelectionKey {
-                resolution,
-                clauses,
-            })
+            Ok(SelectionKey::new(
+                selection_state(inputs, parameter)?,
+                owners,
+            ))
         })
         .collect::<Result<Vec<_>>>()?;
     let versions = source_versions(node, versions);
@@ -263,7 +252,7 @@ struct Job {
 
 /// The plan of a computation, whose `selected` calls are selection nodes, and the inputs of its
 /// run.
-enum Planned {
+pub(crate) enum Planned {
     /// The memo of a kept node. The computation reuses the memo's physical plan and binds it to
     /// the states of its run.
     Memo {
@@ -278,8 +267,24 @@ enum Planned {
     },
 }
 
+impl Memo {
+    /// The physical plan that a computation planned for inputs of the shapes `shape`, with its
+    /// selections' operators unbound.
+    pub(crate) fn physical(&self, shape: &[Option<Shape>]) -> Option<Arc<dyn ExecutionPlan>> {
+        lock(&self.physical).get(shape).cloned()
+    }
+}
+
 impl Planned {
-    fn logical(&self) -> &LogicalPlan {
+    /// The memo of a kept node's plan.
+    pub(crate) fn memo(&self) -> Option<Arc<Memo>> {
+        match self {
+            Planned::Memo { memo, .. } => Some(memo.clone()),
+            Planned::PerRun { .. } => None,
+        }
+    }
+
+    pub(crate) fn logical(&self) -> &LogicalPlan {
         match self {
             Planned::Memo { memo, .. } => &memo.logical,
             Planned::PerRun { plan, .. } => plan,
@@ -308,7 +313,7 @@ enum Resolution {
 }
 
 /// The columns `columns` of `node`'s plan.
-fn projected(node: &QueryNode, columns: &BTreeSet<usize>) -> Result<LogicalPlan> {
+pub(crate) fn projected(node: &QueryNode, columns: &BTreeSet<usize>) -> Result<LogicalPlan> {
     let schema = node.plan.schema();
     match columns.len() == schema.fields().len() {
         true => Ok(node.plan.clone()),
@@ -340,7 +345,7 @@ fn optimized(
 /// kept node, the plan is the graph's memo for those columns, the values of the parameters that
 /// the node reads, and the versions of its sources, which this function creates on first use.
 /// For another node, the plan is the node's optimized plan.
-fn planned(
+pub(crate) fn planned(
     graph: &GraphInner,
     index: usize,
     node: &QueryNode,
@@ -403,7 +408,7 @@ fn reusable(state: &SessionState) -> SessionState {
 /// A node that is not kept is planned here, in a session that binds the operators as it plans. A
 /// kept node reuses the physical plan that its memo holds for the shapes of `results`, with the
 /// leaf of each cut reading its result in `results`, and plans one when the memo holds none.
-async fn physical(
+pub(crate) async fn physical(
     plan: Planned,
     results: &[Option<Arc<Kept>>],
     state: &SessionState,
@@ -537,21 +542,7 @@ async fn compute(
         .collect();
     let started = Instant::now();
     let physical = physical(job.plan, &results, state).await?;
-    // One partition gives the rows in an order that a reader can depend on, and the plan can
-    // declare which order it is.
-    let properties = physical.properties();
-    let ordered = properties.output_partitioning().partition_count() == 1;
-    let ordering = match ordered {
-        true => (properties.output_ordering().into_iter().flatten())
-            .map_while(|sort| {
-                let column = sort.expr.downcast_ref::<PhysicalColumn>()?;
-                Some((columns[column.index()], sort.options))
-            })
-            .collect(),
-        false => Vec::new(),
-    };
-    let batches = datafusion::physical_plan::collect(physical, state.task_ctx()).await?;
-    let kept = Arc::new(Kept::new(columns, batches, ordered, ordering));
+    let kept = Arc::new(Kept::compute(physical, columns, state.task_ctx()).await?);
     let elapsed = started.elapsed();
     let stored = match key {
         Some(key) => (store.state()).keep(store.config(), key.clone(), kept.clone()),
@@ -600,7 +591,7 @@ fn output(node: &QueryNode, kept: &Kept) -> Output {
 /// requests of the nodes below the cuts, and marks those nodes as needed. Returns whether the
 /// plan scans each cut, by position: a cut that the optimizer removed requests nothing, and its
 /// node is not read.
-fn request(
+pub(crate) fn request(
     node: &QueryNode,
     plan: &LogicalPlan,
     requests: &mut [BTreeSet<usize>],

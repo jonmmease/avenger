@@ -314,3 +314,57 @@ async fn a_chart_reruns_with_the_clauses_of_its_selections() {
     assert_eq!(rows, expected);
     assert_eq!(framed, expected);
 }
+
+/// The chart bytes of the first chart column of `batches`.
+fn chart_bytes(batches: &[RecordBatch]) -> Vec<u8> {
+    use datafusion::arrow::array::AsArray;
+    let column = batches[0].column(0);
+    match column.data_type() {
+        DataType::BinaryView => column.as_binary_view().value(0).to_vec(),
+        _ => column.as_binary::<i32>().value(0).to_vec(),
+    }
+}
+
+#[tokio::test]
+async fn a_page_builds_the_charts_of_the_native_run() {
+    use avenger_physical_graph::page::{task_context, PageGraph};
+    use avenger_selection::{Clause, Condition};
+    // One partition, so the groups of the mark's items keep one order from run to run.
+    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(1);
+    let (_root, project, _) = project_in(SessionContext::new_with_config(config)).await;
+    let text = "DECLARE brush SELECTION;\n\
+                FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
+    let query = project.run_chart(CHART, text).await.unwrap();
+    let page = query.page().await.unwrap();
+    assert!(page.warnings.is_empty(), "{:?}", page.warnings);
+    let graph = PageGraph::decode(&page.bytes, Arc::new(task_context())).unwrap();
+    let brushed = |low: i64, high: i64| {
+        let ends = Arc::new(Int64Array::from(vec![low, high]));
+        vec![Clause::new("scatter").condition(Condition::Range {
+            column: "v".into(),
+            channel: None,
+            ends,
+            exclude_end: false,
+            cells: None,
+        })]
+    };
+    let mut charts = Vec::new();
+    for clauses in [Vec::new(), brushed(2, 3), brushed(1, 1), Vec::new()] {
+        let selections = std::collections::BTreeMap::from([("brush".to_string(), clauses)]);
+        let native = (query.clone().with_clauses(&selections).await.unwrap())
+            .collect()
+            .await
+            .unwrap();
+        let ran = graph.run(&selections).await.unwrap();
+        assert_eq!(chart_bytes(&ran[0]), chart_bytes(&native));
+        charts.push(chart_bytes(&ran[0]));
+    }
+    assert_ne!(charts[0], charts[1]);
+    // The page's file and a brushed chart, which the browser's test of avenger-physical-graph
+    // runs, written beside its baselines; accept them by copying the output over the baselines.
+    let output =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-physical-graph/tests/output");
+    std::fs::create_dir_all(&output).unwrap();
+    std::fs::write(output.join("bars.graph"), &page.bytes).unwrap();
+    std::fs::write(output.join("bars-brushed.chart"), &charts[1]).unwrap();
+}

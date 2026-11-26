@@ -9,11 +9,27 @@ readme = "README.md"
 [dependencies]
 arrow = { workspace = true }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
+avenger-selection = { path = "../avenger-selection" }
+avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
 datafusion-common = { workspace = true }
+datafusion-datasource = { workspace = true }
 datafusion-execution = { workspace = true }
 datafusion-expr = { workspace = true }
 datafusion-physical-expr = { workspace = true }
+datafusion-functions = { workspace = true, features = [
+    "datetime_expressions",
+    "math_expressions",
+    "regex_expressions",
+    "string_expressions",
+    "unicode_expressions",
+] }
+datafusion-functions-aggregate = { workspace = true }
+datafusion-functions-nested = { workspace = true }
+datafusion-functions-window = { workspace = true }
 datafusion-physical-plan = { workspace = true }
+datafusion-proto = { workspace = true }
+datafusion-proto-common = { workspace = true }
+prost = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # DataFusion's metrics stamp each operator's start and end with chrono's clock, which reads the
@@ -24,8 +40,6 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["js"] }
 
 [dev-dependencies]
-datafusion-datasource = { workspace = true }
-datafusion-functions-aggregate = { workspace = true }
 futures = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

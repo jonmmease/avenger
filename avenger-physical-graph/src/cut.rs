@@ -23,7 +23,9 @@ pub struct CutScan {
 
 /// A leaf that reads the result of the node below a cut through `scan`, the plan that scans that
 /// result. A run replaces `scan` with a scan of each computation's result, which holds the
-/// partitioning and the ordering that the plan was planned with.
+/// partitioning and the ordering that the plan was planned with. The leaf has no children, so the
+/// optimizers, the walks of a plan, and its codec stop at it, and its scan never travels with the
+/// plan.
 #[derive(Debug)]
 pub struct CutInputExec {
     cut: CutScan,
@@ -68,7 +70,7 @@ impl ExecutionPlan for CutInputExec {
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        vec![&self.scan]
+        vec![]
     }
 
     fn apply_expressions(
@@ -82,9 +84,9 @@ impl ExecutionPlan for CutInputExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        match <[_; 1]>::try_from(children) {
-            Ok([scan]) => Ok(Arc::new(Self::new(self.cut.clone(), scan))),
-            Err(_) => internal_err!("a cut's leaf has one child"),
+        match children.is_empty() {
+            true => Ok(self),
+            false => internal_err!("a cut's leaf has no children"),
         }
     }
 

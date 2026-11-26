@@ -11,7 +11,7 @@ use arrow::{
 use avenger_chart::{
     functions::{
         channel_function, channel_functions, composition, constructor, mark, Arg, ArgError,
-        ChannelArg, Child, ChildOrder, Class, Expected, FormatSyntaxes, Kind, Reason,
+        ChannelArg, Child, ChildOrder, Class, Expected, FormatSyntaxes, Kind, MarkTemplate, Reason,
     },
     prelude::*,
     proto::{self, Fragment},
@@ -939,4 +939,21 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
         error.to_string().contains("datum() takes a constant"),
         "{error}"
     );
+}
+
+#[test]
+fn a_mark_template_round_trips_through_its_bytes() {
+    let mut call = mark("mark_bar").expect("a mark").call();
+    call.channel("x", ChannelArg::Field("c".into()), None, None, &[], &[])
+        .unwrap();
+    call.channel("y", ChannelArg::Field("a".into()), None, None, &[], &[])
+        .unwrap();
+    let template = call.bind().unwrap();
+    let decoded = MarkTemplate::from_bytes(&template.to_bytes()).unwrap();
+    assert_eq!(decoded, template);
+    assert_eq!(
+        decoded.chart(table(), NONE).unwrap(),
+        template.chart(table(), NONE).unwrap()
+    );
+    assert!(MarkTemplate::from_bytes(b"not a template").is_err());
 }

@@ -143,6 +143,45 @@ impl ChartQuery {
 }
 
 impl ChartQuery {
+    /// The file of the query's graph for a page, which runs the query without a server: the
+    /// results of the subplans that read no selection, and the plans of those that read one, with
+    /// their results for empty selections, and a warning for each subplan that reads a selection
+    /// and does not run in a page.
+    pub async fn page(&self) -> Result<avenger_query_graph::Page> {
+        let graph = (self.store).compile_page(
+            &self.ctx.state(),
+            vec![self.query.plan.clone()],
+            self.fields(),
+        )?;
+        let selections = (self.query.selections.iter())
+            .map(|(name, state)| {
+                let placeholder = avenger_sql::analysis::selection_placeholder(name);
+                avenger_physical_graph::page::SelectionFile::of(
+                    name,
+                    &placeholder,
+                    state.resolution,
+                )
+            })
+            .collect();
+        let inputs = Inputs {
+            params: self.query.params.clone(),
+            selections: Default::default(),
+        };
+        graph.page(&inputs, selections).await
+    }
+
+    /// The columns that each selection's tools test, by the placeholder of its state.
+    fn fields(&self) -> avenger_selection_datafusion::SelectionFields {
+        (self.query.fields.iter())
+            .map(|(name, fields)| {
+                (
+                    avenger_sql::analysis::selection_placeholder(name),
+                    fields.clone(),
+                )
+            })
+            .collect()
+    }
+
     /// The graph of the query's plan, whose listing tables a run checks before it reuses a result
     /// that reads them.
     fn compile(&self) -> Result<QueryGraph> {
@@ -153,15 +192,11 @@ impl ChartQuery {
             };
             self.store.set_source_options(&table, options);
         }
-        let fields = (self.query.fields.iter())
-            .map(|(name, fields)| {
-                (
-                    avenger_sql::analysis::selection_placeholder(name),
-                    fields.clone(),
-                )
-            })
-            .collect();
-        (self.store).compile_with_fields(&self.ctx.state(), vec![self.query.plan.clone()], fields)
+        (self.store).compile_with_fields(
+            &self.ctx.state(),
+            vec![self.query.plan.clone()],
+            self.fields(),
+        )
     }
 }
 

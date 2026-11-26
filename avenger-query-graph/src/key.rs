@@ -6,7 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use avenger_selection::Resolution;
 use datafusion::{catalog::TableProvider, common::ScalarValue, logical_expr::LogicalPlan};
 
 /// The hasher of identities and keys.
@@ -67,21 +66,7 @@ impl Hash for Identity {
     }
 }
 
-/// The part of a key for one selection: the fingerprints of the clauses of the owners that the
-/// node reads, in the state's order, and the state's resolution when there are any.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub(crate) struct SelectionKey {
-    pub resolution: Option<u8>,
-    pub clauses: Vec<u64>,
-}
-
-pub(crate) fn resolution_code(resolution: Resolution) -> u8 {
-    match resolution {
-        Resolution::Global => 0,
-        Resolution::Union => 1,
-        Resolution::Intersect => 2,
-    }
-}
+pub(crate) use avenger_physical_graph::keys::SelectionKey;
 
 /// A node's key: its identity, the values of the parameters and the clauses that its subplan
 /// reads, the version of each provider that it scans, and the session's settings.

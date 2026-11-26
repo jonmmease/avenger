@@ -14,7 +14,9 @@ avenger-physical-graph = { path = "../avenger-physical-graph" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
 datafusion = { workspace = true }
+datafusion-proto-common = { workspace = true }
 futures = { workspace = true }
+prost = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]

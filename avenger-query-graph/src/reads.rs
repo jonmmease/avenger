@@ -139,11 +139,3 @@ fn union(a: &Owners, b: &Owners) -> Owners {
         }
     }
 }
-
-/// Whether `owners` reads the clauses of `owner`.
-pub(crate) fn reads_owner(owners: &Owners, owner: &str) -> bool {
-    match owners {
-        Owners::AllBut(skipped) => !skipped.contains(owner),
-        Owners::Only(read) => read.contains(owner),
-    }
-}
