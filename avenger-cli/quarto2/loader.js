@@ -21,11 +21,13 @@ const observer = new IntersectionObserver(
     import(url("avenger-chart.js"))
       .then(({ start }) =>
         start({
-          glue: url("avenger_chart_web.js"),
-          wasm: url("avenger_chart_web_bg.wasm.gz"),
+          glue: url("avenger_query_web.js"),
+          wasm: url("avenger_query_web_bg.wasm.gz"),
           fonts: config.fonts.map((font) => url(`fonts/${font}.gz`)),
           styles: config.styles ?? undefined,
           colorSchemes: config.colorSchemes,
+          // The graphs' files are named by their content, beside the runtime's folder.
+          graphs: new URL("../graphs/", base).href,
         }),
       )
       .catch((error) => console.warn("avenger-chart: the runtime did not load", error));

@@ -84,4 +84,4 @@ jobs:
           ls _output/index.av_files/figure-html/*.svg
           grep -q 'class="hl-keyword"' _output/index.av.html
           grep -q 'id="avenger-runtime"' _output/index.av.html
-          ls _output/_avenger/*/avenger_chart_web_bg.wasm.gz
+          ls _output/_avenger/*/avenger_query_web_bg.wasm.gz

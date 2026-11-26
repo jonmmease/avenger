@@ -1,5 +1,6 @@
 //! The runtime of the interactive charts of Quarto 2 pages. The binary embeds the WebAssembly
-//! library of avenger-chart-web as gzip, its glue, and the `<avenger-chart>` element, which
+//! library of avenger-query-web as gzip, which holds avenger-chart-web's library and runs the
+//! documents' graphs, its glue, and avenger-chart-web's `<avenger-chart>` element, which
 //! `quarto2/scripts/build-runtime.sh` builds as one snapshot, and the engine writes them, with the
 //! faces of `avenger-fonts` as gzip, to a project's `_avenger/runtime/`, which q2 copies to the
 //! output with the project's resources. A page's header holds the loader and the page's
@@ -19,12 +20,12 @@ use sha2::{Digest, Sha256};
 /// The files of the runtime, by their names in its folder.
 const FILES: &[(&str, &[u8])] = &[
     (
-        "avenger_chart_web_bg.wasm.gz",
-        include_bytes!("../quarto2/runtime/avenger_chart_web_bg.wasm.gz"),
+        "avenger_query_web_bg.wasm.gz",
+        include_bytes!("../quarto2/runtime/avenger_query_web_bg.wasm.gz"),
     ),
     (
-        "avenger_chart_web.js",
-        include_bytes!("../quarto2/runtime/avenger_chart_web.js"),
+        "avenger_query_web.js",
+        include_bytes!("../quarto2/runtime/avenger_query_web.js"),
     ),
     (
         "avenger-chart.js",
@@ -67,7 +68,7 @@ pub(crate) fn hash() -> &'static str {
 /// `q2 preview --static` renders again on every change of the project's files. The files go to a
 /// folder of a temporary name that takes the place of the folder of another build, so engines that
 /// q2 runs at once for several documents never leave or read a folder half written. It removes
-/// the other folders of `_avenger/`.
+/// the other folders of `_avenger/` but the documents' graphs.
 pub(crate) fn write(project: &Path) -> Result<PathBuf, String> {
     let error = |error: std::io::Error| format!("the runtime of interactive charts: {error}");
     let root = project.join(FOLDER);
@@ -116,11 +117,37 @@ pub(crate) fn write(project: &Path) -> Result<PathBuf, String> {
     for entry in std::fs::read_dir(&root).map_err(error)?.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name != RUNTIME && !name.starts_with('.') && entry.path().is_dir() {
+        if name != RUNTIME && name != GRAPHS && !name.starts_with('.') && entry.path().is_dir() {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
     Ok(folder)
+}
+
+/// The folder of the documents' graphs in `_avenger/`, beside the runtime.
+const GRAPHS: &str = "graphs";
+
+/// Writes the file `bytes` of a document's baked graph to `<project>/_avenger/graphs/`, under a
+/// name of its content, unless the file is there, and returns the name. A file of the same name
+/// holds the same graph, so `q2 preview --static`, which renders again on every change of the
+/// project's files, finds the file in place.
+pub(crate) fn write_graph(project: &Path, bytes: &[u8]) -> Result<String, String> {
+    let error = |error: std::io::Error| format!("the graph of the page: {error}");
+    let folder = project.join(FOLDER).join(GRAPHS);
+    let digest = Sha256::digest(bytes);
+    let name: String = digest[..12]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let name = format!("{name}.graph");
+    let file = folder.join(&name);
+    if !file.exists() {
+        std::fs::create_dir_all(&folder).map_err(error)?;
+        let temporary = folder.join(format!(".{name}-{}", std::process::id()));
+        std::fs::write(&temporary, bytes).map_err(error)?;
+        std::fs::rename(&temporary, &file).map_err(error)?;
+    }
+    Ok(name)
 }
 
 /// The header of the page of the document at `document`, whose runtime is at `folder`: the page's
@@ -196,39 +223,66 @@ pub(crate) fn styles(
 mod tests {
     use super::*;
 
-    /// The Git tree of avenger-chart-web that the runtime's build saw, and the chart format's
-    /// version that its library reads.
+    /// The Git trees of the libraries and of the crates that decode and run a page's graph,
+    /// which the runtime's build saw, the version of DataFusion whose plans its graphs hold, and
+    /// the chart format's version that its library reads.
     const RUNTIME: &str = include_str!("../quarto2/runtime/RUNTIME");
 
+    /// The crates whose sources the runtime's build records: the library, and the crates that read
+    /// the graphs that this avenger writes.
+    const TREES: [&str; 9] = [
+        "avenger-chart-web",
+        "avenger-query-web",
+        "avenger-query-graph",
+        "avenger-chart-datafusion",
+        "avenger-selection-datafusion",
+        "avenger-datafusion-shared",
+        "avenger-datafusion-transforms",
+        "avenger-sql",
+        "avenger-chart",
+    ];
+
     #[test]
-    fn the_runtime_is_a_build_of_the_avenger_chart_web_of_this_checkout() {
+    fn the_runtime_is_a_build_of_the_libraries_of_this_checkout() {
         // The element is the library's own, as the build copies it.
         assert_eq!(
             std::str::from_utf8(FILES[2].1).unwrap(),
             include_str!("../../avenger-chart-web/element/avenger-chart.js"),
             "run quarto2/scripts/build-runtime.sh"
         );
-        // The build saw the committed sources of the library. A checkout without Git skips it.
-        let recorded = RUNTIME
-            .lines()
-            .find_map(|line| line.strip_prefix("avenger-chart-web "))
-            .expect("the runtime records its tree");
-        let Ok(output) = std::process::Command::new("git")
-            .args(["rev-parse", "HEAD:avenger-chart-web"])
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .output()
-        else {
-            return;
-        };
-        if output.status.success() {
-            let tree = String::from_utf8_lossy(&output.stdout);
-            assert_eq!(
-                recorded,
-                tree.trim(),
-                "avenger-chart-web changed since the runtime's build: run \
-                 quarto2/scripts/build-runtime.sh"
-            );
+        // The build saw the committed sources of the library and of the graphs' readers. A
+        // checkout without Git skips it.
+        for name in TREES {
+            let recorded = RUNTIME
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("{name} ")))
+                .unwrap_or_else(|| panic!("the runtime records the tree of {name}"));
+            let Ok(output) = std::process::Command::new("git")
+                .args(["rev-parse", &format!("HEAD:{name}")])
+                .current_dir(env!("CARGO_MANIFEST_DIR"))
+                .output()
+            else {
+                return;
+            };
+            if output.status.success() {
+                let tree = String::from_utf8_lossy(&output.stdout);
+                assert_eq!(
+                    recorded,
+                    tree.trim(),
+                    "{name} changed since the runtime's build: run quarto2/scripts/build-runtime.sh"
+                );
+            }
         }
+        // The plans of the graphs that this avenger writes are DataFusion's of its version.
+        let datafusion = RUNTIME
+            .lines()
+            .find_map(|line| line.strip_prefix("datafusion "))
+            .expect("the runtime records DataFusion's version");
+        assert_eq!(
+            datafusion,
+            datafusion::DATAFUSION_VERSION,
+            "run quarto2/scripts/build-runtime.sh"
+        );
     }
 
     #[test]
