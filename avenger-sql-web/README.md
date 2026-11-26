@@ -27,7 +27,7 @@ const errors = project.diagnostics("charts/revenue.av.sql");
 - `chartScripts()` gives the paths of the chart scripts, and `text(path)` the text of a file.
 - `charts(path)` resolves to the bytes of the charts of the chart script's last query, one for each row, which `ChartView` draws, or rejects with the script's error.
 - `setText(path, text)` sets the text of a file, as an editor changes it: every file's analysis reads it, and a data script or a module loads again, with the scripts downstream of it.
-- `diagnostics(path)`, `completions(path, at)`, `hover(path, at)`, `signatureHelp(path, at)`, and `symbols(path)` give avenger-sql-language's errors and warnings, completions, hover, forms of a call, and outline of a file, as plain objects. Positions and ranges count UTF-16 code units, as the strings of JavaScript do.
+- `diagnostics(path)`, with each error's quick fixes, `completions(path, at)`, with each item's sort key, `hover(path, at)`, `signatureHelp(path, at)`, `symbols(path)`, `highlights(path)`, `definition(path, at)`, `references(path, at)`, `prepareRename(path, at)`, `rename(path, at, name)`, `formatting(path)`, and `foldingRanges(path)` give avenger-sql-language's answers to an editor's requests as plain objects, for an editor such as Monaco. A rename's edits span files, and the editor sets each file's text after it applies them. Positions and ranges count UTF-16 code units, as the strings of JavaScript do.
 
 `project::SqlProject` is the same project in Rust, natively and in WebAssembly.
 
@@ -47,7 +47,7 @@ Over avenger-query-web's module, it holds avenger-sql's parser and analysis, Dat
 
 ## Tests
 
-The tests open a project of a data script, a CSV file, a Parquet file, and a chart script, build its charts, change files, and ask for completions and diagnostics, natively and in a browser:
+The tests open a project of a data script, a CSV file, a Parquet file, and a chart script, build its charts, change files, and ask for each request of an editor, natively and in a browser:
 
 ```bash
 cargo test --release -p avenger-sql-web

@@ -88,6 +88,38 @@ async fn a_project_builds_its_charts_and_answers_an_editor() {
     let at = BARS.find("SUM").unwrap() as u32 + 1;
     assert!(project.hover(CHART, at).is_some());
     assert!(!project.symbols(CHART).is_empty());
+    assert!(completions.items.iter().all(|item| !item.sort.is_empty()));
+    let highlights = project.highlights(CHART);
+    assert!(highlights
+        .iter()
+        .any(|highlight| highlight.kind == "Keyword"));
+
+    // A table goes to the data script that defines it, whose name the chart also uses.
+    let at = BARS.find("sales").unwrap() as u32 + 1;
+    let definition = project.definition(CHART, at).unwrap();
+    assert_eq!(definition.path, "data/sources.av.sql");
+    let references = project.references(CHART, at);
+    assert!(references.iter().any(|found| found.path == CHART));
+    assert!(references.iter().any(|found| found.definition));
+
+    // An alias renames at its definition and its use, and a one-line pipe formats onto lines.
+    let aliased = "FROM sales |> SELECT region AS r, revenue \
+                   |> AGGREGATE mark_bar(x => r, y => SUM(revenue)) AS chart";
+    project.set_text(CHART, aliased.into()).await.unwrap();
+    let at = aliased.find("AS r").unwrap() as u32 + 3;
+    assert!(project.prepare_rename(CHART, at).is_ok());
+    let renamed = project.rename(CHART, at, "place").unwrap();
+    assert_eq!(renamed.len(), 1);
+    assert_eq!(renamed[0].edits.len(), 2);
+    assert!(!project.formatting(CHART).is_empty());
+    project
+        .set_text(CHART, "/* a\ncomment */\n".to_string() + BARS)
+        .await
+        .unwrap();
+    assert!(project
+        .folding_ranges(CHART)
+        .iter()
+        .any(|folding| folding.comment));
 }
 
 #[cfg(not(target_arch = "wasm32"))]

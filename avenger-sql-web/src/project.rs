@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use avenger_chart::results::is_chart_field;
 use avenger_sql_language::{
     CompletionKind, Diagnostic as LanguageDiagnostic, FileRole, Offset, Severity,
-    Symbol as Outline, TextRange,
+    Symbol as Outline, TextEdit, TextRange,
 };
 use avenger_sql_project::{Analysis, FileSource, Loader, ProjectFiles};
 use datafusion::{
@@ -42,6 +42,63 @@ pub struct Diagnostic {
     /// What found it: `syntax`, `analysis`, `project`, or `typst`, as avenger-sql-language's
     /// `Source` names it, in lower case.
     pub source: String,
+    /// The edits that fix it, which an editor offers as quick fixes.
+    pub fixes: Vec<Fix>,
+}
+
+/// A fix of a diagnostic: its label and its edits of the diagnostic's file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Fix {
+    pub label: String,
+    pub edits: Vec<Edit>,
+}
+
+/// An edit of a file: the text that replaces a range.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Edit {
+    pub range: Range,
+    pub text: String,
+}
+
+/// The edits of a file, by its path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FileEdits {
+    pub path: String,
+    pub edits: Vec<Edit>,
+}
+
+/// A range of a file and its class, by avenger-sql-language's `Highlight`, such as `Keyword`,
+/// `Name(Column)`, or `Typst(Emph)`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Highlight {
+    pub range: Range,
+    pub kind: String,
+    /// Whether the range is a name that defines what it names, such as an alias.
+    pub definition: bool,
+}
+
+/// The definition of the name at a position: the name's range, and the file and the range that
+/// define it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Definition {
+    pub origin: Range,
+    pub path: String,
+    pub target: Range,
+}
+
+/// A use of a definition, or the name that defines it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Reference {
+    pub path: String,
+    pub range: Range,
+    pub definition: bool,
+}
+
+/// A range that an editor folds, and whether it is a comment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Folding {
+    pub range: Range,
+    pub comment: bool,
 }
 
 /// The completions at a position, which replace `range`.
@@ -65,6 +122,8 @@ pub struct CompletionItem {
     pub insert: String,
     /// The text that an editor matches what the reader typed against, when it is not the label.
     pub filter: Option<String>,
+    /// The key that orders the items, as an editor's sort text.
+    pub sort: String,
 }
 
 /// The hover at a position.
@@ -145,8 +204,23 @@ fn symbol(text: &str, symbol: Outline) -> Symbol {
     }
 }
 
+fn edits(text: &str, edits: Vec<TextEdit>) -> Vec<Edit> {
+    (edits.into_iter())
+        .map(|edit| Edit {
+            range: range(text, edit.range),
+            text: edit.replacement,
+        })
+        .collect()
+}
+
 fn diagnostic(text: &str, diagnostic: LanguageDiagnostic) -> Diagnostic {
     Diagnostic {
+        fixes: (diagnostic.fixes.into_iter())
+            .map(|fix| Fix {
+                label: fix.label,
+                edits: edits(text, fix.edits),
+            })
+            .collect(),
         range: range(text, diagnostic.range),
         severity: match diagnostic.severity {
             Severity::Error => "error",
@@ -275,6 +349,7 @@ impl SqlProject {
                     documentation: item.documentation,
                     insert: item.insert,
                     filter: item.filter,
+                    sort: item.sort,
                 })
                 .collect(),
         })
@@ -325,6 +400,114 @@ impl SqlProject {
         };
         (document.symbols().into_iter())
             .map(|item| symbol(&text, item))
+            .collect()
+    }
+
+    /// The classes of the tokens of the file at `path`, which the analysis refines, in the order
+    /// of the text.
+    pub fn highlights(&self, path: &str) -> Vec<Highlight> {
+        let Some(text) = self.text(path) else {
+            return Vec::new();
+        };
+        let analysis = self.analysis.borrow();
+        let Some(document) = analysis.project().document(path) else {
+            return Vec::new();
+        };
+        (document.highlights().into_iter())
+            .map(|highlight| Highlight {
+                range: range(&text, highlight.range),
+                kind: format!("{:?}", highlight.highlight),
+                definition: highlight.definition,
+            })
+            .collect()
+    }
+
+    /// The definition of the name at the position `at` of the file at `path`, in any file of the
+    /// project.
+    pub fn definition(&self, path: &str, at: u32) -> Option<Definition> {
+        let text = self.text(path)?;
+        let analysis = self.analysis.borrow();
+        let link = analysis.project().definition(path, offset(&text, at))?;
+        let target = self.text(&link.path)?;
+        Some(Definition {
+            origin: range(&text, link.origin),
+            target: range(&target, link.target),
+            path: link.path,
+        })
+    }
+
+    /// The uses of the definition of the name at the position `at` of the file at `path`, and the
+    /// names that define it, in every file of the project.
+    pub fn references(&self, path: &str, at: u32) -> Vec<Reference> {
+        let Some(text) = self.text(path) else {
+            return Vec::new();
+        };
+        let analysis = self.analysis.borrow();
+        let found = analysis.project().references(path, offset(&text, at));
+        (found.into_iter())
+            .filter_map(|reference| {
+                let text = self.text(&reference.path)?;
+                Some(Reference {
+                    range: range(&text, reference.range),
+                    path: reference.path,
+                    definition: reference.definition,
+                })
+            })
+            .collect()
+    }
+
+    /// The range of the name at the position `at` of the file at `path` that a rename renames, or
+    /// why it can't be renamed.
+    pub fn prepare_rename(&self, path: &str, at: u32) -> Result<Range, String> {
+        let text = self.text(path).ok_or_else(|| format!("no file {path}"))?;
+        let analysis = self.analysis.borrow();
+        let renamed = analysis.project().prepare_rename(path, offset(&text, at))?;
+        Ok(range(&text, renamed))
+    }
+
+    /// The edits of each file that rename the name at the position `at` of the file at `path` to
+    /// `name`, or why it can't be renamed. The editor applies them, then sets each file's text.
+    pub fn rename(&self, path: &str, at: u32, name: &str) -> Result<Vec<FileEdits>, String> {
+        let text = self.text(path).ok_or_else(|| format!("no file {path}"))?;
+        let analysis = self.analysis.borrow();
+        let renamed = analysis.project().rename(path, offset(&text, at), name)?;
+        Ok((renamed.into_iter())
+            .filter_map(|(path, found)| {
+                let text = self.text(&path)?;
+                Some(FileEdits {
+                    edits: edits(&text, found),
+                    path,
+                })
+            })
+            .collect())
+    }
+
+    /// The edits that format the file at `path`, as `avenger fmt` formats it.
+    pub fn formatting(&self, path: &str) -> Vec<Edit> {
+        let Some(text) = self.text(path) else {
+            return Vec::new();
+        };
+        let analysis = self.analysis.borrow();
+        let Some(document) = analysis.project().document(path) else {
+            return Vec::new();
+        };
+        edits(&text, document.formatting())
+    }
+
+    /// The ranges of the file at `path` that an editor folds.
+    pub fn folding_ranges(&self, path: &str) -> Vec<Folding> {
+        let Some(text) = self.text(path) else {
+            return Vec::new();
+        };
+        let analysis = self.analysis.borrow();
+        let Some(document) = analysis.project().document(path) else {
+            return Vec::new();
+        };
+        (document.folding_ranges().into_iter())
+            .map(|folding| Folding {
+                range: range(&text, folding.range),
+                comment: folding.comment,
+            })
             .collect()
     }
 }
