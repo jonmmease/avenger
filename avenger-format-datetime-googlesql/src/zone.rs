@@ -58,6 +58,20 @@ impl Zone {
         FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60)).map(Zone::Fixed)
     }
 
+    /// The name that [`Zone::parse`] reads as the zone: its name in the tz database, or its offset,
+    /// such as `+05:30`.
+    pub fn name(&self) -> String {
+        match self {
+            Zone::Named(tz) => tz.name().to_string(),
+            Zone::Fixed(offset) => {
+                let seconds = offset.local_minus_utc();
+                let sign = if seconds < 0 { '-' } else { '+' };
+                let minutes = seconds.abs() / 60;
+                format!("{sign}{:02}:{:02}", minutes / 60, minutes % 60)
+            }
+        }
+    }
+
     /// The seconds of the zone's offset from UTC at the instant `instant`.
     pub(crate) fn offset(self, instant: DateTime<Utc>) -> i32 {
         match self {

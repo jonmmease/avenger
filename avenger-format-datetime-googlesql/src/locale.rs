@@ -105,6 +105,21 @@ impl Locale {
         })
     }
 
+    /// The d3 time locale of the locale's names and composites, which [`Locale::new`] reads as the
+    /// same locale.
+    pub fn spec(&self) -> DateTimeLocaleSpec {
+        DateTimeLocaleSpec {
+            date_time: self.date_time.clone(),
+            date: self.date.clone(),
+            time: self.time.clone(),
+            periods: self.periods.clone(),
+            days: self.days.clone(),
+            short_days: self.short_days.clone(),
+            months: self.months.clone(),
+            short_months: self.short_months.clone(),
+        }
+    }
+
     /// The bundled locale named `id`, with hyphens or underscores, such as `fr-FR`: U.S.
     /// English, or all of d3's locales with the `all-locales` feature.
     pub fn bundled(id: &str) -> Result<Locale, DateTimeFormatError> {
