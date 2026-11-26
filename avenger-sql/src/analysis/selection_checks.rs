@@ -4,13 +4,12 @@
 //! selection. The checks run after the pass, so a tool in one statement or one Quarto cell checks
 //! the reads in every other.
 
-use avenger_sql_syntax::{
-    ast::{self, AstNode},
-    TextRange,
+use super::{
+    lifting::Written,
+    selection::{named, select_calls, single_name},
+    Diagnostic, Pass,
 };
-use datafusion::logical_expr::Expr;
-
-use super::{lifting::Written, Diagnostic, Pass};
+use avenger_sql_syntax::{ast, TextRange};
 
 /// The positional channels, whose columns a box or a lasso tests when its tool names none.
 const POSITIONS: [&str; 6] = ["x", "y", "theta", "radius", "longitude", "latitude"];
@@ -81,7 +80,7 @@ impl Pass<'_> {
         let columns: Vec<(String, String)> = (written.iter())
             .map(|channel| {
                 let column = selection_field(list, &channel.channel)
-                    .unwrap_or_else(|| column_name(&channel.value));
+                    .unwrap_or_else(|| crate::functions::declaration::column_name(&channel.value));
                 (channel.channel.clone(), column)
             })
             .collect();
@@ -98,20 +97,10 @@ impl Pass<'_> {
             return;
         }
         let id = named(list, "id").and_then(|expr| string(&expr));
-        let Some(tools) = named(list, "tools") else {
-            return;
-        };
-        for select in (tools.syntax().descendants().filter_map(ast::CallExpr::cast))
-            .filter(|call| call_name(call).is_some_and(|name| name == "select"))
-        {
-            let args: Vec<ast::Argument> = (select.arg_list())
-                .map(|list| list.arguments().collect())
-                .unwrap_or_default();
-            let Some(selection) = args.first().and_then(|arg| match arg {
-                ast::Argument::Arg(arg) => match arg.expr()? {
-                    ast::Expr::PathExpr(path) => path.path()?.names()?.into_iter().next(),
-                    _ => None,
-                },
+        for select in select_calls(list) {
+            let first = (select.arg_list()).and_then(|list| list.arguments().next());
+            let Some((selection, _)) = first.and_then(|arg| match arg {
+                ast::Argument::Arg(arg) => single_name(&arg.expr()?),
                 _ => None,
             }) else {
                 continue;
@@ -121,7 +110,7 @@ impl Pass<'_> {
                     .find(|(name, _)| name == channel)
                     .map(|(_, column)| column.clone())
             };
-            let positions = || -> Option<Vec<String>> {
+            let positions = || {
                 Some(
                     POSITIONS
                         .iter()
@@ -243,19 +232,6 @@ impl Pass<'_> {
     }
 }
 
-/// The value of the named argument `name` of `list`.
-fn named(list: Option<&ast::ArgList>, name: &str) -> Option<ast::Expr> {
-    (list.into_iter().flat_map(|list| list.arguments())).find_map(|argument| match argument {
-        ast::Argument::NamedArg(arg)
-            if (arg.name_ref().and_then(|name| name.text()))
-                .is_some_and(|text| text.eq_ignore_ascii_case(name)) =>
-        {
-            arg.expr()
-        }
-        _ => None,
-    })
-}
-
 /// The name of the function that `call` calls, in lower case, when it has one name.
 fn call_name(call: &ast::CallExpr) -> Option<String> {
     match call.path()?.names()?.as_slice() {
@@ -289,9 +265,4 @@ fn selection_field(list: Option<&ast::ArgList>, channel: &str) -> Option<String>
         }
         _ => None,
     }
-}
-
-/// The name of the column of a layer's table of the channel value `value`.
-fn column_name(value: &Expr) -> String {
-    crate::functions::declaration::column_name(value)
 }
