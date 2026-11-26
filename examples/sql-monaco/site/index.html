@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>avenger-sql editor</title>
+    <style>
+      :root {
+        --background: #ffffff;
+        --text: #1f2328;
+        --muted: #59636e;
+        --border: #d1d9e0;
+        --panel: #f6f8fa;
+        --active: #ddf4ff;
+        --error: #cf222e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--background);
+        color: var(--text);
+        font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+      header {
+        grid-column: 1 / -1;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+      }
+      header h1 {
+        font-size: 15px;
+        margin: 0;
+      }
+      header span {
+        color: var(--muted);
+      }
+      nav {
+        border-right: 1px solid var(--border);
+        background: var(--panel);
+        overflow: auto;
+        padding: 6px 0;
+      }
+      nav button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: 0;
+        background: none;
+        padding: 3px 12px;
+        font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--text);
+        cursor: pointer;
+      }
+      nav button.active {
+        background: var(--active);
+      }
+      nav .role {
+        padding: 8px 12px 2px;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      #editor {
+        min-height: 0;
+        border-right: 1px solid var(--border);
+      }
+      #preview {
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+      }
+      #preview canvas {
+        display: block;
+        margin-bottom: 12px;
+      }
+      #status {
+        color: var(--muted);
+        margin-bottom: 8px;
+        white-space: pre-wrap;
+      }
+      #status.error {
+        color: var(--error);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>avenger-sql editor</h1>
+      <span>The Vega project of avenger-sql-project's tests, which avenger-sql-web runs in the page.</span>
+    </header>
+    <nav id="files"></nav>
+    <div id="editor"></div>
+    <div id="preview">
+      <div id="status">Loading…</div>
+      <div id="charts"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+    <script type="module" src="./editor.js"></script>
+  </body>
+</html>
