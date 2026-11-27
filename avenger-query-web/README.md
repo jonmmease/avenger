@@ -48,10 +48,10 @@ wasm-pack test --release --headless --chrome avenger-query-web
 
 ## Sizes
 
-The build of the Quarto runtime measured these sizes on 2026-11-27:
+The build of the Quarto runtime measured these sizes on 2026-11-27, with avenger-sql's library:
 
 | File | Raw | gzip | Brotli |
 |---|---|---|---|
-| `avenger_query_web_bg.wasm` | 23.15 MB | 7.94 MB | 5.15 MB |
+| `avenger_query_web_bg.wasm` | 23.27 MB | 7.99 MB | 5.19 MB |
 
-Over avenger-chart-web's module, which is 2.31 MB as Brotli, it holds DataFusion's logical plans with their decoder, optimizer, and planner, the operators and the functions that the plans of charts reach, the query graph, and the functions of avenger's marks and compositions.
+Over avenger-chart-web's module, which is 2.31 MB as Brotli, it holds DataFusion's logical plans with their decoder, optimizer, and planner, the operators and the functions that the plans of charts reach, the query graph, the functions of avenger's marks and compositions, and the functions of avenger-sql's library, which a page builds from their names and state.
