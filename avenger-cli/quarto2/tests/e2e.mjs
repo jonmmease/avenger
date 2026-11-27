@@ -60,28 +60,31 @@ assert.match(figure, /<div class="dark-content[^"]*">\s*<p><img src="themed_file
 assert.equal(figure.match(/<figcaption/g)?.length, 1);
 assert.match(themed, /Figure(\s|&nbsp;|\u00a0)1/);
 assert.doesNotMatch(themed, /quarto-unresolved-ref/);
-// Charts with tools: each keeps its image and has an element after it, which names the graph of
-// the document's queries and its output of the graph, the figure keeps its one caption, and the
-// page's header loads the runtime of the project's `_avenger/` once. The graphs' files are beside
-// the runtime. A page without charts with tools loads nothing.
+// Charts with tools: each keeps its image and has an element after it, the figure keeps its one
+// caption, and the page's header loads the runtime of the project's `_avenger/` once. A page
+// without charts with tools loads nothing.
 const interactive = readFileSync(join(project, "interactive.html"), "utf8");
 assert.equal(interactive.match(/id="avenger-runtime"/g)?.length, 1);
 assert.equal(interactive.match(/<avenger-chart /g)?.length, 2);
 const interactiveFigure = interactive.match(/<div id="fig-cars"[\s\S]*?<\/figure>/)?.[0] ?? "";
-assert.match(interactiveFigure, /<img src="interactive_files\/figure-html\/[^"]+\.svg"[\s\S]*<avenger-chart width="\d+" height="\d+" graph="[0-9a-f]+\.graph" output="\d+">/);
+assert.match(interactiveFigure, /<img src="interactive_files\/figure-html\/[^"]+\.svg"[\s\S]*<avenger-chart width="\d+" height="\d+">/);
 assert.equal(interactiveFigure.match(/<figcaption/g)?.length, 1);
 assert.doesNotMatch(interactive, /quarto-unresolved-ref|requirejs|jquery/i);
-assert.deepEqual(readdirSync(join(project, "_avenger")).sort(), ["graphs", "runtime"]);
+assert.deepEqual(readdirSync(join(project, "_avenger")), ["runtime"]);
 const config = JSON.parse(interactive.match(/id="avenger-runtime">([\s\S]*?)<\/script>/)[1].replaceAll("<\\/", "</"));
 assert.equal(config.runtime, "_avenger/runtime/");
 assert.equal(config.version, readFileSync(join(project, "_avenger", "runtime", "HASH"), "utf8"));
-assert.ok(readdirSync(join(project, "_avenger", "runtime")).includes("avenger_query_web_bg.wasm.gz"));
+// The runtime holds both libraries, and a page whose charts run no graph loads the smaller one.
+const runtime = readdirSync(join(project, "_avenger", "runtime"));
+assert.ok(runtime.includes("avenger_chart_web_bg.wasm.gz"));
+assert.ok(runtime.includes("avenger_query_web_bg.wasm.gz"));
+assert.equal(config.library, "avenger_chart_web");
 // A page's image keeps no set size, so it shrinks to a narrow page as other images do.
 assert.match(interactiveFigure, /<img src="interactive_files\/figure-html\/[^"]+\.svg"[^>]*class="img-fluid"/);
 assert.doesNotMatch(page, /avenger-runtime/);
 // A slide of one interactive chart keeps its element, since its image has a set size, which
 // revealjs's auto-stretch leaves in its figure.
 const deck = readFileSync(join(project, "deck.html"), "utf8");
-assert.match(deck, /<avenger-chart width="\d+" height="\d+" graph="[0-9a-f]+\.graph" output="\d+">/);
+assert.match(deck, /<avenger-chart width="\d+" height="\d+">/);
 assert.doesNotMatch(deck, /r-stretch/);
 console.log(`ok: ${project}`);

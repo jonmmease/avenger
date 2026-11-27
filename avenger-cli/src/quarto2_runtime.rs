@@ -1,12 +1,15 @@
-//! The runtime of the interactive charts of Quarto 2 pages. The binary embeds the WebAssembly
-//! library of avenger-query-web as gzip, which holds avenger-chart-web's library and runs the
-//! documents' graphs, its glue, and avenger-chart-web's `<avenger-chart>` element, which
-//! `quarto2/scripts/build-runtime.sh` builds as one snapshot, and the engine writes them, with the
-//! faces of `avenger-fonts` as gzip, to a project's `_avenger/runtime/`, which q2 copies to the
-//! output with the project's resources. A page's header holds the loader and the page's
-//! configuration, and imports the runtime when its first chart nears the screen, with the runtime's
-//! hash in each URL, so a browser never reads a cached file of another build, and a page that an
-//! older avenger rendered reads the newest runtime.
+//! The runtime of the interactive charts of Quarto 2 pages. The binary embeds two WebAssembly
+//! libraries as gzip, each with its glue: avenger-chart-web's, which draws charts, and
+//! avenger-query-web's, which holds avenger-chart-web's library too and runs the documents'
+//! graphs. A page loads one of them: avenger-query-web's when a chart of its document runs again
+//! in the page, and the smaller avenger-chart-web's otherwise. With them, the binary embeds
+//! avenger-chart-web's `<avenger-chart>` element. `quarto2/scripts/build-runtime.sh` builds the
+//! files as one snapshot, and the engine writes them, with the faces of `avenger-fonts` as gzip,
+//! to a project's `_avenger/runtime/`, which q2 copies to the output with the project's resources.
+//! A page's header holds the loader and the page's configuration, and imports the runtime when its
+//! first chart nears the screen, with the runtime's hash in each URL, so a browser never reads a
+//! cached file of another build, and a page that an older avenger rendered reads the newest
+//! runtime.
 
 use std::{
     io::Write,
@@ -20,6 +23,14 @@ use sha2::{Digest, Sha256};
 /// The files of the runtime, by their names in its folder.
 const FILES: &[(&str, &[u8])] = &[
     (
+        "avenger_chart_web_bg.wasm.gz",
+        include_bytes!("../quarto2/runtime/avenger_chart_web_bg.wasm.gz"),
+    ),
+    (
+        "avenger_chart_web.js",
+        include_bytes!("../quarto2/runtime/avenger_chart_web.js"),
+    ),
+    (
         "avenger_query_web_bg.wasm.gz",
         include_bytes!("../quarto2/runtime/avenger_query_web_bg.wasm.gz"),
     ),
@@ -32,6 +43,25 @@ const FILES: &[(&str, &[u8])] = &[
         include_bytes!("../quarto2/runtime/avenger-chart.js"),
     ),
 ];
+
+/// The library of the runtime that a page loads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Library {
+    /// avenger-chart-web's, which draws the charts of a page that runs no graph.
+    Chart,
+    /// avenger-query-web's, which also runs the graph of a page.
+    Query,
+}
+
+impl Library {
+    /// The name of the library's files in the runtime's folder, before `.js` and `_bg.wasm.gz`.
+    fn name(self) -> &'static str {
+        match self {
+            Library::Chart => "avenger_chart_web",
+            Library::Query => "avenger_query_web",
+        }
+    }
+}
 
 /// The loader that a page's header holds.
 const LOADER: &str = include_str!("../quarto2/loader.js");
@@ -152,11 +182,13 @@ pub(crate) fn write_graph(project: &Path, bytes: &[u8]) -> Result<String, String
 
 /// The header of the page of the document at `document`, whose runtime is at `folder`: the page's
 /// configuration, with the runtime's hash as its version, and the loader, with a rule that keeps an
-/// element that has not loaded from taking room. `schemes` are the color schemes of the document's themes, and `styles` the project's
+/// element that has not loaded from taking room. `library` is the library that the page loads,
+/// `schemes` are the color schemes of the document's themes, and `styles` the project's
 /// stylesheets, `{ entry, files }`, or none.
 pub(crate) fn header(
     document: &Path,
     folder: &Path,
+    library: Library,
     schemes: &[ColorScheme],
     styles: Option<Value>,
 ) -> String {
@@ -164,6 +196,7 @@ pub(crate) fn header(
     let config = json!({
         "runtime": format!("{}/", relative_url(from, folder)),
         "version": hash(),
+        "library": library.name(),
         "fonts": (avenger_fonts::FACES.iter()).map(|(name, _)| *name).collect::<Vec<_>>(),
         "styles": styles,
         "colorSchemes": (schemes.iter())
@@ -245,8 +278,11 @@ mod tests {
     #[test]
     fn the_runtime_is_a_build_of_the_libraries_of_this_checkout() {
         // The element is the library's own, as the build copies it.
+        let element = (FILES.iter())
+            .find(|(name, _)| *name == "avenger-chart.js")
+            .expect("the runtime holds the element");
         assert_eq!(
-            std::str::from_utf8(FILES[2].1).unwrap(),
+            std::str::from_utf8(element.1).unwrap(),
             include_str!("../../avenger-chart-web/element/avenger-chart.js"),
             "run quarto2/scripts/build-runtime.sh"
         );
