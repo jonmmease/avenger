@@ -751,6 +751,7 @@ dependencies = [
  "avenger-fonts",
  "avenger-image",
  "avenger-pdf",
+ "avenger-physical-graph",
  "avenger-results-egui",
  "avenger-scenegraph",
  "avenger-selection",
@@ -1217,6 +1218,21 @@ dependencies = [
  "futures",
  "prost",
  "tokio",
+]
+
+[[package]]
+name = "avenger-query-web"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-web",
+ "avenger-physical-graph",
+ "avenger-selection",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

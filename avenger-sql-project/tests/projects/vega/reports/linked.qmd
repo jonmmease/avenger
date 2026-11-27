@@ -1,0 +1,31 @@
+---
+title: Linked cars
+---
+
+A brush on the horsepower of the first scatter selects cars in every chart of the page. The second scatter restyles the cars that the brush selects, and the bars count only those cars, since their query filters by the selection with `WHERE brush`. In a rendered page, the charts follow the brush without a server: the page runs the document's queries itself.
+
+```{avenger-sql}
+DECLARE brush SELECTION;
+FROM vega_datasets.cars
+|> AGGREGATE mark_symbol(
+    x => Horsepower,
+    y => Miles_per_Gallon,
+    id => 'scatter',
+    tools => [select(brush, type => interval(channels => ['x']))],
+   ) AS chart
+```
+
+```{avenger-sql}
+FROM vega_datasets.cars
+|> AGGREGATE mark_symbol(
+    x => Horsepower,
+    y => Acceleration,
+    fill => if(brush, value('steelblue'), value('lightgray')),
+   ) AS chart
+```
+
+```{avenger-sql}
+FROM vega_datasets.cars
+|> WHERE brush
+|> AGGREGATE mark_bar(x => Origin, y => count(*)) AS chart
+```

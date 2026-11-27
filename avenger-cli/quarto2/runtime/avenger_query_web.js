@@ -1,4 +1,97 @@
-/* @ts-self-types="./avenger_chart_web.d.ts" */
+/* @ts-self-types="./avenger_query_web.d.ts" */
+
+/**
+ * A document's graph, as `avenger render` and the Quarto engine write its file, which runs the
+ * document's queries for the clauses of its selections.
+ */
+export class ChartGraph {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        ChartGraphFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_chartgraph_free(ptr, 0);
+    }
+    /**
+     * Takes the clauses of the selections that the change message `bytes`, as a view's
+     * `onChange` gives it, writes. Returns whether a selection that the graph reads changed.
+     * @param {Uint8Array | number[]} bytes
+     * @returns {boolean}
+     */
+    change(bytes) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.chartgraph_change(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeFromExternrefTable0(r1);
+            }
+            return r0 !== 0;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Decodes the graph's file `bytes`. Throws for bytes of no graph, or of a graph whose plans
+     * name a function or an operator that the library lacks.
+     * @param {Uint8Array | number[]} bytes
+     */
+    constructor(bytes) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.chartgraph_new(retptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeFromExternrefTable0(r1);
+            }
+            this.__wbg_ptr = r0;
+            ChartGraphFinalization.register(this, this.__wbg_ptr, this);
+            return this;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * The names of the selections that the graph's queries read, so a page runs the graph when
+     * one of them changes.
+     * @returns {string[]}
+     */
+    get reads() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
+            wasm.chartgraph_reads(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayJsValueFromWasm0(r0, r1);
+            wasm.__wbindgen_export3(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Runs the graph with the clauses that it took, and resolves to the chart of each of its
+     * outputs, in order: the bytes of the first chart of the output's first row, or `null` for an
+     * output without a chart.
+     * @returns {Promise<any>}
+     */
+    run() {
+        const ret = wasm.chartgraph_run(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) ChartGraph.prototype[Symbol.dispose] = ChartGraph.prototype.free;
 
 /**
  * A chart in a canvas, with the tools that the chart declares. `free()` removes the view's
@@ -556,6 +649,13 @@ function __wbg_get_imports() {
             const ret = arg0.getPreferredCanvasFormat();
             return (__wbindgen_enum_GpuTextureFormat.indexOf(ret) + 1 || 96) - 1;
         },
+        __wbg_getRandomValues_5d8c030b527203a6: function() { return handleError(function (arg0, arg1) {
+            globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
+        }, arguments); },
+        __wbg_getTime_edc91481cbc4cd78: function(arg0) {
+            const ret = arg0.getTime();
+            return ret;
+        },
         __wbg_get_0c55869fe53c7d14: function(arg0, arg1) {
             const ret = arg0[arg1 >>> 0];
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
@@ -922,6 +1022,10 @@ function __wbg_get_imports() {
             const ret = arg0.navigator;
             return ret;
         },
+        __wbg_new_0_36d738a0c8cfac43: function() {
+            const ret = new Date();
+            return ret;
+        },
         __wbg_new_13de428334042d26: function(arg0) {
             const ret = new Uint8Array(arg0);
             return ret;
@@ -941,7 +1045,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_50480(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_103340(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -975,7 +1079,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_50480(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_103340(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1737,28 +1841,28 @@ function __wbg_get_imports() {
             arg0.writeTexture(arg1, arg2, arg3, arg4);
         }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 334, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2802);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 13145, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_45657);
             return ret;
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 6907, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_50470);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 20726, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_103330);
             return ret;
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("Array<any>")], shim_idx: 2, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_744);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("Array<any>")], shim_idx: 12819, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_43606);
             return ret;
         },
         __wbindgen_generic_0000000000000004: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("Event")], shim_idx: 2, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_744_16);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("Event")], shim_idx: 12819, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_43606_20);
             return ret;
         },
         __wbindgen_generic_0000000000000005: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 2980, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_24373);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 16736, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_75414);
             return ret;
         },
         __wbindgen_generic_0000000000000006: function(arg0) {
@@ -1797,34 +1901,34 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./avenger_chart_web_bg.js": import0,
+        "./avenger_query_web_bg.js": import0,
     };
 }
 
-function __wasm_bindgen_func_elem_24373(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_24373(arg0, arg1);
+function __wasm_bindgen_func_elem_75414(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_75414(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_2802(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_2802(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_45657(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_45657(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_744(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_744(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_43606(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_43606(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_744_16(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_744_16(arg0, arg1, arg2);
+function __wasm_bindgen_func_elem_43606_20(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_43606_20(arg0, arg1, arg2);
 }
 
-function __wasm_bindgen_func_elem_50480(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_50480(arg0, arg1, arg2, arg3);
+function __wasm_bindgen_func_elem_103340(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_103340(arg0, arg1, arg2, arg3);
 }
 
-function __wasm_bindgen_func_elem_50470(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_103330(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16) >>> 0;
-        wasm.__wasm_bindgen_func_elem_50470(retptr, arg0, arg1, arg2);
+        wasm.__wasm_bindgen_func_elem_103330(retptr, arg0, arg1, arg2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1915,6 +2019,9 @@ const __wbindgen_enum_GpuVertexStepMode = ["vertex", "instance"];
 
 
 const __wbindgen_enum_PremultiplyAlpha = ["none", "premultiply", "default"];
+const ChartGraphFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_chartgraph_free(ptr, 1));
 const ChartViewFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_chartview_free(ptr, 1));
@@ -1985,6 +2092,17 @@ function debugString(val) {
         // Per MDN: 'This list of values is exhaustive.'
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/typeof#description
     }
+}
+
+function getArrayJsValueFromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    const mem = getDataViewMemory0();
+    const result = [];
+    for (let i = ptr; i < ptr + 4 * len; i += 4) {
+        result.push(wasm.__wbindgen_externrefs.get(mem.getUint32(i, true)));
+    }
+    wasm.__wbindgen_export8(ptr, len);
+    return result;
 }
 
 function getArrayU32FromWasm0(ptr, len) {
@@ -2238,7 +2356,7 @@ async function __wbg_init_once(module_or_path) {
     }
 
     if (module_or_path === undefined) {
-        module_or_path = new URL('avenger_chart_web_bg.wasm', import.meta.url);
+        module_or_path = new URL('avenger_query_web_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
 

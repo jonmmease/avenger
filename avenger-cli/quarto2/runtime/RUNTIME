@@ -1,2 +1,6 @@
-avenger-chart-web d0609fb11d285f1f7e098192741da1609bbcf111
+avenger-chart-web bd87a834433bfbbb82bd96c99b5e15fcbc1cce1d
+avenger-query-web 6f6565237f10102093b4181db5958158afb65368
+avenger-physical-graph 7df7387e2b7328eb0fc18aaca9ff941b7e0325c8
+avenger-selection-datafusion dec54318ea70a7ae9257103ee5459441608098cf
+datafusion 55.2.0
 format 3
