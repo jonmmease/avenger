@@ -1,6 +1,6 @@
 //! avenger-sql for a plan that bakes, which runs away from the session that planned it, such as in
-//! a page: the host that encodes the extension nodes of avenger-sql's plans for
-//! avenger-chart-datafusion's codec, and the session in which baked plans run.
+//! a page: the host that encodes the library's functions and the extension nodes of avenger-sql's
+//! plans for avenger-chart-datafusion's codec, and the session in which baked plans run.
 
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use avenger_datafusion_shared::SharedNode;
 use datafusion::{
     common::{exec_datafusion_err, Result},
     execution::SessionState,
-    logical_expr::{LogicalPlan, UserDefinedLogicalNode},
+    logical_expr::{LogicalPlan, ScalarUDF, UserDefinedLogicalNode},
     optimizer::{simplify_expressions::SimplifyExpressions, Analyzer, Optimizer},
     prelude::{SessionConfig, SessionContext},
 };
@@ -28,6 +28,14 @@ struct Host;
 impl HostCodec for Host {
     fn name(&self) -> &str {
         "avenger-sql"
+    }
+
+    fn encode_udf(&self, udf: &ScalarUDF) -> Option<Result<Vec<u8>>> {
+        crate::library::codec::encode_udf(udf)
+    }
+
+    fn decode_udf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<ScalarUDF>>> {
+        crate::library::codec::decode_udf(name, bytes)
     }
 
     fn encode_node(&self, node: &dyn UserDefinedLogicalNode) -> Option<Result<Vec<u8>>> {

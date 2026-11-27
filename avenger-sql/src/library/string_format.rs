@@ -39,7 +39,7 @@ const MAX_FLOAT_PRECISION: u64 = 1074;
 /// The symbols of `FORMAT`, which has no locale.
 static LOCALE: LazyLock<Locale> = LazyLock::new(Locale::default);
 
-static FORMAT: LazyLock<ScalarUDF> = LazyLock::new(|| {
+pub(super) static FORMAT: LazyLock<ScalarUDF> = LazyLock::new(|| {
     ScalarUDF::new_from_impl(StringFormat {
         signature: Signature::variadic_any(Volatility::Immutable),
     })
