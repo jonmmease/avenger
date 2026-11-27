@@ -27,7 +27,8 @@
 // An element can take its chart from a document's graph instead of its own bytes: `graph` names the
 // graph's file, relative to `start`'s `graphs`, and `output` the graph's output whose chart it
 // draws. The elements of one graph share one decoded graph and their selections: a change of one
-// element's selections restyles the others at once, and when the graph reads the selection, as a
+// element's selections restyles the others at once, an element that draws its first view later
+// starts from them, and when the graph reads the selection, as a
 // chart filtered by `WHERE brush` does, the graph runs again and each element whose chart changed
 // draws its new chart with its views and its brushes. Such an element reports every change, at most
 // once in its tool's throttle during a gesture, unless its `reports` attribute says otherwise.
@@ -133,7 +134,8 @@ function frame() {
 
 /**
  * The graphs of the page, by the URLs of their files: each with its elements, its decoded graph and
- * the charts of its last run once it loads, and whether a run is in progress or due again.
+ * the charts of its last run once it loads, the last change of each selection, and whether a run is
+ * in progress or due again.
  */
 const graphs = new Map();
 
@@ -142,7 +144,7 @@ function graphOf(element) {
   const url = new URL(element.getAttribute("graph"), config.graphs ?? document.baseURI).href;
   let group = graphs.get(url);
   if (!group) {
-    group = { elements: new Set(), graph: undefined, charts: [], running: false, again: false };
+    group = { elements: new Set(), graph: undefined, charts: [], selections: new Map(), running: false, again: false };
     group.loaded = (async () => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`cannot load ${url}: status ${response.status}`);
@@ -157,9 +159,15 @@ function graphOf(element) {
 
 /**
  * Gives a change of `from`'s selections to the other elements of its graph, which restyle by them,
- * and runs the graph again when the change writes a selection that the graph reads.
+ * keeps it for the elements that draw their first views later, and runs the graph again when the
+ * change writes a selection that the graph reads.
  */
 function changed(group, from, change) {
+  // The last change of each selection, in the order of the changes.
+  for (const name of change.selections) {
+    group.selections.delete(name);
+    group.selections.set(name, change.bytes);
+  }
   for (const other of group.elements) {
     if (other !== from) other.setState(change.bytes, { modes: false, views: false });
   }
@@ -361,9 +369,15 @@ class AvengerChart extends HTMLElement {
     }
     this.view = view;
     this.canvas = canvas;
-    // The state of the last view, and the calls since, apply before the first frame shows.
+    // The state of the last view, and the calls since, apply before the first frame shows. A first
+    // view starts from the selections of its graph, which changed before the element joined it.
     try {
       if (this.saved) view.setState(this.saved);
+      else if (this.group) {
+        for (const bytes of new Set(this.group.selections.values())) {
+          view.setState(bytes, { modes: false, views: false });
+        }
+      }
       for (const call of this.pending) apply(view, call);
     } catch (error) {
       console.warn("avenger-chart: the saved state did not apply", error);
