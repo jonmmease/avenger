@@ -217,16 +217,20 @@ impl MatchRecognizeTransform {
 
 /// The matches of one partition.
 #[derive(Debug)]
-struct PartitionMatch {
-    position: usize,
-    variables: Vec<usize>,
-    names: Vec<String>,
-    program: Program,
-    skip: Skip,
-    longest: bool,
+pub(crate) struct PartitionMatch {
+    pub(crate) position: usize,
+    pub(crate) variables: Vec<usize>,
+    pub(crate) names: Vec<String>,
+    pub(crate) program: Program,
+    pub(crate) skip: Skip,
+    pub(crate) longest: bool,
 }
 
 impl PartitionTransform for PartitionMatch {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn transform(
         &self,
         input: &RecordBatch,

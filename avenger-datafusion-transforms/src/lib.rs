@@ -32,6 +32,7 @@
 //! as a bin, then makes the struct again above the aggregate.
 
 pub mod bin;
+pub mod codec;
 pub mod impute;
 pub mod lump;
 pub mod match_recognize;
