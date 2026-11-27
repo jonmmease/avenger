@@ -136,10 +136,10 @@ pub(crate) fn struct_udf(field: &Field) -> ScalarUDF {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct MakeStruct {
-    fields: Fields,
-    nullable: bool,
-    metadata: BTreeMap<String, String>,
+pub(crate) struct MakeStruct {
+    pub(crate) fields: Fields,
+    pub(crate) nullable: bool,
+    pub(crate) metadata: BTreeMap<String, String>,
     signature: Signature,
 }
 
