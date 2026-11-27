@@ -371,3 +371,29 @@ async fn a_brush_runs_the_chart_again_when_its_query_reads_the_selection() {
         .unwrap();
     assert_eq!(rows(&cleared).await, all);
 }
+
+#[tokio::test]
+async fn a_brush_runs_the_last_query_and_an_edit_analyzes_the_chart_again() {
+    use avenger_selection::{Clause, Condition};
+    use std::sync::Arc;
+    let (_directory, root) = project();
+    let text = "DECLARE brush SELECTION;\n\
+                FROM vega_datasets.cars |> WHERE brush |> SELECT Name, Origin\n";
+    std::fs::write(root.join("charts/linked.av.sql"), text).unwrap();
+    let chart = root.join("charts/linked.av.sql");
+    let (mut session, first) = Session::open(chart.to_str().unwrap()).await.unwrap();
+    let all = rows(&first).await;
+    // The chart's file changes without a notice of the watcher, so the session's last query is
+    // the one that runs for the brush, and it does not read the file again.
+    let narrower = "DECLARE brush SELECTION;\n\
+                    FROM vega_datasets.cars |> WHERE brush AND Origin = 'Japan' |> SELECT Name, Origin\n";
+    std::fs::write(&chart, narrower).unwrap();
+    let values = Arc::new(arrow::array::StringArray::from(vec!["USA", "Japan"]));
+    let clauses = vec![Clause::new("bars").condition(Condition::values("Origin", None, values))];
+    let brushed = (session.selected(vec![change("brush", clauses)]).await).unwrap();
+    let two = rows(&brushed).await;
+    assert!(two < all);
+    // The edit's notice analyzes the chart again, with the brush's clauses.
+    let outcomes = edit(&mut session, &root, "charts/linked.av.sql", narrower).await;
+    assert!(rows(&outcomes[0]).await < two);
+}
