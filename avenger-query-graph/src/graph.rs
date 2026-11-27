@@ -523,16 +523,54 @@ impl<'a> Builder<'a> {
                 children.push(self.cut_below(child, inputs, replaces, recursive)?);
             }
         }
-        if children.is_empty() {
-            return Ok(op.clone());
+        let op = match children.is_empty() {
+            true => op.clone(),
+            false => {
+                let mut children = children.into_iter();
+                (op.clone())
+                    .map_children(|_| {
+                        Ok(Transformed::yes(
+                            children.next().expect("a child for each input"),
+                        ))
+                    })?
+                    .data
+            }
+        };
+        match recursive {
+            true => Ok(op),
+            false => self.cut_subquery_scans(op, inputs),
         }
-        let mut children = children.into_iter();
+    }
+
+    /// `op` with each scan inside its subquery expressions that a cut reads as a node replaced by a
+    /// scan of the cut's node, as [`Builder::cuts`] cuts a scan below an operator: the scans of a
+    /// graph that bakes, and of the tables that the store materializes. A subquery keeps its other
+    /// operators, which can read the columns of the query outside it, so a plan of a baked graph
+    /// holds no scan of a source, such as the scan of the extent of a `bin` over the rows of a
+    /// selection.
+    fn cut_subquery_scans(
+        &mut self,
+        op: LogicalPlan,
+        inputs: &mut Vec<usize>,
+    ) -> Result<LogicalPlan> {
         Ok(op
-            .clone()
-            .map_children(|_| {
-                Ok(Transformed::yes(
-                    children.next().expect("a child for each input"),
-                ))
+            .map_subqueries(|subquery| {
+                subquery.transform_up_with_subqueries(|node| {
+                    let LogicalPlan::TableScan(scan) = &node else {
+                        return Ok(Transformed::no(node));
+                    };
+                    let cut = scan.source.as_ref().downcast_ref::<CutSource>().is_none()
+                        && scan.filters.is_empty()
+                        && scan.fetch.is_none()
+                        && (self.cut_scans
+                            || self.store.materialized(&scan.table_name, self.session));
+                    if !cut {
+                        return Ok(Transformed::no(node));
+                    }
+                    let index = self.node(&node)?;
+                    inputs.push(index);
+                    Ok(Transformed::yes(cut_scan(&node, inputs.len() - 1)?))
+                })
             })?
             .data)
     }

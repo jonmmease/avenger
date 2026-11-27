@@ -125,7 +125,7 @@ A cut goes below each operator that reads an input that the operators below it d
 Some subplans are never cut:
 
 - A subplan that calls a volatile or stable function stays with the operator that reads it, and its node is computed on every run.
-- Nothing inside a subquery expression or a recursive query is cut.
-- A table scan is a node of its own only when its source's scans are materialized.
+- Nothing inside a recursive query is cut, and inside a subquery expression only a table scan is cut, since the subquery's other operators can read the columns of the query outside it.
+- A table scan is a node of its own only when its source's scans are materialized, as every scan of a graph that bakes is, inside a subquery expression too, so the extent of a `bin` over the rows of a selection reads a node, not a file.
 
 Each node is bound and optimized apart from the others, so a filter that reads an input never moves through a cut. A cut that the optimizer removes, such as one below a filter that is false, does not run. A cached result keeps the order of its rows, so a sort below a cut and a limit above it select the same rows as the plan without the cut.
