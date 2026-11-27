@@ -240,7 +240,23 @@ impl ResultStore {
     /// Cut each plan of one document, an unoptimized plan whose parameters and selection states
     /// are placeholders, into one graph, which runs with `state`'s settings and runtime.
     pub fn compile(&self, state: &SessionState, plans: Vec<LogicalPlan>) -> Result<QueryGraph> {
-        QueryGraph::compile(self.clone(), state, plans)
+        QueryGraph::compile(self.clone(), state, plans, false)
+    }
+
+    /// [`compile`](Self::compile) for the bake of a chart graph: every scan is a node of its own,
+    /// whatever its source's options, so the bake keeps the rows of each scan as a result, and
+    /// the baked graph reads no source. The graph plans with one partition, as the session of a
+    /// baked graph does, so the rows that the bake keeps for empty selections are in the order of
+    /// the baked graph's runs, and a chart keeps the order of its marks when a selection first
+    /// changes.
+    pub(crate) fn compile_cut_scans(
+        &self,
+        state: &SessionState,
+        plans: Vec<LogicalPlan>,
+    ) -> Result<QueryGraph> {
+        let mut state = state.clone();
+        state.config_mut().options_mut().execution.target_partitions = 1;
+        QueryGraph::compile(self.clone(), &state, plans, true)
     }
 
     pub(crate) fn config(&self) -> &StoreConfig {

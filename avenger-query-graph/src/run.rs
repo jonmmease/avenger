@@ -120,7 +120,7 @@ enum TopKey {
 static FRESH: AtomicU64 = AtomicU64::new(0);
 
 /// The versions of the store's sources, by the addresses of their providers.
-fn versions(graph: &GraphInner) -> HashMap<usize, u64> {
+pub(crate) fn versions(graph: &GraphInner) -> HashMap<usize, u64> {
     let state = graph.store.state();
     (state.sources.iter())
         .map(|(address, source)| (*address, source.version))
@@ -128,7 +128,7 @@ fn versions(graph: &GraphInner) -> HashMap<usize, u64> {
 }
 
 /// The key of `node` for `inputs`.
-fn node_key(
+pub(crate) fn node_key(
     graph: &GraphInner,
     node: &QueryNode,
     inputs: &Inputs,
@@ -243,6 +243,22 @@ enum Resolution {
     },
 }
 
+/// The columns `columns` of `node`'s plan.
+pub(crate) fn projected(node: &QueryNode, columns: &BTreeSet<usize>) -> Result<LogicalPlan> {
+    let schema = node.plan.schema();
+    match columns.len() == schema.fields().len() {
+        true => Ok(node.plan.clone()),
+        false => {
+            let exprs: Vec<Expr> = (columns.iter())
+                .map(|index| Expr::Column(Column::from(schema.qualified_field(*index))))
+                .collect();
+            LogicalPlanBuilder::from(node.plan.clone())
+                .project(exprs)?
+                .build()
+        }
+    }
+}
+
 /// The columns `columns` of `node`'s plan, bound for `inputs` and optimized with `state`.
 fn planned(
     node: &QueryNode,
@@ -250,18 +266,7 @@ fn planned(
     inputs: &Inputs,
     state: &SessionState,
 ) -> Result<LogicalPlan> {
-    let schema = node.plan.schema();
-    let plan = match columns.len() == schema.fields().len() {
-        true => node.plan.clone(),
-        false => {
-            let exprs: Vec<Expr> = (columns.iter())
-                .map(|index| Expr::Column(Column::from(schema.qualified_field(*index))))
-                .collect();
-            LogicalPlanBuilder::from(node.plan.clone())
-                .project(exprs)?
-                .build()?
-        }
-    };
+    let plan = projected(node, columns)?;
     let states: Vec<(&str, &SelectionState)> = (inputs.selections.iter())
         .map(|(name, state)| (name.as_str(), state))
         .collect();
@@ -457,7 +462,44 @@ fn request(
     Ok(wanted.iter().map(Option::is_some).collect())
 }
 
+/// What a run resolved: its nodes, what it did with each, and the result of each node that it
+/// read.
+pub(crate) struct Resolved {
+    pub nodes: Arc<Nodes>,
+    pub outcomes: Vec<Outcome>,
+    pub results: Vec<Option<Arc<Kept>>>,
+}
+
 pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
+    let resolved = resolve(graph, inputs, &[]).await?;
+    let nodes = &resolved.nodes;
+    let batches = (nodes.tops.iter())
+        .map(|top| {
+            let node = &nodes.nodes[*top];
+            let kept = resolved.results[*top]
+                .as_ref()
+                .expect("a top node resolves");
+            let schema: SchemaRef = Arc::new(node.plan.schema().as_arrow().clone());
+            let columns: Vec<usize> = (0..schema.fields().len()).collect();
+            kept.project(&columns, schema)
+        })
+        .collect::<Result<_>>()?;
+    Ok(Run {
+        batches,
+        nodes: nodes.nodes.clone(),
+        outcomes: resolved.outcomes,
+    })
+}
+
+/// Resolves the nodes that the plans' top nodes read for `inputs`, and each node of `extra` with at
+/// least its columns, also when no top node reads it, as the bake of a chart graph needs the
+/// columns that another state of a selection reads. The indices of `extra` are those of the graph's
+/// direct nodes.
+pub(crate) async fn resolve(
+    graph: &QueryGraph,
+    inputs: &Inputs,
+    extra: &[(usize, BTreeSet<usize>)],
+) -> Result<Resolved> {
     let inner = &graph.inner;
     let read: BTreeSet<usize> = (inner.direct.nodes.iter())
         .flat_map(|node| node.sources.iter().map(|(_, provider)| address(provider)))
@@ -490,6 +532,10 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
     for top in &nodes.tops {
         needed[*top] = true;
         requests[*top] = (0..nodes.nodes[*top].plan.schema().fields().len()).collect();
+    }
+    for (index, columns) in extra {
+        needed[*index] = true;
+        requests[*index].extend(columns.iter().copied());
     }
     if forced {
         // The cells resolve for the first move, through the nodes of their rollups with every
@@ -699,18 +745,9 @@ pub(crate) async fn run(graph: &QueryGraph, inputs: &Inputs) -> Result<Run> {
         return Err(DataFusionError::Shared(error));
     }
 
-    let batches = (nodes.tops.iter())
-        .map(|top| {
-            let node = &nodes.nodes[*top];
-            let kept = results[*top].as_ref().expect("a top node resolves");
-            let schema: SchemaRef = Arc::new(node.plan.schema().as_arrow().clone());
-            let columns: Vec<usize> = (0..schema.fields().len()).collect();
-            kept.project(&columns, schema)
-        })
-        .collect::<Result<_>>()?;
-    Ok(Run {
-        batches,
-        nodes: nodes.nodes.clone(),
+    Ok(Resolved {
+        nodes,
         outcomes,
+        results,
     })
 }

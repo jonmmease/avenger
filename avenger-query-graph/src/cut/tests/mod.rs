@@ -26,6 +26,7 @@ fn table(ordered: bool) -> KeptTable {
     KeptTable {
         schema,
         kept: Arc::new(Kept::new(vec![0], batches, ordered, Vec::new())),
+        names: None,
     }
 }
 

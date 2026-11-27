@@ -55,6 +55,9 @@ pub(crate) struct GraphInner {
     pub store: ResultStore,
     pub state: SessionState,
     pub settings: u64,
+    /// Whether every scan is a node of its own, as the bake of a chart graph needs: a baked graph
+    /// has no source, so it keeps the rows of each scan as a result.
+    pub cut_scans: bool,
     /// The plans as `compile` took them, which a focus prepares.
     pub plans: Vec<LogicalPlan>,
     pub direct: Arc<Nodes>,
@@ -144,16 +147,18 @@ impl QueryGraph {
         store: ResultStore,
         state: &SessionState,
         plans: Vec<LogicalPlan>,
+        cut_scans: bool,
     ) -> Result<Self> {
         if plans.is_empty() {
             return plan_err!("a graph needs a plan");
         }
-        let direct = Arc::new(Builder::compile(&store, state, &plans, &[])?);
+        let direct = Arc::new(Builder::compile(&store, state, &plans, &[], cut_scans)?);
         let graph = Self {
             inner: Arc::new(GraphInner {
                 id: store.graph_id(),
                 settings: settings_hash(state),
                 state: state.clone(),
+                cut_scans,
                 plans,
                 direct,
                 variants: Mutex::new(Vec::new()),
@@ -232,6 +237,7 @@ impl QueryGraph {
             &self.inner.state,
             &prepared,
             &substitutions,
+            self.inner.cut_scans,
         )?);
         if variants.len() == VARIANTS {
             variants.remove(0);
@@ -286,6 +292,8 @@ struct Builder<'a> {
     store: &'a ResultStore,
     session: &'a SessionState,
     substitutions: &'a [Substitution],
+    /// Whether every scan is a node of its own.
+    cut_scans: bool,
     nodes: Vec<QueryNode>,
     index: HashMap<Identity, usize>,
     infos: HashMap<*const LogicalPlan, Info>,
@@ -299,6 +307,7 @@ impl<'a> Builder<'a> {
         session: &'a SessionState,
         plans: &[LogicalPlan],
         substitutions: &'a [Substitution],
+        cut_scans: bool,
     ) -> Result<Nodes> {
         let plans: Vec<LogicalPlan> = (plans.iter().cloned())
             .map(split_filters)
@@ -307,6 +316,7 @@ impl<'a> Builder<'a> {
             store,
             session,
             substitutions,
+            cut_scans,
             nodes: Vec::new(),
             index: HashMap::new(),
             infos: HashMap::new(),
@@ -341,7 +351,7 @@ impl<'a> Builder<'a> {
         let (scan_like, materialized) = match plan {
             LogicalPlan::TableScan(scan) => (
                 scan.filters.is_empty() && scan.fetch.is_none(),
-                self.store.materialized(&scan.table_name, self.session),
+                self.cut_scans || self.store.materialized(&scan.table_name, self.session),
             ),
             LogicalPlan::Projection(_) | LogicalPlan::SubqueryAlias(_) => {
                 let child = &children[0];
