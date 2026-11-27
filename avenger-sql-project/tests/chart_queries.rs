@@ -15,7 +15,7 @@ use avenger_sql::analysis::Overrides;
 use avenger_sql_project::{ChartQuery, FileSource, LoadedProject, ProjectFiles};
 use datafusion::{
     arrow::{
-        array::{Date32Array, Int64Array, RecordBatch, StringArray},
+        array::{Int64Array, RecordBatch, StringArray},
         datatypes::{DataType, Field, Schema, SchemaRef},
         util::pretty::pretty_format_batches,
     },
@@ -71,6 +71,15 @@ async fn project_in(ctx: SessionContext) -> (tempfile::TempDir, LoadedProject, A
         ("data/files/regions.csv", "region,name\neast,East\nwest,West\n"),
         ("data/files/sales.csv", "k,amount\na,10\nb,20\n"),
         (
+            "data/files/events.csv",
+            "k,v,d\na,1,2024-01-15\nb,2,2024-02-03\na,3,2024-02-20\nc,4,2024-03-01\nb,5,2024-04-11\na,6,2024-04-30\n",
+        ),
+        (
+            "data/events.av.sql",
+            "CREATE EXTERNAL TABLE events (k STRING, v INT64, d DATE) \
+             OPTIONS (format = 'CSV', skip_leading_rows = 1, uris = ['data/files/events.csv']);\n",
+        ),
+        (
             "data/regions.av.sql",
             "CREATE EXTERNAL TABLE regions OPTIONS (format = 'CSV', uris = ['data/files/regions.csv']);\n\
              CREATE VIEW east AS (FROM regions |> WHERE region = 'east');\n",
@@ -97,7 +106,6 @@ async fn project_in(ctx: SessionContext) -> (tempfile::TempDir, LoadedProject, A
         scans: scans.clone(),
     };
     ctx.register_table("host", Arc::new(host)).unwrap();
-    ctx.register_table("events", Arc::new(events())).unwrap();
     let files = ProjectFiles::open(FileSource::directory(root.path()).unwrap())
         .await
         .unwrap();
@@ -109,27 +117,6 @@ fn write(root: &Path, path: &str, text: &str) {
     let path = root.join(path);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, text).unwrap();
-}
-
-/// The host's table `events`: a key, a value, and a date in each of four months.
-fn events() -> MemTable {
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("k", DataType::Utf8, false),
-        Field::new("v", DataType::Int64, false),
-        Field::new("d", DataType::Date32, false),
-    ]));
-    // Days since 1970-01-01: 2024-01-15, 2024-02-03, 2024-02-20, 2024-03-01, 2024-04-11, 2024-04-30.
-    let days = vec![19737, 19756, 19773, 19783, 19824, 19843];
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![
-            Arc::new(StringArray::from(vec!["a", "b", "a", "c", "b", "a"])),
-            Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5, 6])),
-            Arc::new(Date32Array::from(days)),
-        ],
-    )
-    .unwrap();
-    MemTable::try_new(schema, vec![vec![batch]]).unwrap()
 }
 
 const CHART: &str = "charts/chart.av.sql";
@@ -479,11 +466,16 @@ fn brushed(low: i64, high: i64) -> Vec<avenger_selection::Clause> {
     })]
 }
 
-/// The chart that the file of the baked graph of `query` builds for each of a series of states of
-/// the selection `brush`, each equal to the chart of the project's run, or the file's warnings.
-async fn file_charts(query: &ChartQuery) -> Result<Vec<Vec<u8>>, Vec<String>> {
+/// The chart that the file of a baked graph builds of `query` for each of a series of states of the
+/// selection `brush`, each equal to the chart of the project's run, or the file's warnings. The
+/// graph is of a document of two charts: `brusher`, whose tool writes the brush over `v`, so the
+/// graph's tables hold `v`, and `query`.
+async fn file_charts(
+    brusher: &ChartQuery,
+    query: &ChartQuery,
+) -> Result<Vec<Vec<u8>>, Vec<String>> {
     use avenger_query_graph::chart_graph::ChartGraph;
-    let encoded = encode(std::slice::from_ref(query)).await;
+    let encoded = encode(&[brusher.clone(), query.clone()]).await;
     if !encoded.warnings.is_empty() {
         return Err(encoded.warnings);
     }
@@ -497,8 +489,8 @@ async fn file_charts(query: &ChartQuery) -> Result<Vec<Vec<u8>>, Vec<String>> {
             .await
             .unwrap();
         let ran = graph.run(&selections).await.unwrap();
-        assert_eq!(chart_bytes(&ran[0]), chart_bytes(&native));
-        charts.push(chart_bytes(&ran[0]));
+        assert_eq!(chart_bytes(&ran[1]), chart_bytes(&native));
+        charts.push(chart_bytes(&ran[1]));
     }
     Ok(charts)
 }
@@ -510,8 +502,8 @@ async fn one_partition() -> (tempfile::TempDir, LoadedProject) {
     (root, project)
 }
 
-/// The cases of the survey: a chart that filters `events` by `WHERE brush` and calls one function
-/// above the filter, by the function's name.
+/// The cases of the survey: a chart that filters `events`, a table of a CSV file, by `WHERE brush`
+/// and calls one function above the filter, by the function's name.
 const SURVEY: &[(&str, &str)] = &[
     ("UPPER", "|> SELECT UPPER(k) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart"),
     (
@@ -574,32 +566,21 @@ const SURVEY: &[(&str, &str)] = &[
     ),
 ];
 
-/// The cases of the survey whose charts do not filter from a graph's file yet, since a file does
-/// not hold their functions.
-const NOT_IN_FILES: &[&str] = &[
-    "bin",
-    "timeunit",
-    "lump",
-    "stack",
-    "impute",
-    "MATCH_RECOGNIZE",
-];
-
 /// Each case of the survey builds, from the file of a baked graph, the charts of the project's runs
-/// for a brush that moves, or stays as the render drew it, with a warning, when a file does not
-/// hold its functions.
+/// for a brush that moves.
 #[tokio::test]
 async fn a_graph_s_file_builds_the_charts_of_each_function() {
     let (_root, project) = one_partition().await;
+    let brusher = "DECLARE brush SELECTION;\n\
+                   FROM events |> AGGREGATE mark_symbol(x => v, y => v, \
+                   tools => [select(brush, type => interval(channels => ['x']))]) AS chart";
+    let brusher = project.run_chart(CHART, brusher).await.unwrap();
     let mut wrong = Vec::new();
     for (name, pipes) in SURVEY {
         let text = format!("DECLARE brush SELECTION;\nFROM events |> WHERE brush {pipes}");
         let query = project.run_chart(CHART, &text).await.unwrap();
-        let ran = file_charts(&query).await;
-        match (ran, NOT_IN_FILES.contains(name)) {
-            (Ok(_), false) | (Err(_), true) => {}
-            (Ok(_), true) => wrong.push(format!("{name} runs from a graph's file now")),
-            (Err(warnings), false) => wrong.push(format!("{name}: {warnings:?}")),
+        if let Err(warnings) = file_charts(&brusher, &query).await {
+            wrong.push(format!("{name}: {warnings:?}"));
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");
