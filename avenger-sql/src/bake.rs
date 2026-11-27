@@ -1,21 +1,24 @@
 //! avenger-sql for a plan that bakes, which runs away from the session that planned it, such as in
-//! a page: the host that encodes the library's functions and the extension nodes of avenger-sql's
-//! plans for avenger-chart-datafusion's codec, and the session in which baked plans run.
+//! a page: the host that encodes the library's functions, the transforms, and the extension nodes
+//! of avenger-sql's plans for avenger-chart-datafusion's codec, and the session in which baked
+//! plans run.
 
 use std::sync::Arc;
 
 use avenger_chart_datafusion::{codec::HostCodec, functions::Combine};
 use avenger_datafusion_shared::SharedNode;
+use avenger_datafusion_transforms::codec as transforms;
 use datafusion::{
     common::{exec_datafusion_err, Result},
     execution::SessionState,
-    logical_expr::{LogicalPlan, ScalarUDF, UserDefinedLogicalNode},
+    logical_expr::{AggregateUDF, LogicalPlan, ScalarUDF, UserDefinedLogicalNode, WindowUDF},
     optimizer::{simplify_expressions::SimplifyExpressions, Analyzer, Optimizer},
     prelude::{SessionConfig, SessionContext},
 };
 
 /// The kinds of the bytes of an extension node, the first byte of each.
 const SHARED: u8 = 1;
+const TRANSFORM: u8 = 2;
 
 /// The host of avenger-sql's plans, which [`register`](crate::register) adds to a session.
 pub fn host() -> Arc<dyn HostCodec> {
@@ -31,18 +34,43 @@ impl HostCodec for Host {
     }
 
     fn encode_udf(&self, udf: &ScalarUDF) -> Option<Result<Vec<u8>>> {
-        crate::library::codec::encode_udf(udf)
+        crate::library::codec::encode_udf(udf).or_else(|| transforms::encode_udf(udf))
     }
 
     fn decode_udf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<ScalarUDF>>> {
-        crate::library::codec::decode_udf(name, bytes)
+        (crate::library::codec::decode_udf(name, bytes))
+            .or_else(|| transforms::decode_udf(name, bytes))
+    }
+
+    fn encode_udaf(&self, udaf: &AggregateUDF) -> Option<Result<Vec<u8>>> {
+        transforms::encode_udaf(udaf)
+    }
+
+    fn decode_udaf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<AggregateUDF>>> {
+        transforms::decode_udaf(name, bytes)
+    }
+
+    fn encode_udwf(&self, udwf: &WindowUDF) -> Option<Result<Vec<u8>>> {
+        transforms::encode_udwf(udwf)
+    }
+
+    fn decode_udwf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<WindowUDF>>> {
+        transforms::decode_udwf(name, bytes)
     }
 
     fn encode_node(&self, node: &dyn UserDefinedLogicalNode) -> Option<Result<Vec<u8>>> {
-        let shared = node.as_any().downcast_ref::<SharedNode>()?;
-        let mut bytes = vec![SHARED];
-        bytes.extend(shared.to_bytes());
-        Some(Ok(bytes))
+        if let Some(shared) = node.as_any().downcast_ref::<SharedNode>() {
+            let mut bytes = vec![SHARED];
+            bytes.extend(shared.to_bytes());
+            return Some(Ok(bytes));
+        }
+        // A table function of the transforms, such as `impute`.
+        let transform = transforms::encode_node(node)?;
+        Some(transform.map(|transform| {
+            let mut bytes = vec![TRANSFORM];
+            bytes.extend(transform);
+            bytes
+        }))
     }
 
     fn decode_node(
@@ -54,6 +82,12 @@ impl HostCodec for Host {
             (Some((&SHARED, bytes)), [input]) => {
                 Ok(Arc::new(SharedNode::from_bytes(bytes, input.clone())?))
             }
+            (Some((&TRANSFORM, bytes)), _) => match transforms::decode_node(bytes, inputs) {
+                Some(node) => node,
+                None => Err(exec_datafusion_err!(
+                    "the bytes of a node of avenger-sql: a transform that this build does not know"
+                )),
+            },
             _ => Err(exec_datafusion_err!(
                 "the bytes of a node of avenger-sql: a kind that this build does not know"
             )),
