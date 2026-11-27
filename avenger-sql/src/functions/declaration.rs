@@ -22,9 +22,9 @@ use datafusion::{
     },
 };
 
-use super::instance::MarkInstance;
 use avenger_chart::chart_field;
 use avenger_chart::functions::{Arg, ArgError, ChannelArg, Conditional, Kind, Mark, Reason, COORD};
+use avenger_physical_graph::functions::MarkInstance;
 use prost::Message;
 
 /// The documentation section of the mark functions.
