@@ -229,11 +229,15 @@ pub struct ChartSelection {
     pub fields: Option<Vec<String>>,
 }
 
-/// The file of a baked graph, with a warning for each chart that reads a selection and travels
-/// without its plan, so it does not follow the selections where the file runs.
+/// The file of a baked graph, with the number of its charts that travel with their plans, which
+/// run again where the file runs, and a warning for each chart that reads a selection and
+/// travels without its plan, so it does not follow the selections there. A file without a plan
+/// shows the charts of its rows for every state of its selections, so a host can draw them
+/// without the file.
 #[derive(Clone, Debug)]
 pub struct Encoded {
     pub bytes: Vec<u8>,
+    pub plans: usize,
     pub warnings: Vec<String>,
 }
 
@@ -798,6 +802,9 @@ impl ChartGraph {
                 .collect(),
         };
         Ok(Encoded {
+            plans: (file.charts.iter())
+                .filter(|chart| chart.plan.is_some())
+                .count(),
             bytes: file.encode_to_vec(),
             warnings,
         })
