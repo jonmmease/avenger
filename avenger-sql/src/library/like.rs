@@ -27,7 +27,7 @@ pub(crate) fn like_unnest(value: Expr, patterns: Expr, all: bool, not: bool) -> 
     LIKE_UNNEST.call(vec![value, patterns, flag(all), flag(not)])
 }
 
-static LIKE_UNNEST: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
+pub(super) static LIKE_UNNEST: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
     Arc::new(ScalarUDF::new_from_impl(LikeUnnest {
         signature: Signature::any(4, Volatility::Immutable),
     }))
