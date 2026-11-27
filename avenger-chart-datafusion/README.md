@@ -1,4 +1,4 @@
-# avenger-physical-graph
+# avenger-chart-datafusion
 
 The DataFusion functions that build avenger charts in physical plans, for hosts that run those plans natively and in WebAssembly pages.
 
@@ -11,11 +11,11 @@ Every chart that the aggregates build names GoogleSQL's syntaxes for its format 
 The crate depends on DataFusion's sub-crates and not on the `datafusion` crate, so its dependencies name the parts of DataFusion that a WebAssembly page needs. Its tests run a plan of a lifted chart natively and in a browser, and enable chrono's `wasmbind` in WebAssembly, since DataFusion's metrics read the clock when an operator starts and ends:
 
 ```bash
-cargo test --release -p avenger-physical-graph
+cargo test --release -p avenger-chart-datafusion
 ```
 
 ```bash
-wasm-pack test --release --headless --chrome avenger-physical-graph
+wasm-pack test --release --headless --chrome avenger-chart-datafusion
 ```
 
 On macOS, the browser build compiles C code for wasm32 with Homebrew's LLVM, through `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang` and `AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar`.

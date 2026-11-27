@@ -47,7 +47,7 @@ pub(crate) mod declaration;
 pub(crate) mod kind;
 
 use avenger_chart::functions::Arg;
-pub(crate) use avenger_physical_graph::functions::FORMAT_SYNTAXES;
+pub(crate) use avenger_chart_datafusion::functions::FORMAT_SYNTAXES;
 
 /// The argument of the constant `value`, or `None` for `NULL`.
 fn arg(value: &datafusion::common::ScalarValue) -> datafusion::common::Result<Option<Arg>> {

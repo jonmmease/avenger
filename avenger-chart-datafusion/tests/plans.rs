@@ -13,7 +13,7 @@ use avenger_chart::{
     functions::{mark, ChannelArg},
     Chart,
 };
-use avenger_physical_graph::functions::MarkInstance;
+use avenger_chart_datafusion::functions::MarkInstance;
 use datafusion_common::ScalarValue;
 use datafusion_datasource::memory::MemorySourceConfig;
 use datafusion_execution::TaskContext;

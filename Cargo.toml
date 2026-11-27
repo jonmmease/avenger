@@ -19,7 +19,7 @@ members = [
     "avenger-selection",
     "avenger-selection-datafusion",
     "avenger-query-graph",
-    "avenger-physical-graph",
+    "avenger-chart-datafusion",
     "avenger-guides",
     "avenger-annotation",
     "avenger-common",

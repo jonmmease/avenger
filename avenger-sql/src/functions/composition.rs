@@ -34,7 +34,7 @@ use datafusion::{
     },
 };
 
-use avenger_physical_graph::functions::CompositionInstance;
+use avenger_chart_datafusion::functions::CompositionInstance;
 
 use super::declaration::column_name;
 
