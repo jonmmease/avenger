@@ -1220,6 +1220,7 @@ dependencies = [
  "futures",
  "prost",
  "tokio",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -1446,6 +1447,26 @@ version = "0.1.0"
 dependencies = [
  "rowan",
  "ungrammar",
+]
+
+[[package]]
+name = "avenger-sql-web"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart",
+ "avenger-query-web",
+ "avenger-sql",
+ "avenger-sql-language",
+ "avenger-sql-project",
+ "datafusion",
+ "futures",
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
 ]
 
 [[package]]
@@ -8707,6 +8728,14 @@ dependencies = [
  "datafusion",
  "pollster 0.3.0",
  "tokio",
+]
+
+[[package]]
+name = "sql-monaco"
+version = "0.1.0"
+dependencies = [
+ "avenger-fonts",
+ "serde_json",
 ]
 
 [[package]]

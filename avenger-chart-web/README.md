@@ -93,6 +93,16 @@ The view builds its cascade with `avenger_style::chart_cascade`, as the CLI buil
 
 The module embeds no fonts, so the page adds them: the faces that `avenger-fonts` bundles first, in the order of `avenger_fonts::FACES` (Lato Bold and Light before Regular, so that weight ties resolve as CSS resolves them), then its own. Labels name Lato by `sans-serif`, DejaVu Sans Mono by `monospace`, and Lete Sans Math in math, so a chart draws its text as native rendering does. The host that serves the page, such as the gallery's build step, writes the faces from its own copy of `avenger-fonts`, and the fonts keep its licenses. A page's own fonts are TrueType, OpenType, or collection files, such as a Google font by the URL of its full file, which the `google/fonts` repository holds and jsDelivr serves with CORS headers.
 
+## The packages
+
+Three crates build WebAssembly packages, each over the one before it, whose module holds the exports of the ones before it too:
+
+| Package | Input | Adds | Brotli |
+|---|---|---|---|
+| avenger-chart-web | a chart's message | the renderer and the `<avenger-chart>` element | 2.31 MB |
+| avenger-query-web | a graph's file, which the Quarto engine writes | `ChartGraph`, which runs a document's queries for the reader's selections | 4.26 MB |
+| avenger-sql-web | a project's files | `SqlProject`, which builds charts from avenger-sql, with the features of an editor | 6.74 MB |
+
 ## Sizes
 
 `scripts/build.sh` measured these sizes on 2026-11-25:

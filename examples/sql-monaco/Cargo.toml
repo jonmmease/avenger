@@ -1,0 +1,13 @@
+[package]
+name = "sql-monaco"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "build-site"
+path = "src/main.rs"
+
+[dependencies]
+avenger-fonts = { path = "../../avenger-fonts" }
+serde_json = { workspace = true }

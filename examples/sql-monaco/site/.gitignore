@@ -1,0 +1,5 @@
+# What `build-site` and the library's build write beside the page.
+/*
+!/.gitignore
+!/index.html
+!/editor.js
