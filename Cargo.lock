@@ -1201,12 +1201,16 @@ name = "avenger-query-graph"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-chart-datafusion",
  "avenger-common",
  "avenger-scales",
  "avenger-selection",
  "avenger-selection-datafusion",
+ "avenger-sql",
  "datafusion",
+ "datafusion-proto-common",
  "futures",
+ "prost",
  "tokio",
  "wasm-bindgen-futures",
 ]

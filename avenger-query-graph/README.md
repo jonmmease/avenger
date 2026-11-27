@@ -98,6 +98,22 @@ A run's inputs can name a `Focus`: the selection that is about to move. The run 
 
 The focus changes how a run computes its results while it preserves the query's semantics. A node that holds a rollup has the cache key of its counterpart in the direct plans, so a result that one focus computed serves a run with another focus or without one. When `Focus::serves` rejects the selection's state, such as a brush of another grid, the run uses the direct plans. Floating-point aggregates of a rollup can differ from the direct plan's in their rounding.
 
+## A document's charts
+
+`ChartGraph` runs the plans of one document's charts as one graph: `run` takes the clauses of the document's selections, by their names, and returns each chart's rows. `ChartGraph::new` compiles the plans over their sources with `ResultStore::compile`, with the values of their parameters and the document's selections, and its graph is live.
+
+`ChartGraph::bake` gives a graph that reads no source, which follows a reader's selections where the sources are not, such as a page, without a server. The bake compiles the plans again with every scan as a node of its own, and runs them for empty selections. The baked graph holds:
+
+- A table for each node that reads no selection and that a chart's plan scans. A table holds the columns that the plans read for any state of the selections, and the columns that each selection's tools test, which a `ChartSelection` names. It holds every column of its node when a selection's columns are unknown.
+- For each chart that reads a selection, its plan above those tables, with the values of its parameters.
+- For each chart, its rows for empty selections. A chart that reads no selection has only these.
+
+A baked graph compiles its plans with `ResultStore::compile` on a store of its own, with its tables as their sources, in the session that the bake takes, and puts each chart's rows for empty selections into the store, so the first run computes nothing. Its runs go through `QueryGraph::run`, so a baked graph binds, plans, keeps, and shares results as a live graph does. A chart whose plan calls a volatile or a stable function runs at each run, since no store keeps its result. A state that tests a column that the graph's tables do not hold fails with an error that names the column, since a baked graph has no source to read it from.
+
+`ChartGraph::encode` writes a baked graph as a file, and `ChartGraph::decode` reads the file as a baked graph. A plan travels through avenger-chart-datafusion's codec, so it must hold the aggregates of its charts and not a front end's declarations of them. The encoder checks each plan in the graph's session: the plan decodes, optimizes, and plans there. A plan that fails the check, or that does not encode, such as one with an `IN` subquery beside its selection, does not travel. Its chart keeps its rows for empty selections, and `Encoded::warnings` names it.
+
+The crate builds for WebAssembly, where a run spawns its computations on the page's event loop.
+
 ## Inspecting a graph
 
 `QueryGraph::nodes` returns the nodes of the direct plans, or of the variant for a focus. Each node has its plan, with the scan of each node that it reads named `input_<position>`, the inputs that its own operators read, and the nodes that it reads. `Run::outcomes` tells, for each node, whether the run hit its cached result, computed it, computed it without caching it, or did not read it, with its rows, bytes, columns, and time. `QueryGraph::to_dot` and `Run::to_dot` write the same as Graphviz DOT graphs.

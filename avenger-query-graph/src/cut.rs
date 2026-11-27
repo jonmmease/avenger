@@ -11,7 +11,7 @@ use datafusion::{
         datatypes::{Field, Schema, SchemaRef},
     },
     catalog::{Session, TableProvider},
-    common::{internal_err, project_schema, Column, Result},
+    common::{internal_err, plan_err, project_schema, Column, DFSchemaRef, Result},
     datasource::{memory::MemorySourceConfig, source::DataSourceExec, TableType},
     logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Projection, TableScan, TableSource},
     physical_expr::{expressions::Column as PhysicalColumn, LexOrdering, PhysicalSortExpr},
@@ -58,22 +58,31 @@ pub(crate) fn cut_name(input: usize) -> String {
 /// projection that gives each column the qualifier, the name, and the metadata that `plan` gave
 /// it, so the plan above resolves its columns as before.
 pub(crate) fn cut_scan(plan: &LogicalPlan, input: usize) -> Result<LogicalPlan> {
-    let name = cut_name(input);
     let source = Arc::new(CutSource {
         schema: cut_schema(plan),
         input,
     });
-    let scan = LogicalPlanBuilder::scan(name.clone(), source, None)?.build()?;
-    let exprs = (plan.schema().iter().enumerate())
+    scan_under(plan.schema(), &cut_name(input), source)
+}
+
+/// A scan of the table `name` of `source`, whose columns are named by position, under a
+/// projection that gives each column the qualifier and the name that `schema` gives it.
+pub(crate) fn scan_under(
+    schema: &DFSchemaRef,
+    name: &str,
+    source: Arc<dyn TableSource>,
+) -> Result<LogicalPlan> {
+    let scan = LogicalPlanBuilder::scan(name, source, None)?.build()?;
+    let exprs = (schema.iter().enumerate())
         .map(|(index, (qualifier, field))| {
-            Expr::Column(Column::new(Some(name.clone()), format!("c{index}")))
+            Expr::Column(Column::new(Some(name), format!("c{index}")))
                 .alias_qualified(qualifier.cloned(), field.name())
         })
         .collect();
     Ok(LogicalPlan::Projection(Projection::try_new_with_schema(
         exprs,
         Arc::new(scan),
-        plan.schema().clone(),
+        schema.clone(),
     )?))
 }
 
@@ -121,6 +130,7 @@ pub(crate) fn with_results(
             let table = KeptTable {
                 schema: cut.schema.clone(),
                 kept,
+                names: None,
             };
             let source = datafusion::datasource::provider_as_source(Arc::new(table));
             Ok(Transformed::yes(LogicalPlan::TableScan(TableScan {
@@ -216,6 +226,23 @@ impl Kept {
 struct KeptTable {
     schema: SchemaRef,
     kept: Arc<Kept>,
+    /// The names of the columns of the node's output, for a table of a baked graph, whose scan of a
+    /// column that the table does not hold names the column.
+    names: Option<Vec<String>>,
+}
+
+/// `kept` as a table of the schema `schema`, the schema of a cut's scan of its node, as a baked
+/// graph reads each of its tables. `names` are the names of the columns of the node's output.
+pub(crate) fn kept_table(
+    schema: SchemaRef,
+    kept: Arc<Kept>,
+    names: Vec<String>,
+) -> Arc<dyn TableProvider> {
+    Arc::new(KeptTable {
+        schema,
+        kept,
+        names: Some(names),
+    })
 }
 
 #[async_trait]
@@ -239,12 +266,25 @@ impl TableProvider for KeptTable {
         let schema = project_schema(&self.schema, Some(&kept.columns))?;
         let batches = kept.project(&kept.columns, schema.clone())?;
         let position = |column: usize| kept.columns.iter().position(|kept| *kept == column);
+        // A scan of every column of a result that holds some of them names the columns, so it
+        // fails for the first that the result lacks, as a scan with a projection does.
+        let every: Vec<usize> = (0..self.schema.fields().len()).collect();
+        let projection = match projection {
+            None if kept.columns.len() < every.len() => Some(&every),
+            projection => projection,
+        };
         let projection = match projection {
             Some(projection) => Some(
                 (projection.iter())
-                    .map(|column| match position(*column) {
-                        Some(position) => Ok(position),
-                        None => internal_err!("a kept result lacks the column at {column}"),
+                    .map(|column| match (position(*column), &self.names) {
+                        (Some(position), _) => Ok(position),
+                        (None, Some(names)) => plan_err!(
+                            "a selection tests the column `{}`, which the graph's tables do not hold",
+                            names.get(*column).map_or("?", String::as_str)
+                        ),
+                        (None, None) => {
+                            internal_err!("a kept result lacks the column at {column}")
+                        }
                     })
                     .collect::<Result<Vec<_>>>()?,
             ),
