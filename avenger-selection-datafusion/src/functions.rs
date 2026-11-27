@@ -1,7 +1,8 @@
-//! The scalar functions: `selected`, which [`bind_selections`](crate::bind_selections) lowers,
-//! the row test `selection_matches`, which runs avenger-selection's `selected` test on the columns
-//! of each batch, and `pixel_cell` and `in_keys`, which compute and check the keys of a
-//! pre-aggregation's table of cells.
+//! The scalar functions: `selected`, which [`with_selection_nodes`](crate::with_selection_nodes)
+//! replaces with a selection's operator, the row test that the operator runs on the columns of each
+//! batch,
+//! and `pixel_cell` and `in_keys`, which compute and check the keys of a pre-aggregation's table
+//! of cells.
 
 use std::{
     hash::{DefaultHasher, Hash, Hasher},
@@ -11,7 +12,7 @@ use std::{
 use avenger_selection::{Clause, PixelGrid, PreparedCondition, PreparedPredicate, SelectionState};
 use datafusion::{
     arrow::{
-        array::{AsArray, BooleanArray},
+        array::{ArrayRef, AsArray, BooleanArray},
         buffer::BooleanBuffer,
         compute::and,
         datatypes::DataType,
@@ -38,8 +39,8 @@ pub(crate) fn external(
 }
 
 /// `selected(state, exclude_own, owner, partition, empty, without)`: whether each row is
-/// selected. [`bind_selections`](crate::bind_selections) lowers each call on a bound placeholder
-/// to a filter, so the function itself never runs.
+/// selected. [`with_selection_nodes`](crate::with_selection_nodes) replaces each call on a
+/// placeholder with the column of a selection's operator, so the function itself never runs.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) struct SelectedFunction {
     signature: Signature,
@@ -110,43 +111,33 @@ impl ScalarUDFImpl for SelectedFunction {
 
     fn invoke_with_args(&self, _: ScalarFunctionArgs) -> Result<ColumnarValue> {
         exec_err!(
-            "`selected` runs only through bind_selections: lower the plan with \
-             avenger_selection_datafusion::bind_selections before optimizing it, then run it"
+            "`selected` runs only as a selection's operator: call \
+             avenger_selection_datafusion::with_selection_nodes on the plan before optimizing it, \
+             then bind its selections"
         )
     }
 }
 
-/// `selection_matches(columns..., partition)`: whether each row is selected, by a `selected` test
-/// that the function carries prepared for the types of its columns, avenger-selection's
-/// [`PreparedPredicate`]. The arguments are the columns that the test reads, in the order of
-/// [`PreparedPredicate::columns`], and for a faceted owner's test, the struct of the row's
+/// Whether each of the `rows` rows is selected by the prepared test `prepared`, whose columns are
+/// `arrays` in the order of `columns`, then for a `faceted` test the struct of the row's
 /// partition columns.
-///
-/// The lowering builds each call, so the plan holds no state, and each batch matches without
-/// building the conditions' indexes again. A fingerprint of the test names the call and decides
-/// its equality.
-pub(crate) struct SelectionMatches {
-    signature: Signature,
-    fingerprint: u64,
-    prepared: Arc<PreparedPredicate>,
-    columns: Vec<String>,
+pub(crate) fn mask(
+    prepared: &PreparedPredicate,
+    columns: &[String],
+    arrays: &[ArrayRef],
     faceted: bool,
-}
-
-impl SelectionMatches {
-    /// The function of the test `prepared`, which takes the struct of the row's partition columns
-    /// after the test's columns when `faceted`.
-    pub(crate) fn new(prepared: PreparedPredicate, faceted: bool) -> Self {
-        Self {
-            signature: Signature::user_defined(Volatility::Immutable),
-            fingerprint: prepared.fingerprint(),
-            columns: (prepared.columns().into_iter())
-                .map(str::to_string)
-                .collect(),
-            prepared: Arc::new(prepared),
-            faceted,
-        }
-    }
+    rows: usize,
+) -> Result<BooleanArray> {
+    let column = |name: &str| {
+        (columns.iter())
+            .position(|column| column == name)
+            .map(|index| arrays[index].clone())
+    };
+    let partition = (arrays.last()).filter(|_| faceted);
+    let panel = |name: &str| {
+        partition.and_then(|struct_| struct_.as_struct().column_by_name(name).cloned())
+    };
+    prepared.mask(rows, column, panel).map_err(external)
 }
 
 /// The name of a call of `function`, whose fingerprint is `fingerprint`, with `args`.
@@ -155,76 +146,6 @@ pub(crate) fn call_name(function: &str, fingerprint: u64, args: &[Expr]) -> Stri
         .map(|arg| arg.schema_name().to_string())
         .collect();
     format!("{function}#{fingerprint:016x}({})", args.join(","))
-}
-
-impl std::fmt::Debug for SelectionMatches {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        (formatter.debug_struct("SelectionMatches"))
-            .field("fingerprint", &self.fingerprint)
-            .finish()
-    }
-}
-
-impl PartialEq for SelectionMatches {
-    fn eq(&self, other: &Self) -> bool {
-        self.fingerprint == other.fingerprint
-    }
-}
-
-impl Eq for SelectionMatches {}
-
-impl std::hash::Hash for SelectionMatches {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.fingerprint.hash(state);
-    }
-}
-
-impl ScalarUDFImpl for SelectionMatches {
-    fn name(&self) -> &str {
-        "selection_matches"
-    }
-
-    fn signature(&self) -> &Signature {
-        &self.signature
-    }
-
-    fn schema_name(&self, args: &[Expr]) -> Result<String> {
-        Ok(call_name(self.name(), self.fingerprint, args))
-    }
-
-    fn return_type(&self, _: &[DataType]) -> Result<DataType> {
-        Ok(DataType::Boolean)
-    }
-
-    fn coerce_types(&self, types: &[DataType]) -> Result<Vec<DataType>> {
-        Ok(types.to_vec())
-    }
-
-    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let rows = args.number_rows;
-        let arrays = (args.args.iter())
-            .map(|column| column.to_array(rows))
-            .collect::<Result<Vec<_>>>()?;
-        if arrays.len() != self.columns.len() + usize::from(self.faceted) {
-            return exec_err!(
-                "`selection_matches` takes a column for each column of its test, and a faceted \
-                 test the struct of the row's partition columns"
-            );
-        }
-        let column = |name: &str| {
-            (self.columns.iter())
-                .position(|column| column == name)
-                .map(|index| arrays[index].clone())
-        };
-        let partition = (arrays.last()).filter(|_| self.faceted);
-        let panel = |name: &str| {
-            partition.and_then(|struct_| struct_.as_struct().column_by_name(name).cloned())
-        };
-        let mask = (self.prepared)
-            .mask(rows, column, panel)
-            .map_err(external)?;
-        Ok(ColumnarValue::Array(Arc::new(mask)))
-    }
 }
 
 /// `pixel_cell(value)`: the cell of each value in the grid that the function carries, or null for
@@ -303,8 +224,8 @@ impl ScalarUDFImpl for PixelCell {
 /// and `keys` is a struct whose field for each checked column holds the row's key: the cell of a
 /// gridded range or of each column of a polygon with cells, or the value of a column of a set.
 ///
-/// [`bind_selections`](crate::bind_selections) turns a call on a bound placeholder into
-/// `in_keys(keys)` of a function that carries the conditions of the owner's clauses, prepared
+/// [`preaggregate::bind_keys`](crate::preaggregate::bind_keys) turns a call on a bound placeholder
+/// into `in_keys(keys)` of a function that carries the conditions of the owner's clauses, prepared
 /// once for the types of the keys, whose fingerprint names the call and decides its equality.
 pub(crate) struct InKeys {
     signature: Signature,
@@ -408,8 +329,8 @@ impl ScalarUDFImpl for InKeys {
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let Some((_, conditions)) = &self.conditions else {
             return exec_err!(
-                "`in_keys` runs only through bind_selections: bind the selection's state to the \
-                 plan before running it"
+                "`in_keys` runs only through bind_keys: bind the selection's state to the plan \
+                 before running it"
             );
         };
         let rows = args.number_rows;

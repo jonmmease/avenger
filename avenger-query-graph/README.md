@@ -3,15 +3,23 @@
 Caches intermediate results across parameterized DataFusion queries. Compile the unoptimized plans of a document, such as the charts of a dashboard, into one graph, then run it with values for its parameters and selections. Each run reuses the cached results whose dependencies did not change, and computes the rest.
 
 ```rust
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use avenger_query_graph::{Inputs, Outcome, ResultStore, SourceOptions, StoreConfig};
 use avenger_selection::SelectionState;
-use datafusion::{common::ParamValues, prelude::SessionContext, scalar::ScalarValue};
+use datafusion::{
+    common::ParamValues, execution::SessionStateBuilder, prelude::SessionContext,
+    scalar::ScalarValue,
+};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> datafusion::common::Result<()> {
-    let mut ctx = SessionContext::new();
+    // A session that plans the operators of selections.
+    let state = SessionStateBuilder::new()
+        .with_default_features()
+        .with_query_planner(Arc::new(avenger_selection_datafusion::QueryPlanner))
+        .build();
+    let mut ctx = SessionContext::new_with_state(state);
     avenger_selection_datafusion::register(&mut ctx)?;
     ctx.sql(
         "CREATE TABLE flights AS SELECT * FROM (VALUES \
@@ -41,7 +49,6 @@ async fn main() -> datafusion::common::Result<()> {
     let inputs = |year: i64| Inputs {
         params: ParamValues::from(vec![("year", ScalarValue::from(year))]),
         selections: BTreeMap::from([("brush".to_string(), SelectionState::default())]),
-        focus: None,
     };
     // The first run computes the scan, the year filter, and the count.
     let first = graph.run(&inputs(2023)).await?;
@@ -80,7 +87,7 @@ The store keeps cached results within `budget` and evicts the least recently use
 
 A new version removes the cached results of the old one from the store at once, and a result that was computing when its source changed is not cached. A run checks each expired source that it reads before it computes any key. `ResultStore::revalidate` checks every expired source, and returns whether any source has a new version. `ResultStore::table_changed` gives a table a new version after a known change inside it, such as an `INSERT INTO` a `MemTable`. Each provider has one version and its own checks, so two sessions can register different tables under one name, and a change through any name of a provider reaches every graph that reads it.
 
-An app runs the graph in an avenger-app `Task` whose request key is `QueryGraph::key`. The key identifies the inputs that the plans read and the focus, so the task ignores a gesture that changes nothing that the plans read. `key` checks no source, so a host that reloads on an interval calls `revalidate` and requests a run when it returns true.
+An app runs the graph in an avenger-app `Task` whose request key is `QueryGraph::key`. The key identifies the inputs that the plans read, so the task ignores a gesture that changes nothing that the plans read. `key` checks no source, so a host that reloads on an interval calls `revalidate` and requests a run when it returns true.
 
 ## Concurrency and cancellation
 
@@ -92,15 +99,22 @@ To reload a document, such as after an edit of its chart specification, compile 
 
 A node's identity holds its plan's aliases, qualifiers, and column order, and the providers of its tables, compared by address. Reuse therefore needs plans that a reload builds the same way, and tables that the reload does not register again.
 
-## Pre-aggregation
+## Reusing plans across runs
 
-A run's inputs can name a `Focus`: the selection that is about to move. The run then prepares the plans with avenger-selection-datafusion's `preaggregate::prepare`, so each eligible aggregate that the selection filters becomes a rollup over a cells subplan, which does not read the moving clause. Which aggregates are eligible is described in [the selection crate's README](../avenger-selection-datafusion/README.md#which-plans-qualify). When the cells are a node of their own, a run with a focus computes them even when its rollups are cache hits, and a move recomputes the rollups over the cached cells while the store keeps them. Cells inside a subquery expression are not a node of their own, so a move recomputes them.
+A graph plans each kept node once and reuses the plan in later runs. A plan depends on the columns that a run computes, the values of the parameters that the node reads, and the versions of the node's sources, so the graph plans the node again when one of these changes. A plan does not depend on the states of the selections, so a move of a brush runs the node's plan without planning it again.
 
-The focus changes how a run computes its results while it preserves the query's semantics. A node that holds a rollup has the cache key of its counterpart in the direct plans, so a result that one focus computed serves a run with another focus or without one. When `Focus::serves` rejects the selection's state, such as a brush of another grid, the run uses the direct plans. Floating-point aggregates of a rollup can differ from the direct plan's in their rounding.
+The graph builds a node's plan with avenger-selection-datafusion's `with_selection_nodes`: each `selected` call becomes the column of a selection's operator. Each computation binds the operators of the reused physical plan to the states of its run with `bind_selections`. The graph's session plans the selections' operators, so its query planner must include avenger-selection-datafusion's `SelectionExtensionPlanner`.
+
+Compile with `ResultStore::compile_with_fields` to name the columns that each selection's test can read. The node below a selection's filter then computes those columns for the test. Without them, the selection's operator reads every column of its input.
+
+A physical plan is reused for inputs whose results have the same shape: the same columns, order, and partitions. Two kinds of node differ:
+
+- A node that calls a volatile or a stable function, such as `now()`, is not kept. Each computation plans it, in a session that holds the states of its run.
+- A shared input that calls no such function becomes a node of its own. A shared input's physical operator does not expose the plan of its input, so a run could not bind the selections' operators inside it.
 
 ## Inspecting a graph
 
-`QueryGraph::nodes` returns the nodes of the direct plans, or of the variant for a focus. Each node has its plan, with the scan of each node that it reads named `input_<position>`, the inputs that its own operators read, and the nodes that it reads. `Run::outcomes` tells, for each node, whether the run hit its cached result, computed it, computed it without caching it, or did not read it, with its rows, bytes, columns, and time. `QueryGraph::to_dot` and `Run::to_dot` write the same as Graphviz DOT graphs.
+`QueryGraph::nodes` returns the nodes of the graph's plans. Each node has its plan, with the scan of each node that it reads named `input_<position>`, the inputs that its own operators read, and the nodes that it reads. `Run::outcomes` tells, for each node, whether the run hit its cached result, computed it, computed it without caching it, or did not read it, with its rows, bytes, columns, and time. `QueryGraph::to_dot` and `Run::to_dot` write the same as Graphviz DOT graphs.
 
 ## Where a plan is cut
 

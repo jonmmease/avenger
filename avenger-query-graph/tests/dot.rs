@@ -1,4 +1,4 @@
-//! Snapshots of the DOT graphs of the example's graph, of its variant, and of each of its runs.
+//! Snapshots of the DOT graphs of the example's graph and of each of its runs.
 //!
 //! Each test writes its graphs to `tests/output/dot/` and compares them with `tests/baselines/`.
 //! To accept a change, copy the output over the baseline with the command that a failure prints.
@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use avenger_query_graph::{Inputs, SourceOptions};
 use avenger_scales::scales::linear::LinearScale;
 use avenger_selection::{PixelGrid, SelectionState};
-use avenger_selection_datafusion::preaggregate::{Focus, FocusDimension};
 use common::{context, gridded, inputs, plan, state, store};
 use datafusion::scalar::ScalarValue;
 
@@ -87,42 +86,16 @@ async fn the_example_graphs_match_their_baselines() {
     let graph = store
         .compile(&ctx.state(), vec![plan(&ctx, EXAMPLE).await])
         .unwrap();
-    let focus = Focus {
-        parameter: "$brush".into(),
-        owner: "delay".into(),
-        dimensions: vec![FocusDimension {
-            column: "delay".into(),
-            grid: Some(grid()),
-        }],
-    };
-    let mut dots = vec![
-        ("graph".to_string(), graph.to_dot(None).unwrap()),
-        ("variant".to_string(), graph.to_dot(Some(&focus)).unwrap()),
-    ];
+    let mut dots = vec![("graph".to_string(), graph.to_dot())];
     let brushed = |low, high| state(vec![("delay", gridded("delay", &grid(), low, high))]);
-    let gesture = |year: i64, brush: SelectionState, focus: Option<Focus>| Inputs {
-        focus,
-        ..inputs(&[("year", ScalarValue::from(year))], &[("brush", brush)])
+    let gesture = |year: i64, brush: SelectionState| -> Inputs {
+        inputs(&[("year", ScalarValue::from(year))], &[("brush", brush)])
     };
     let gestures = [
-        ("1-opens", gesture(2023, SelectionState::default(), None)),
-        (
-            "2-enters",
-            gesture(2023, SelectionState::default(), Some(focus.clone())),
-        ),
-        (
-            "3-moves",
-            gesture(2023, brushed(40.0, 120.0), Some(focus.clone())),
-        ),
-        (
-            "4-moves-again",
-            gesture(2023, brushed(60.0, 180.0), Some(focus.clone())),
-        ),
-        (
-            "5-slides",
-            gesture(2024, brushed(60.0, 180.0), Some(focus.clone())),
-        ),
-        ("6-leaves", gesture(2024, brushed(60.0, 180.0), None)),
+        ("1-opens", gesture(2023, SelectionState::default())),
+        ("2-moves", gesture(2023, brushed(40.0, 120.0))),
+        ("3-moves-again", gesture(2023, brushed(60.0, 180.0))),
+        ("4-slides", gesture(2024, brushed(60.0, 180.0))),
     ];
     for (name, inputs) in gestures {
         let run = graph.run(&inputs).await.unwrap();
@@ -185,7 +158,7 @@ async fn a_document_graph_matches_its_baseline() {
     };
     let run = graph.run(&moved).await.unwrap();
     compare(&[
-        ("document".to_string(), graph.to_dot(None).unwrap()),
+        ("document".to_string(), graph.to_dot()),
         ("run-document-moves".to_string(), masked(&run.to_dot())),
     ]);
 }

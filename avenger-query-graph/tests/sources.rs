@@ -31,8 +31,7 @@ fn write(name: &str, rows: usize) -> PathBuf {
 
 async fn csv_graph(name: &str, ttl: Duration) -> (PathBuf, ResultStore, QueryGraph) {
     let path = write(name, 20);
-    let mut ctx = SessionContext::new();
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = common::session(datafusion::prelude::SessionConfig::new());
     ctx.register_csv("flights", path.to_str().unwrap(), CsvReadOptions::new())
         .await
         .unwrap();
@@ -118,8 +117,7 @@ async fn revalidate_reports_a_change() {
 #[tokio::test]
 async fn a_time_to_live_set_after_a_run_checks_its_results() {
     let path = write("later", 20);
-    let mut ctx = SessionContext::new();
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = common::session(datafusion::prelude::SessionConfig::new());
     ctx.register_csv("flights", path.to_str().unwrap(), CsvReadOptions::new())
         .await
         .unwrap();
@@ -159,8 +157,7 @@ async fn each_provider_of_one_name_has_its_own_checks() {
     // Two sessions register other files under one name, and share the store.
     let mut graphs = Vec::new();
     for path in [&a, &b] {
-        let mut ctx = SessionContext::new();
-        avenger_selection_datafusion::register(&mut ctx).unwrap();
+        let ctx = common::session(datafusion::prelude::SessionConfig::new());
         ctx.register_csv("flights", path.to_str().unwrap(), CsvReadOptions::new())
             .await
             .unwrap();

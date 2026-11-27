@@ -97,12 +97,22 @@ pub fn carriers() -> RecordBatch {
     .unwrap()
 }
 
+/// A session of `config` with the selection functions and the planner of selections' operators.
+pub fn session(config: datafusion::prelude::SessionConfig) -> SessionContext {
+    let state = datafusion::execution::SessionStateBuilder::new()
+        .with_config(config)
+        .with_default_features()
+        .with_query_planner(Arc::new(avenger_selection_datafusion::QueryPlanner))
+        .build();
+    let mut ctx = SessionContext::new_with_state(state);
+    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    ctx
+}
+
 /// A session with `flights` and `carriers` as in-memory tables and the selection functions, with
 /// two partitions so tests are fast.
 pub fn context() -> SessionContext {
-    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(2);
-    let mut ctx = SessionContext::new_with_config(config);
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = session(datafusion::prelude::SessionConfig::new().with_target_partitions(2));
     let flights = flights();
     let table = MemTable::try_new(flights.schema(), vec![vec![flights]]).unwrap();
     ctx.register_table("flights", Arc::new(table)).unwrap();
@@ -134,7 +144,6 @@ pub fn inputs(params: &[(&str, ScalarValue)], selections: &[(&str, SelectionStat
         selections: (selections.iter())
             .map(|(name, state)| (name.to_string(), state.clone()))
             .collect(),
-        focus: None,
     }
 }
 
@@ -158,21 +167,17 @@ pub fn rows(batches: &[RecordBatch]) -> Vec<String> {
 
 /// The rows of `plan` run uncut for `inputs`.
 pub async fn uncut(ctx: &SessionContext, plan: &LogicalPlan, inputs: &Inputs) -> Vec<String> {
-    let states: Vec<(&str, &SelectionState)> = (inputs.selections.iter())
-        .map(|(name, state)| (name.as_str(), state))
-        .collect();
-    let bound = avenger_selection_datafusion::bind_selections(plan.clone(), &states)
+    let fields = avenger_selection_datafusion::SelectionFields::new();
+    let with_nodes = avenger_selection_datafusion::with_selection_nodes(plan.clone(), &fields)
         .unwrap()
         .with_param_values(inputs.params.clone())
         .unwrap();
-    let batches = ctx
-        .execute_logical_plan(bound)
-        .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    rows(&batches)
+    let state = avenger_selection_datafusion::with_selection_states(
+        &ctx.state(),
+        inputs.selections.clone(),
+    );
+    let frame = datafusion::dataframe::DataFrame::new(state, with_nodes);
+    rows(&frame.collect().await.unwrap())
 }
 
 /// A range of `column` from `low` to `high`, without cells.

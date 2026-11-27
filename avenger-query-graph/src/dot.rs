@@ -40,12 +40,6 @@ pub(crate) fn to_dot(nodes: &[QueryNode], outcomes: Option<&[Outcome]>) -> Strin
         if !node.kept {
             title.push_str(", not kept");
         }
-        if !node.replaces.is_empty() {
-            let _ = write!(title, ", {} rollup(s)", node.replaces.len());
-        }
-        if node.cells {
-            title.push_str(", cells");
-        }
         line(&mut label, &title);
         if !node.params.is_empty() {
             line(&mut label, &format!("params: {}", node.params.join(", ")));

@@ -4,6 +4,7 @@ mod common;
 
 use avenger_query_graph::{Inputs, Outcome, QueryGraph, ResultStore, Run, StoreConfig};
 use avenger_selection::SelectionState;
+use avenger_selection_datafusion::SelectionFields;
 use common::{context, exact, inputs, outcomes, plan, rows, state, store, uncut};
 use datafusion::{logical_expr::LogicalPlan, prelude::SessionContext, scalar::ScalarValue};
 
@@ -44,10 +45,13 @@ const EXAMPLE: &str = "SELECT carrier, count(*) AS n FROM flights \
                        WHERE year = $year AND selected($brush) GROUP BY carrier";
 
 #[tokio::test]
-async fn the_example_keeps_and_widens_its_nodes() {
+async fn the_example_keeps_its_nodes() {
     let ctx = context();
     let store = store();
-    let (graph, plans) = graph(&ctx, &store, &[EXAMPLE]).await;
+    let plans = vec![plan(&ctx, EXAMPLE).await];
+    // The brush's tools test `delay`, so the year filter keeps `delay` from the first run.
+    let fields = SelectionFields::from([("brush".to_string(), Some(vec!["delay".to_string()]))]);
+    let graph = (store.compile_with_fields(&ctx.state(), plans.clone(), fields)).unwrap();
     let brush = |low, high| state(vec![("delay", exact("delay", low, high))]);
     let empty = SelectionState::default();
 
@@ -59,7 +63,10 @@ async fn the_example_keeps_and_widens_its_nodes() {
     )
     .await;
     assert_eq!(outcomes(&first), ["computed", "computed"]);
-    // The first box tests `delay`, which the kept year filter lacks.
+    let Outcome::Computed { output, .. } = &first.outcomes[0] else {
+        unreachable!()
+    };
+    assert_eq!(output.columns, ["carrier", "delay"]);
     let boxed = run(
         &ctx,
         &graph,
@@ -67,11 +74,7 @@ async fn the_example_keeps_and_widens_its_nodes() {
         &inputs(&[year(2023)], &[("brush", brush(0.0, 40.0))]),
     )
     .await;
-    assert_eq!(outcomes(&boxed), ["widened", "computed"]);
-    let Outcome::Computed { widened, .. } = &boxed.outcomes[0] else {
-        unreachable!()
-    };
-    assert_eq!(widened, &["delay"]);
+    assert_eq!(outcomes(&boxed), ["hit", "computed"]);
     let moved = run(
         &ctx,
         &graph,
@@ -124,7 +127,7 @@ async fn a_cross_filter_reruns_only_the_plots_that_read_the_move() {
         &inputs(&[], &[("s", brush(20.0, 80.0))]),
     )
     .await;
-    let tops = graph.nodes(None).unwrap();
+    let tops = graph.nodes();
     let delay_top = (tops.iter()).position(|node| node.top_of() == [1]).unwrap();
     let carrier_top = (tops.iter()).position(|node| node.top_of() == [0]).unwrap();
     assert!(matches!(moved.outcomes[delay_top], Outcome::Hit(_)));
@@ -340,7 +343,7 @@ async fn a_recursive_query_is_not_cut_inside() {
     let sql = "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL \
                SELECT n + 1 FROM t WHERE n > 0 AND n < $max) SELECT * FROM t";
     let (graph, plans) = graph(&ctx, &store, &[sql]).await;
-    assert_eq!(graph.nodes(None).unwrap().len(), 1);
+    assert_eq!(graph.nodes().len(), 1);
     run(
         &ctx,
         &graph,
@@ -421,7 +424,7 @@ async fn a_limit_above_a_sort_by_an_expression_keeps_the_sorted_rows() {
         &["SELECT carrier FROM flights ORDER BY delay + distance, carrier LIMIT $n"],
     )
     .await;
-    assert_eq!(graph.nodes(None).unwrap().len(), 2);
+    assert_eq!(graph.nodes().len(), 2);
     run(
         &ctx,
         &graph,
@@ -433,8 +436,7 @@ async fn a_limit_above_a_sort_by_an_expression_keeps_the_sorted_rows() {
 
 #[tokio::test]
 async fn a_parameter_can_share_the_name_of_a_selection() {
-    let mut ctx = SessionContext::new();
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = common::session(datafusion::prelude::SessionConfig::new());
     let store = store();
     let (graph, plans) = graph(&ctx, &store, &["SELECT selected($s) AND $s AS v"]).await;
     for value in [true, false] {
@@ -552,4 +554,56 @@ async fn a_new_version_frees_the_results_of_the_old_one() {
         outcomes(&of_carriers.run(&Inputs::default()).await.unwrap()),
         ["hit"]
     );
+}
+
+/// A node whose result is too large for the store computes at each run from the plan that the
+/// graph planned once, and returns the rows of the plan run uncut, through a join and a brush on
+/// several partitions.
+#[tokio::test]
+async fn a_result_too_large_to_keep_reuses_its_plan() {
+    let ctx = context();
+    let store = ResultStore::new(StoreConfig {
+        budget: 64 << 20,
+        max_result: 1,
+    });
+    let sql = "SELECT f.carrier, count(*) AS n, sum(f.distance) AS total FROM flights f \
+               JOIN carriers c ON f.carrier = c.code \
+               WHERE f.year = $year AND selected($brush) GROUP BY f.carrier ORDER BY f.carrier";
+    let (graph, plans) = graph(&ctx, &store, &[sql]).await;
+    let brush = |low, high| state(vec![("delay", exact("delay", low, high))]);
+    for (low, high) in [(0.0, 40.0), (10.0, 60.0), (0.0, 40.0)] {
+        let inputs = inputs(&[year(2023)], &[("brush", brush(low, high))]);
+        let run = run(&ctx, &graph, &plans, &inputs).await;
+        assert!(outcomes(&run).iter().all(|outcome| *outcome == "uncached"));
+    }
+}
+
+/// A recursive query reuses the plan that the graph planned once, with a brush outside the
+/// recursion and inside it, whether the store keeps its result or not. DataFusion documents that
+/// `reset_plan_states` does not make a recursive query's plan ready to run again, so the test
+/// checks the rows of each run against the plan run uncut.
+#[tokio::test]
+async fn a_recursive_query_reuses_its_plan() {
+    let ctx = context();
+    let brush = |low, high| state(vec![("delay", exact("delay", low, high))]);
+    for sql in [
+        "WITH RECURSIVE r AS (SELECT 1 AS n UNION ALL SELECT n + 1 FROM r WHERE n < 4) \
+         SELECT f.carrier, count(*) AS c, sum(r.n) AS total FROM flights f CROSS JOIN r \
+         WHERE selected($brush) GROUP BY f.carrier ORDER BY f.carrier",
+        "WITH RECURSIVE r AS (SELECT delay AS n FROM flights WHERE selected($brush) \
+         UNION ALL SELECT n + 1 FROM r WHERE n < 40) \
+         SELECT count(*) AS c, sum(n) AS total FROM r",
+    ] {
+        for max_result in [1, 16 << 20] {
+            let store = ResultStore::new(StoreConfig {
+                budget: 64 << 20,
+                max_result,
+            });
+            let (graph, plans) = graph(&ctx, &store, &[sql]).await;
+            for (low, high) in [(0.0, 40.0), (10.0, 60.0), (0.0, 40.0), (20.0, 30.0)] {
+                let inputs = inputs(&[], &[("brush", brush(low, high))]);
+                run(&ctx, &graph, &plans, &inputs).await;
+            }
+        }
+    }
 }

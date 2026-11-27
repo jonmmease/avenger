@@ -2,9 +2,10 @@
 //! true for the rows that it selects.
 //!
 //! A selection is not a value: a read of it lowers to a call of avenger-selection-datafusion's
-//! `selected` on a placeholder of its state, `$__sel_<name>`, which a run binds with
-//! `bind_selections` before it binds the values of the variables. A read needs rows, so a
-//! selection can't stand where a constant does, and it can't be compared or assigned.
+//! `selected` on a placeholder of its state, `$__sel_<name>`. A run replaces the call with a
+//! selection's operator, with `with_selection_nodes`, before it binds the values of the variables,
+//! and binds the operator to the selection's state during planning or after it. A read needs
+//! rows, so a selection can't stand where a constant does, and it can't be compared or assigned.
 
 use avenger_selection::Resolution;
 use avenger_sql_syntax::{
@@ -30,6 +31,9 @@ pub struct Selection {
     pub resolution: Resolution,
     /// The range of its name in its `DECLARE`.
     pub definition: TextRange,
+    /// The columns that the clauses of the tools that write the selection test, or `None` when a
+    /// tool's columns are unknown, such as a point tool's without keys, or no tool writes it.
+    pub fields: Option<Vec<String>>,
 }
 
 /// The name of the placeholder of the state of the selection `name`, without its `$`, as a run
@@ -159,6 +163,7 @@ impl Pass<'_> {
                 name: text,
                 resolution: resolved,
                 definition: at,
+                fields: None,
             });
         }
         Vec::new()

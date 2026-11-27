@@ -1,17 +1,17 @@
-//! The lowering of a `selected` call to one row test over the rows of its input, for a bound
-//! state: avenger-selection's prepared `selected` test, which a renderer runs alike.
+//! The arguments of a `selected` call: its options folded to constants, and parsed into the
+//! options of avenger-selection's `selected` test, which a renderer runs alike.
 
 use std::{any::Any, sync::Arc};
 
-use avenger_selection::{SelectedOptions, SelectionState};
+use avenger_selection::SelectedOptions;
 use datafusion::{
     arrow::{array::AsArray, compute::cast, datatypes::DataType},
     common::{plan_err, Column, DFSchema, Result, ScalarValue},
-    logical_expr::{lit, simplify::SimplifyContext, Expr, ScalarUDF},
+    logical_expr::{simplify::SimplifyContext, Expr, ScalarUDF},
     optimizer::simplify_expressions::ExprSimplifier,
 };
 
-use crate::functions::{external, SelectedFunction, SelectionMatches};
+use crate::functions::SelectedFunction;
 
 /// The arguments of a `selected` call with its constant options folded, such as an array
 /// literal, which DataFusion plans as a call. The state and the partition stay as they are.
@@ -35,12 +35,6 @@ pub(crate) fn is_selected(func: &ScalarUDF) -> bool {
     (func.inner().as_ref() as &dyn Any).is::<SelectedFunction>()
 }
 
-/// The arguments of a `selected` call whose state is bound.
-pub(crate) struct Call {
-    pub(crate) state: SelectionState,
-    pub(crate) options: Options,
-}
-
 /// The arguments of a `selected` call after its state: the options of its test, and the struct of
 /// the row's partition columns that a faceted owner's test reads.
 pub(crate) struct Options {
@@ -62,37 +56,6 @@ fn string(value: &ScalarValue, name: &str) -> Result<String> {
     match value.try_as_str() {
         Some(Some(text)) => Ok(text.to_string()),
         _ => plan_err!("the argument `{name}` of `selected` is a string, not {value}"),
-    }
-}
-
-impl Call {
-    /// The call of the state `state`, with the options of the arguments after the first.
-    pub(crate) fn new(state: SelectionState, args: &[Expr]) -> Result<Self> {
-        Ok(Self {
-            state,
-            options: Options::parse(args)?,
-        })
-    }
-
-    /// The call's row test over the rows of `schema`, or its answer for every row when the test
-    /// reads no row, such as for an empty selection.
-    pub(crate) fn lower(&self, schema: &DFSchema) -> Result<Expr> {
-        let types = |name: &str| {
-            (schema.qualified_field_with_unqualified_name(name).ok())
-                .map(|(_, field)| field.data_type().clone())
-        };
-        let prepared = (self.state)
-            .prepare_selected(&self.options.selected, types)
-            .map_err(external)?;
-        if let Some(answer) = prepared.constant() {
-            return Ok(lit(answer));
-        }
-        let mut args = (prepared.columns().into_iter())
-            .map(|name| column(name, schema))
-            .collect::<Result<Vec<_>>>()?;
-        let partition = (self.options.partition.as_ref()).filter(|_| self.options.selected.faceted);
-        args.extend(partition.cloned());
-        Ok(ScalarUDF::from(SelectionMatches::new(prepared, partition.is_some())).call(args))
     }
 }
 

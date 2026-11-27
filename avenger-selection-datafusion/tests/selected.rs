@@ -1,5 +1,7 @@
-//! `selected` lowers to filters that keep the rows that avenger-selection's test of the state
+//! A query that calls `selected` keeps the rows that avenger-selection's test of the state
 //! selects.
+
+mod common;
 
 use std::sync::Arc;
 
@@ -55,8 +57,7 @@ fn table() -> RecordBatch {
 }
 
 fn context() -> SessionContext {
-    let mut ctx = SessionContext::new();
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = common::session();
     ctx.register_batch("t", table()).unwrap();
     ctx
 }
@@ -148,12 +149,11 @@ async fn bound(
     states: &[(&str, &SelectionState)],
 ) -> Result<DataFrame> {
     let plan = ctx.sql(sql).await?.into_unoptimized_plan();
-    let plan = avenger_selection_datafusion::bind_selections(plan, states)?;
-    ctx.execute_logical_plan(plan).await
+    common::frame(ctx, plan, states)
 }
 
 /// The rows that `selected($s, <options>)` keeps, through DataFusion.
-async fn lowered(state: &SelectionState, options: &Options) -> Vec<bool> {
+async fn selected_rows(state: &SelectionState, options: &Options) -> Vec<bool> {
     let sql = format!("SELECT selected($s{}) AS m FROM t ORDER BY id", options.sql);
     mask(bound(&context(), &sql, &[("s", state)]).await.unwrap()).await
 }
@@ -164,14 +164,14 @@ async fn mask(frame: DataFrame) -> Vec<bool> {
     let mut mask = Vec::new();
     for batch in batches {
         let column = batch.column(0).as_boolean();
-        assert_eq!(column.null_count(), 0, "a lowered filter is never null");
+        assert_eq!(column.null_count(), 0, "a selection's column is never null");
         mask.extend(column.iter().map(Option::unwrap));
     }
     mask
 }
 
-/// The lowered call keeps exactly the rows that avenger-selection's test of the state selects for
-/// the same options, which a renderer runs.
+/// The call keeps exactly the rows that avenger-selection's test of the state selects for the
+/// same options, which a renderer runs.
 async fn conforms(state: SelectionState, options: Options) {
     let selected = SelectedOptions {
         exclude_own: (options.owner.filter(|_| options.exclude_own).into_iter())
@@ -187,7 +187,7 @@ async fn conforms(state: SelectionState, options: Options) {
     };
     let expected = state.mask(&selected, &table()).unwrap();
     assert_eq!(
-        lowered(&state, &options).await,
+        selected_rows(&state, &options).await,
         expected.values().iter().collect::<Vec<_>>(),
         "{}",
         options.sql
@@ -406,8 +406,8 @@ async fn named_arguments_form_prefixes() {
     assert!(error.contains("exclude_own"), "{error}");
 }
 
-/// A plan that runs with a `selected` call that `bind_selections` did not lower fails with an
-/// error that names the selection: unbound, bound under another name, or not a placeholder.
+/// A plan that runs with a `selected` call fails with an error that names the selection: not
+/// replaced by a node, replaced without a state, or not on a placeholder.
 #[tokio::test]
 async fn unbound_selections_name_their_selection() {
     let ctx = context();
@@ -417,8 +417,11 @@ async fn unbound_selections_name_their_selection() {
     assert!(message(unbound).ends_with("selection `s` was not registered"));
     let state = SelectionState::default();
     let frame = bound(&ctx, sql, &[("brush", &state)]).await.unwrap();
-    let elsewhere = frame.collect().await.unwrap_err();
-    assert!(message(elsewhere).ends_with("selection `s` was not registered"));
+    let elsewhere = message(frame.collect().await.unwrap_err());
+    assert!(
+        elsewhere.contains("selection $s is not bound to a state"),
+        "{elsewhere}"
+    );
     let literal = "SELECT count(*) FROM t WHERE selected(NULL)";
     let frame = bound(&ctx, literal, &[("s", &state)]).await.unwrap();
     let literal = message(frame.collect().await.unwrap_err());
@@ -428,8 +431,8 @@ async fn unbound_selections_name_their_selection() {
     );
 }
 
-/// A lowered filter matches every batch of a table through its prepared condition, also batches
-/// whose dictionaries differ.
+/// A selection's operator matches every batch of a table through its prepared condition, also
+/// batches whose dictionaries differ.
 #[tokio::test]
 async fn prepared_conditions_match_every_batch() {
     use datafusion::{
@@ -457,8 +460,7 @@ async fn prepared_conditions_match_every_batch() {
         batch(4..8, &[Some("d"), Some("d"), Some("c"), Some("e")]),
         batch(8..12, &[Some("a"), None, Some("b"), Some("d")]),
     ];
-    let mut ctx = SessionContext::new();
-    avenger_selection_datafusion::register(&mut ctx).unwrap();
+    let ctx = common::session();
     let table = MemTable::try_new(
         schema.clone(),
         vec![batches[..2].to_vec(), batches[2..].to_vec()],
@@ -482,9 +484,8 @@ async fn prepared_conditions_match_every_batch() {
 }
 
 /// Two selections of different conditions over one column keep their own rows and their own
-/// names in one projection, though each lowers to a call of the same columns, which the optimizer
-/// would merge if the calls compared equal: cyclic ranges of other ends, and sets of other values
-/// of one length.
+/// names in one projection, though both test the same columns: cyclic ranges of other ends, and
+/// sets of other values of one length.
 #[tokio::test]
 async fn different_conditions_on_one_column_stay_apart() {
     let ctx = context();
@@ -546,10 +547,10 @@ async fn different_conditions_on_one_column_stay_apart() {
     }
 }
 
-/// `bind_selections` binds the calls on the placeholders that it names, keeps the names of a
-/// projection's columns, and leaves other placeholders to `with_param_values`.
+/// `with_selection_nodes` keeps the names of a projection's columns, and leaves other placeholders
+/// to `with_param_values`.
 #[tokio::test]
-async fn bound_states_keep_names_and_other_placeholders() {
+async fn selection_nodes_keep_names_and_other_placeholders() {
     let ctx = context();
     let set = Condition::values("x", None, numbers(&[1.0, 2.5, 3.0]));
     let state = SelectionState::new(
@@ -561,7 +562,8 @@ async fn bound_states_keep_names_and_other_placeholders() {
         .await
         .unwrap()
         .into_unoptimized_plan();
-    let plan = avenger_selection_datafusion::bind_selections(plan, &[("s", &state)]).unwrap();
+    let fields = avenger_selection_datafusion::SelectionFields::new();
+    let plan = avenger_selection_datafusion::with_selection_nodes(plan, &fields).unwrap();
     let names: Vec<String> = (plan.schema().fields().iter())
         .map(|field| field.name().clone())
         .collect();
@@ -575,12 +577,16 @@ async fn bound_states_keep_names_and_other_placeholders() {
         .unwrap();
     let batch = datafusion::arrow::compute::concat_batches(
         &Arc::new(plan.schema().as_arrow().clone()),
-        &ctx.execute_logical_plan(plan)
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap(),
+        &DataFrame::new(
+            avenger_selection_datafusion::with_selection_states(
+                &ctx.state(),
+                common::states(&[("s", &state)]),
+            ),
+            plan,
+        )
+        .collect()
+        .await
+        .unwrap(),
     )
     .unwrap();
     let x = table().column_by_name("x").unwrap().clone();
@@ -601,7 +607,7 @@ async fn bound_states_keep_names_and_other_placeholders() {
 }
 
 #[tokio::test]
-async fn a_set_with_a_null_lowers_as_its_sql() {
+async fn a_set_with_a_null_selects_as_its_sql() {
     // A null equals a null, as a click on the bar of rows without an island writes it.
     let set = |values: Vec<Option<&str>>| {
         Condition::values("island", None, Arc::new(StringArray::from(values)))
@@ -622,12 +628,12 @@ async fn a_set_with_a_null_lowers_as_its_sql() {
         conforms(state.clone(), PLAIN).await;
         let expected = format!("SELECT coalesce({sql}, false) AS m FROM t ORDER BY id");
         let expected = mask(context().sql(&expected).await.unwrap()).await;
-        assert_eq!(lowered(&state, &PLAIN).await, expected, "{sql}");
+        assert_eq!(selected_rows(&state, &PLAIN).await, expected, "{sql}");
     }
 }
 
 #[tokio::test]
-async fn a_complement_lowers_as_its_sql() {
+async fn a_complement_selects_as_its_sql() {
     // Everything except the kept islands, as a click on the Other group of a lump writes it: the
     // row of a null island matches unless the kept islands hold null.
     let complement = |values: Vec<Option<&str>>| {
@@ -654,7 +660,7 @@ async fn a_complement_lowers_as_its_sql() {
         conforms(state.clone(), PLAIN).await;
         let expected = format!("SELECT coalesce({sql}, false) AS m FROM t ORDER BY id");
         let expected = mask(context().sql(&expected).await.unwrap()).await;
-        assert_eq!(lowered(&state, &PLAIN).await, expected, "{sql}");
+        assert_eq!(selected_rows(&state, &PLAIN).await, expected, "{sql}");
     }
     // A dictionary column takes a complement of its values.
     let species = Condition::values("species", None, Arc::new(StringArray::from(vec!["adelie"])))

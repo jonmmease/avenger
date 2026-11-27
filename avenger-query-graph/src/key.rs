@@ -19,10 +19,10 @@ pub(crate) fn address(provider: &Arc<dyn TableProvider>) -> usize {
     Arc::as_ptr(provider) as *const () as usize
 }
 
-/// A node's structural identity: the subplan that it computes, with each rollup replaced by the
-/// aggregate that it replaces, and the providers of the tables that the subplan scans. DataFusion
-/// compares a scan by its table's name and not its provider, so the identity holds the providers,
-/// which it compares by address. Identities compare their subplans, not only their hashes.
+/// A node's structural identity: the subplan that it computes, and the providers of the tables
+/// that the subplan scans. DataFusion compares a scan by its table's name and not its provider,
+/// so the identity holds the providers, which it compares by address. Identities compare their
+/// subplans, not only their hashes.
 #[derive(Clone)]
 pub(crate) struct Identity(Arc<IdentityParts>);
 

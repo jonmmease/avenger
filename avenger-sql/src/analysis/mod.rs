@@ -196,10 +196,14 @@ impl Analysis {
                 (selection.name.clone(), state)
             })
             .collect();
+        let fields = (self.selections.iter())
+            .map(|selection| (selection.name.clone(), selection.fields.clone()))
+            .collect();
         Ok(PlannedQuery {
             plan: plan.clone(),
             params: param_values(&values),
             selections,
+            fields,
         })
     }
 
@@ -301,6 +305,10 @@ pub struct PlannedQuery {
     /// The state of each selection of the script, by the selection's name: empty, with the
     /// selection's resolution, until a host sets it.
     pub selections: std::collections::BTreeMap<String, avenger_selection::SelectionState>,
+    /// The columns that each selection's clauses test, by the selection's name, as the tools that
+    /// write it name them, or `None` when they are unknown. `with_selection_nodes` takes them, so a
+    /// selection's operator reads only these columns of its input.
+    pub fields: std::collections::BTreeMap<String, Option<Vec<String>>>,
 }
 
 impl PlannedQuery {
@@ -310,21 +318,29 @@ impl PlannedQuery {
         selection::reads(&self.plan)
     }
 
-    /// The rows of the query, with the states of its selections and the values of its variables
-    /// bound, as a DataFrame of `ctx`, unrun.
+    /// The rows of the query as a DataFrame of `ctx`, unrun, with the values of its variables
+    /// bound. Its `selected` calls are selection nodes over the columns of their tools, and the
+    /// frame's session holds their states, so the frame binds the selections' operators when it
+    /// plans.
     pub async fn dataframe(
         &self,
         ctx: &datafusion::prelude::SessionContext,
     ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
-        let ids: Vec<(String, &avenger_selection::SelectionState)> = (self.selections.iter())
-            .map(|(name, state)| (selection::placeholder(name), state))
+        let key = |name: &str| {
+            selection::placeholder(name)
+                .trim_start_matches('$')
+                .to_string()
+        };
+        let fields: avenger_selection_datafusion::SelectionFields = (self.fields.iter())
+            .map(|(name, fields)| (key(name), fields.clone()))
             .collect();
-        let states: Vec<(&str, &avenger_selection::SelectionState)> = (ids.iter())
-            .map(|(id, state)| (id.as_str(), *state))
+        let states = (self.selections.iter())
+            .map(|(name, state)| (key(name), state.clone()))
             .collect();
-        let plan = avenger_selection_datafusion::bind_selections(self.plan.clone(), &states)?;
+        let plan = avenger_selection_datafusion::with_selection_nodes(self.plan.clone(), &fields)?;
         let plan = plan.with_param_values(self.params.clone())?;
-        ctx.execute_logical_plan(plan).await
+        let state = avenger_selection_datafusion::with_selection_states(&ctx.state(), states);
+        Ok(datafusion::dataframe::DataFrame::new(state, plan))
     }
 }
 
