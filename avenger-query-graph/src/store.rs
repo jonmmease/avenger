@@ -253,7 +253,21 @@ impl ResultStore {
         plans: Vec<LogicalPlan>,
         fields: SelectionFields,
     ) -> Result<QueryGraph> {
-        QueryGraph::compile(self.clone(), state, plans, fields)
+        QueryGraph::compile(self.clone(), state, plans, fields, false)
+    }
+
+    /// [`compile_with_fields`](Self::compile_with_fields) for a page: the graph plans with one
+    /// partition, and reads each table through a node of its own, so a page receives the rows of
+    /// each scan as a result and reads no file, and [`QueryGraph::page`] writes its file.
+    pub fn compile_page(
+        &self,
+        state: &SessionState,
+        plans: Vec<LogicalPlan>,
+        fields: SelectionFields,
+    ) -> Result<QueryGraph> {
+        let mut state = state.clone();
+        state.config_mut().options_mut().execution.target_partitions = 1;
+        QueryGraph::compile(self.clone(), &state, plans, fields, true)
     }
 
     pub(crate) fn config(&self) -> &StoreConfig {

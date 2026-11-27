@@ -60,6 +60,9 @@ pub(crate) struct GraphInner {
     pub fields: SelectionFields,
     /// The plans of the kept nodes that the graph's runs planned, which later runs reuse.
     pub memos: Mutex<Memos>,
+    /// Whether the graph is planned for a page: with one partition, and each table read through a
+    /// node of its own.
+    pub page: bool,
 }
 
 /// A node: its plan, with each cut as a scan, the inputs that its own operators read, the nodes
@@ -131,11 +134,12 @@ impl QueryGraph {
         state: &SessionState,
         plans: Vec<LogicalPlan>,
         fields: SelectionFields,
+        page: bool,
     ) -> Result<Self> {
         if plans.is_empty() {
             return plan_err!("a graph needs a plan");
         }
-        let (nodes, tops) = Builder::compile(&store, state, &plans)?;
+        let (nodes, tops) = Builder::compile(&store, state, &plans, page)?;
         let graph = Self {
             inner: Arc::new(GraphInner {
                 id: store.graph_id(),
@@ -145,6 +149,7 @@ impl QueryGraph {
                 tops,
                 fields,
                 memos: Mutex::new(Memos::default()),
+                page,
                 store,
             }),
         };
@@ -214,6 +219,8 @@ struct Info {
 struct Builder<'a> {
     store: &'a ResultStore,
     session: &'a SessionState,
+    /// Whether every scan is a node of its own, as for a page.
+    cut_scans: bool,
     /// The inputs that [`unshare`] took out of the plans' shared nodes. Each is cut into a graph
     /// node of its own, so every reader of one input reads the same result.
     shared: HashSet<LogicalPlan>,
@@ -229,6 +236,7 @@ impl<'a> Builder<'a> {
         store: &'a ResultStore,
         session: &'a SessionState,
         plans: &[LogicalPlan],
+        cut_scans: bool,
     ) -> Result<(Arc<[QueryNode]>, Vec<usize>)> {
         let mut shared = HashSet::new();
         let plans: Vec<LogicalPlan> = (plans.iter().cloned())
@@ -238,6 +246,7 @@ impl<'a> Builder<'a> {
             store,
             session,
             shared,
+            cut_scans,
             nodes: Vec::new(),
             index: HashMap::new(),
             infos: HashMap::new(),
@@ -269,7 +278,7 @@ impl<'a> Builder<'a> {
         let (scan_like, materialized) = match plan {
             LogicalPlan::TableScan(scan) => (
                 scan.filters.is_empty() && scan.fetch.is_none(),
-                self.store.materialized(&scan.table_name, self.session),
+                self.cut_scans || self.store.materialized(&scan.table_name, self.session),
             ),
             LogicalPlan::Projection(_) | LogicalPlan::SubqueryAlias(_) => {
                 let child = &children[0];

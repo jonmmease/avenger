@@ -179,6 +179,10 @@ datafusion-expr = { version = "55.2", default-features = false }
 datafusion-functions-aggregate = { version = "55.2", default-features = false }
 datafusion-physical-expr = { version = "55.2", default-features = false }
 datafusion-physical-plan = { version = "55.2", default-features = false }
+datafusion-functions = { version = "55.2", default-features = false }
+datafusion-functions-nested = { version = "55.2", default-features = false }
+datafusion-functions-window = { version = "55.2", default-features = false }
+datafusion-proto-common = { version = "55.2", default-features = false }
 css-color-parser = "0.1.2"
 cssparser = "0.38"
 cssparser-color = "0.6"

@@ -112,6 +112,10 @@ A physical plan is reused for inputs whose results have the same shape: the same
 - A node that calls a volatile or a stable function, such as `now()`, is not kept. Each computation plans it, in a session that holds the states of its run.
 - A shared input that calls no such function becomes a node of its own. A shared input's physical operator does not expose the plan of its input, so a run could not bind the selections' operators inside it.
 
+## A page's file
+
+`ResultStore::compile_page` compiles a document's plans for a page: with one partition, and with each scan a node of its own, so a page receives the rows of each table that it reads and reads no file. `QueryGraph::page` writes the graph's file for the values of the parameters and every selection empty: each node that reads no selection travels as its result, and each node that reads one as its physical plan, with its result for empty selections, which the first run in a page reads without computing anything. A node that reads a selection and whose plan does not decode with the page's functions, or that reads such a node, travels as its result with a warning, so its charts do not filter in the page. The shared inputs of a plan are nodes of their own, natively and for a page, so each computation can bind and substitute the plans that read them.
+
 ## Inspecting a graph
 
 `QueryGraph::nodes` returns the nodes of the graph's plans. Each node has its plan, with the scan of each node that it reads named `input_<position>`, the inputs that its own operators read, and the nodes that it reads. `Run::outcomes` tells, for each node, whether the run hit its cached result, computed it, computed it without caching it, or did not read it, with its rows, bytes, columns, and time. `QueryGraph::to_dot` and `Run::to_dot` write the same as Graphviz DOT graphs.
