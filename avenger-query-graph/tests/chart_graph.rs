@@ -122,6 +122,7 @@ async fn a_graph_returns_the_rows_of_its_plans() {
     let file = ChartGraphFile::from_bytes(&graphs.encoded.bytes).unwrap();
     let with_plans: Vec<bool> = (file.charts.iter().map(|chart| chart.plan.is_some())).collect();
     assert_eq!(with_plans, [true, true, false, true]);
+    assert_eq!(graphs.encoded.plans, 3);
 
     let decoded = graphs.decoded();
     assert!(!graphs.live.is_baked());
@@ -144,6 +145,7 @@ async fn a_graph_encodes_after_it_bakes() {
     let again = (graphs.baked.bake(&baked_session().state()).await).unwrap();
     assert!(again.is_baked());
     let encoded = again.encode().await.unwrap();
+    assert_eq!(encoded.plans, graphs.encoded.plans);
     assert_eq!(encoded.bytes.len(), graphs.encoded.bytes.len());
 }
 
@@ -227,6 +229,7 @@ async fn a_chart_whose_plan_does_not_travel_keeps_its_first_rows() {
     assert!(warnings[0].contains("$brush"), "{warnings:?}");
     let file = ChartGraphFile::from_bytes(&graphs.encoded.bytes).unwrap();
     assert!(file.charts[0].plan.is_none());
+    assert_eq!(graphs.encoded.plans, 0);
     assert!(file.tables.is_empty());
 
     let decoded = graphs.decoded();
