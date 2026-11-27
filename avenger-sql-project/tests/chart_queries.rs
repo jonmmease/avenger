@@ -314,3 +314,132 @@ async fn a_chart_reruns_with_the_clauses_of_its_selections() {
     assert_eq!(rows, expected);
     assert_eq!(framed, expected);
 }
+
+/// The bytes of the chart of the first row of `batches`.
+fn chart_bytes(batches: &[RecordBatch]) -> Vec<u8> {
+    use datafusion::arrow::array::AsArray;
+    let column = batches[0].column(0);
+    match column.data_type() {
+        DataType::BinaryView => column.as_binary_view().value(0).to_vec(),
+        _ => column.as_binary::<i32>().value(0).to_vec(),
+    }
+}
+
+/// The file of the baked graph of the charts of `queries`, as a page reads it.
+async fn encode(
+    queries: &[avenger_sql_project::ChartQuery],
+) -> avenger_query_graph::chart_graph::Encoded {
+    let session = avenger_sql::bake::baked_session().unwrap();
+    let graph = avenger_sql_project::ChartQuery::chart_graph_of(queries).unwrap();
+    let baked = graph.bake(&session.state()).await.unwrap();
+    baked.encode().await.unwrap()
+}
+
+/// The graph of a chart builds the charts of the project's runs, for an empty brush, for a
+/// brush that moves, and for a brush that the reader clears: the live graph, the graph baked,
+/// and the graph that the baked graph's file gives.
+#[tokio::test]
+async fn a_chart_graph_builds_the_charts_of_the_native_run() {
+    use avenger_query_graph::chart_graph::ChartGraph;
+    use avenger_selection::{Clause, Condition};
+    // One partition, so the groups of the mark's items keep one order from run to run.
+    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(1);
+    let (_root, project, _) = project_in(SessionContext::new_with_config(config)).await;
+    let text = "DECLARE brush SELECTION;\n\
+                FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
+    let query = project.run_chart(CHART, text).await.unwrap();
+    let session = avenger_sql::bake::baked_session().unwrap();
+    let live = query.chart_graph().unwrap();
+    let baked = live.bake(&session.state()).await.unwrap();
+    let encoded = baked.encode().await.unwrap();
+    assert!(encoded.warnings.is_empty(), "{:?}", encoded.warnings);
+    let graph = ChartGraph::decode(&encoded.bytes, &session.state()).unwrap();
+    assert_eq!(graph.reads().into_iter().collect::<Vec<_>>(), ["brush"]);
+    let brushed = |low: i64, high: i64| {
+        let ends = Arc::new(Int64Array::from(vec![low, high]));
+        vec![Clause::new("scatter").condition(Condition::Range {
+            column: "v".into(),
+            channel: None,
+            ends,
+            exclude_end: false,
+            cells: None,
+        })]
+    };
+    let mut charts = Vec::new();
+    for clauses in [Vec::new(), brushed(2, 3), brushed(1, 1), Vec::new()] {
+        let selections = std::collections::BTreeMap::from([("brush".to_string(), clauses)]);
+        let native = (query.clone().with_clauses(&selections).await.unwrap())
+            .collect()
+            .await
+            .unwrap();
+        let ran = graph.run(&selections).await.unwrap();
+        assert_eq!(chart_bytes(&ran[0]), chart_bytes(&native));
+        charts.push(chart_bytes(&ran[0]));
+        for other in [&live, &baked] {
+            let ran = other.run(&selections).await.unwrap();
+            assert_eq!(chart_bytes(&ran[0]), chart_bytes(&native));
+        }
+    }
+    assert_ne!(charts[0], charts[1]);
+    // The graph's file and a brushed chart, which the browser's test of avenger-query-graph runs,
+    // written beside its baselines. Accept them by copying the output over the baselines.
+    let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-query-graph/tests/output");
+    std::fs::create_dir_all(&output).unwrap();
+    std::fs::write(output.join("bars.graph"), &encoded.bytes).unwrap();
+    std::fs::write(output.join("bars-brushed.chart"), &charts[1]).unwrap();
+}
+
+/// The charts of one document travel in one file: its tables are the rows below the charts'
+/// brushes, once for the charts that share them, with the columns of the brush's tools.
+#[tokio::test]
+async fn the_charts_of_a_document_share_the_tables_of_their_graph() {
+    use avenger_query_graph::chart_graph::{ChartGraph, ChartGraphFile};
+    let (_root, project, _) = project().await;
+    let first = "DECLARE brush SELECTION;\n\
+                 FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
+    let second = "DECLARE brush SELECTION;\n\
+                  FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => COUNT(*)) AS chart";
+    let third = "FROM host |> AGGREGATE mark_bar(x => k, y => COUNT(*)) AS chart";
+    let mut queries = Vec::new();
+    for text in [first, second, third] {
+        queries.push(project.run_chart(CHART, text).await.unwrap());
+    }
+    let encoded = encode(&queries).await;
+    assert!(encoded.warnings.is_empty(), "{:?}", encoded.warnings);
+    let file = ChartGraphFile::from_bytes(&encoded.bytes).unwrap();
+    assert_eq!(file.tables.len(), 1);
+    let plans: Vec<bool> = (file.charts.iter().map(|chart| chart.plan.is_some())).collect();
+    assert_eq!(plans, [true, true, false]);
+    let session = avenger_sql::bake::baked_session().unwrap();
+    let graph = ChartGraph::decode(&encoded.bytes, &session.state()).unwrap();
+    let outputs = graph.run(&Default::default()).await.unwrap();
+    assert_eq!(outputs.len(), 3);
+}
+
+/// The rows that a baked graph keeps for empty selections have the order of its runs, also when the
+/// project's session plans with several partitions, so a chart keeps the order of its marks when a
+/// brush first moves: a brush of every row builds the chart of the first rows.
+#[tokio::test]
+async fn the_first_rows_of_a_baked_graph_have_the_order_of_its_runs() {
+    use avenger_query_graph::chart_graph::ChartGraph;
+    use avenger_selection::{Clause, Condition};
+    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(8);
+    let (_root, project, _) = project_in(SessionContext::new_with_config(config)).await;
+    let text = "DECLARE brush SELECTION;\n\
+                FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
+    let query = project.run_chart(CHART, text).await.unwrap();
+    let encoded = encode(std::slice::from_ref(&query)).await;
+    let session = avenger_sql::bake::baked_session().unwrap();
+    let graph = ChartGraph::decode(&encoded.bytes, &session.state()).unwrap();
+    let first = graph.run(&Default::default()).await.unwrap();
+    let every = vec![Clause::new("scatter").condition(Condition::Range {
+        column: "v".into(),
+        channel: None,
+        ends: Arc::new(Int64Array::from(vec![-100, 100])),
+        exclude_end: false,
+        cells: None,
+    })];
+    let selections = std::collections::BTreeMap::from([("brush".to_string(), every)]);
+    let ran = graph.run(&selections).await.unwrap();
+    assert_eq!(chart_bytes(&ran[0]), chart_bytes(&first[0]));
+}
