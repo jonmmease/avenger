@@ -1,7 +1,8 @@
 avenger-chart-web bd87a834433bfbbb82bd96c99b5e15fcbc1cce1d
-avenger-query-web 69f82c4a9dc83dd35b884e2cca28c6672edd6228
-avenger-physical-graph b36174c27f7ae3de6386f2150bce11ed1f6ff61d
+avenger-query-web 38e8f2e01a9e1a0a111ee87ad5bd47163b58910b
+avenger-physical-graph 080f2e1afa75a8ff1ede1856cee7861600aa43af
 avenger-selection-datafusion dec54318ea70a7ae9257103ee5459441608098cf
-avenger-sql 75847bbd687a86b78a31b3273f4cf6937c9399c1
+avenger-sql ae5c9b77a49b3b7acb35a53140e7725b4c49ee92
+avenger-datafusion-transforms bceffba6c2bce12542ee704e1d67ab185e25d4ff
 datafusion 55.2.0
 format 3

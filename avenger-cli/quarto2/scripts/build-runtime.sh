@@ -17,7 +17,7 @@ quarto2="$(cd "$(dirname "$0")/.." && pwd)"
 repo="$(cd "$quarto2/../.." && pwd)"
 out="$quarto2/runtime"
 # The library, and the crates that read the graphs that the CLI writes, whose trees RUNTIME records.
-trees=(avenger-chart-web avenger-query-web avenger-physical-graph avenger-selection-datafusion avenger-sql)
+trees=(avenger-chart-web avenger-query-web avenger-physical-graph avenger-selection-datafusion avenger-sql avenger-datafusion-transforms)
 dirty=$(git -C "$repo" status --porcelain -- "${trees[@]}" | head -n 1)
 if [[ -n "$dirty" ]]; then
   echo "build-runtime.sh: commit the changes of ${trees[*]} first" >&2

@@ -505,7 +505,7 @@ fn finite(x: &Expr) -> Expr {
     .expect("a CASE with one branch")
 }
 
-static BIN_PARAMS: LazyLock<ScalarUDF> = LazyLock::new(|| {
+pub(crate) static BIN_PARAMS: LazyLock<ScalarUDF> = LazyLock::new(|| {
     ScalarUDF::new_from_impl(BinParamsUdf {
         signature: Signature::any(3, Volatility::Immutable),
     })
@@ -586,7 +586,7 @@ impl ScalarUDFImpl for BinParamsUdf {
     }
 }
 
-static BIN_APPLY: LazyLock<ScalarUDF> = LazyLock::new(|| {
+pub(crate) static BIN_APPLY: LazyLock<ScalarUDF> = LazyLock::new(|| {
     ScalarUDF::new_from_impl(BinApply {
         signature: Signature::any(2, Volatility::Immutable),
     })

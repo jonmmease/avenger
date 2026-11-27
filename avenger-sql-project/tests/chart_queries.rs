@@ -15,7 +15,7 @@ use avenger_sql::analysis::Overrides;
 use avenger_sql_project::{ChartQuery, FileSource, LoadedProject, ProjectFiles};
 use datafusion::{
     arrow::{
-        array::{Date32Array, Int64Array, RecordBatch, StringArray},
+        array::{Int64Array, RecordBatch, StringArray},
         datatypes::{DataType, Field, Schema, SchemaRef},
         util::pretty::pretty_format_batches,
     },
@@ -71,6 +71,15 @@ async fn project_in(ctx: SessionContext) -> (tempfile::TempDir, LoadedProject, A
         ("data/files/regions.csv", "region,name\neast,East\nwest,West\n"),
         ("data/files/sales.csv", "k,amount\na,10\nb,20\n"),
         (
+            "data/files/events.csv",
+            "k,v,d\na,1,2024-01-15\nb,2,2024-02-03\na,3,2024-02-20\nc,4,2024-03-01\nb,5,2024-04-11\na,6,2024-04-30\n",
+        ),
+        (
+            "data/events.av.sql",
+            "CREATE EXTERNAL TABLE events (k STRING, v INT64, d DATE) \
+             OPTIONS (format = 'CSV', skip_leading_rows = 1, uris = ['data/files/events.csv']);\n",
+        ),
+        (
             "data/regions.av.sql",
             "CREATE EXTERNAL TABLE regions OPTIONS (format = 'CSV', uris = ['data/files/regions.csv']);\n\
              CREATE VIEW east AS (FROM regions |> WHERE region = 'east');\n",
@@ -97,33 +106,11 @@ async fn project_in(ctx: SessionContext) -> (tempfile::TempDir, LoadedProject, A
         scans: scans.clone(),
     };
     ctx.register_table("host", Arc::new(host)).unwrap();
-    ctx.register_table("events", Arc::new(events())).unwrap();
     let files = ProjectFiles::open(FileSource::directory(root.path()).unwrap())
         .await
         .unwrap();
     let project = LoadedProject::load(files, ctx).await.unwrap();
     (root, project, scans)
-}
-
-/// The host's table `events`: a key, a value, and a date in each of four months.
-fn events() -> MemTable {
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("k", DataType::Utf8, false),
-        Field::new("v", DataType::Int64, false),
-        Field::new("d", DataType::Date32, false),
-    ]));
-    // Days since 1970-01-01: 2024-01-15, 2024-02-03, 2024-02-20, 2024-03-01, 2024-04-11, 2024-04-30.
-    let days = vec![19737, 19756, 19773, 19783, 19824, 19843];
-    let batch = RecordBatch::try_new(
-        schema.clone(),
-        vec![
-            Arc::new(StringArray::from(vec!["a", "b", "a", "c", "b", "a"])),
-            Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5, 6])),
-            Arc::new(Date32Array::from(days)),
-        ],
-    )
-    .unwrap();
-    MemTable::try_new(schema, vec![vec![batch]]).unwrap()
 }
 
 fn write(root: &Path, path: &str, text: &str) {
@@ -413,8 +400,8 @@ async fn a_page_builds_the_charts_of_the_native_run() {
     std::fs::write(output.join("bars-brushed.chart"), &charts[1]).unwrap();
 }
 
-/// The cases of the survey: a chart that filters `events` by `WHERE brush` and calls one function
-/// above the filter, by the function's name.
+/// The cases of the survey: a chart that filters `events`, a table of a CSV file, by `WHERE brush`
+/// and calls one function above the filter, by the function's name.
 const SURVEY: &[(&str, &str)] = &[
     ("UPPER", "|> SELECT UPPER(k) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart"),
     (
@@ -477,17 +464,6 @@ const SURVEY: &[(&str, &str)] = &[
     ),
 ];
 
-/// The cases of the survey whose charts do not filter in a page yet, since a page lacks their
-/// functions.
-const NOT_IN_PAGES: &[&str] = &[
-    "bin",
-    "timeunit",
-    "lump",
-    "stack",
-    "impute",
-    "MATCH_RECOGNIZE",
-];
-
 #[tokio::test]
 async fn a_page_builds_the_charts_of_each_function() {
     let (_root, project) = one_partition().await;
@@ -495,11 +471,8 @@ async fn a_page_builds_the_charts_of_each_function() {
     for (name, pipes) in SURVEY {
         let text = format!("DECLARE brush SELECTION;\nFROM events |> WHERE brush {pipes}");
         let query = project.run_chart(CHART, &text).await.unwrap();
-        let ran = page_charts(&query).await;
-        match (ran, NOT_IN_PAGES.contains(name)) {
-            (Ok(_), false) | (Err(_), true) => {}
-            (Ok(_), true) => wrong.push(format!("{name} runs in a page now")),
-            (Err(warnings), false) => wrong.push(format!("{name}: {warnings:?}")),
+        if let Err(warnings) = page_charts(&query).await {
+            wrong.push(format!("{name}: {warnings:?}"));
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");

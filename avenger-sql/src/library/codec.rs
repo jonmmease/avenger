@@ -1,15 +1,18 @@
 //! The library's functions in the plans of a page's graph: each travels as its name and the bytes
 //! of its state, so a page that knows the library builds the function that the planner built.
-//! A function without state, such as `$format`, travels as its name alone.
+//! A function without state, such as `$format`, travels as its name alone. The transforms of
+//! avenger-datafusion-transforms, which the library plans, travel by their own codec.
 
 use std::{any::Any, sync::Arc};
 
+use avenger_datafusion_transforms::codec as transforms;
 use avenger_format_datetime_googlesql::{Kind, Locale, Zone};
 use avenger_format_locales_d3::DateTimeLocaleSpec;
 use avenger_physical_graph::codec::HostCodec;
 use datafusion::{
     common::{exec_datafusion_err, Result},
-    logical_expr::ScalarUDF,
+    logical_expr::{AggregateUDF, ScalarUDF, WindowUDF},
+    physical_plan::ExecutionPlan,
 };
 use prost::Message;
 
@@ -18,7 +21,7 @@ use super::{
     string_format,
 };
 
-/// The codec of the library's functions, as the host of a graph's plans.
+/// The codec of the library's functions and of its transforms, as the host of a graph's plans.
 pub fn host() -> Arc<dyn HostCodec> {
     Arc::new(Library)
 }
@@ -170,6 +173,7 @@ impl HostCodec for Library {
         (stateless().iter())
             .any(|function| function.name() == udf.name())
             .then(|| Ok(Vec::new()))
+            .or_else(|| transforms::encode_udf(udf))
     }
 
     fn decode_udf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<ScalarUDF>>> {
@@ -200,9 +204,40 @@ impl HostCodec for Library {
                 let udf = encoding::decode_udf(encoding::Encoding::Base64, state()?.safe);
                 Ok(Arc::new(udf))
             })(),
-            _ => return stateless().into_iter().find(|f| f.name() == name).map(Ok),
+            _ => {
+                return (stateless().into_iter().find(|f| f.name() == name).map(Ok))
+                    .or_else(|| transforms::decode_udf(name, bytes));
+            }
         };
         Some(decoded)
+    }
+
+    fn encode_udaf(&self, udaf: &AggregateUDF) -> Option<Result<Vec<u8>>> {
+        transforms::encode_udaf(udaf)
+    }
+
+    fn decode_udaf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<AggregateUDF>>> {
+        transforms::decode_udaf(name, bytes)
+    }
+
+    fn encode_udwf(&self, udwf: &WindowUDF) -> Option<Result<Vec<u8>>> {
+        transforms::encode_udwf(udwf)
+    }
+
+    fn decode_udwf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<WindowUDF>>> {
+        transforms::decode_udwf(name, bytes)
+    }
+
+    fn encode_plan(&self, plan: &dyn ExecutionPlan) -> Option<Result<Vec<u8>>> {
+        transforms::encode_plan(plan)
+    }
+
+    fn decode_plan(
+        &self,
+        bytes: &[u8],
+        children: &[Arc<dyn ExecutionPlan>],
+    ) -> Option<Result<Arc<dyn ExecutionPlan>>> {
+        transforms::decode_plan(bytes, children)
     }
 }
 

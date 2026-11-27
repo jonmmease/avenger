@@ -189,6 +189,9 @@ pub trait TableTransform: DynTransform + fmt::Debug + Send + Sync {
 
 /// The transform of the rows of one partition, at execution.
 pub trait PartitionTransform: fmt::Debug + Send + Sync {
+    /// The transform, for the codec of a plan that holds it.
+    fn as_any(&self) -> &dyn Any;
+
     /// The result of the rows of a partition. `partitions` are the indices of the partition
     /// columns, constant in the rows; `schema` is the schema of the result.
     fn transform(
@@ -310,11 +313,11 @@ impl UserDefinedLogicalNodeCore for TableFunctionNode {
 /// partition, in the order in which the partitions first occur.
 #[derive(Debug)]
 pub struct TableFunctionExec {
-    input: Arc<dyn ExecutionPlan>,
-    transform: Arc<dyn PartitionTransform>,
+    pub(crate) input: Arc<dyn ExecutionPlan>,
+    pub(crate) transform: Arc<dyn PartitionTransform>,
     /// The indices of the partition columns.
-    partitions: Vec<usize>,
-    schema: SchemaRef,
+    pub(crate) partitions: Vec<usize>,
+    pub(crate) schema: SchemaRef,
     properties: Arc<PlanProperties>,
 }
 

@@ -230,12 +230,13 @@ mod tests {
 
     /// The crates whose sources the runtime's build records: the library, and the crates that read
     /// the graphs that this avenger writes.
-    const TREES: [&str; 5] = [
+    const TREES: [&str; 6] = [
         "avenger-chart-web",
         "avenger-query-web",
         "avenger-physical-graph",
         "avenger-selection-datafusion",
         "avenger-sql",
+        "avenger-datafusion-transforms",
     ];
 
     #[test]
