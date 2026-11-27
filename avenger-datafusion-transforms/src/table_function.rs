@@ -189,6 +189,9 @@ pub trait TableTransform: DynTransform + fmt::Debug + Send + Sync {
 
 /// The transform of the rows of one partition, at execution.
 pub trait PartitionTransform: fmt::Debug + Send + Sync {
+    /// The transform, for the codec of a plan that holds it.
+    fn as_any(&self) -> &dyn Any;
+
     /// The result of the rows of a partition. `partitions` are the indices of the partition
     /// columns, constant in the rows; `schema` is the schema of the result.
     fn transform(
