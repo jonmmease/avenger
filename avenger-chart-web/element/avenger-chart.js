@@ -34,6 +34,10 @@
 // once in its tool's throttle during a gesture, unless its `reports` attribute says otherwise.
 // Graphs run in avenger-query-web's library, whose module holds this library's exports too. With
 // avenger-chart-web's own library, an element of a graph keeps its images, and the page warns once.
+//
+// Elements with their own bytes share their selections without a graph when they name one `group`:
+// a change of one element's selections restyles the others of its group, as the elements of a graph
+// restyle, with either library. An element that names a `graph` is of its graph's group.
 
 const CHART_TYPE = "application/vnd.avenger.chart+base64";
 
@@ -133,34 +137,41 @@ function frame() {
 }
 
 /**
- * The graphs of the page, by the URLs of their files: each with its elements, its decoded graph and
- * the charts of its last run once it loads, the last change of each selection, and whether a run is
- * in progress or due again.
+ * The groups of the page, whose elements share their selections: the elements of one graph, by the
+ * URL of its file, and the elements that name one `group`, by its name. Each holds its elements and
+ * the last change of each selection. A graph's group also holds its decoded graph and the charts of
+ * its last run once it loads, and whether a run is in progress or due again.
  */
-const graphs = new Map();
+const groups = new Map();
 
-/** The graph that `element` names, which it joins, and which loads on first use. */
-function graphOf(element) {
-  const url = new URL(element.getAttribute("graph"), config.graphs ?? document.baseURI).href;
-  let group = graphs.get(url);
+/** The group of the key `key`, which `element` joins. */
+function join(key, element) {
+  let group = groups.get(key);
   if (!group) {
     group = { elements: new Set(), graph: undefined, charts: [], selections: new Map(), running: false, again: false };
-    group.loaded = (async () => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`cannot load ${url}: status ${response.status}`);
-      group.graph = new library.ChartGraph(new Uint8Array(await response.arrayBuffer()));
-      group.charts = await group.graph.run();
-    })();
-    graphs.set(url, group);
+    groups.set(key, group);
   }
   group.elements.add(element);
   return group;
 }
 
+/** The group of the graph that `element` names, which it joins, and which loads on first use. */
+function graphOf(element) {
+  const url = new URL(element.getAttribute("graph"), config.graphs ?? document.baseURI).href;
+  const group = join(`graph ${url}`, element);
+  group.loaded ??= (async () => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`cannot load ${url}: status ${response.status}`);
+    group.graph = new library.ChartGraph(new Uint8Array(await response.arrayBuffer()));
+    group.charts = await group.graph.run();
+  })();
+  return group;
+}
+
 /**
- * Gives a change of `from`'s selections to the other elements of its graph, which restyle by them,
- * keeps it for the elements that draw their first views later, and runs the graph again when the
- * change writes a selection that the graph reads.
+ * Gives a change of `from`'s selections to the other elements of its group, which restyle by them,
+ * keeps it for the elements that draw their first views later, and runs the group's graph again
+ * when the change writes a selection that the graph reads.
  */
 function changed(group, from, change) {
   // The last change of each selection, in the order of the changes.
@@ -171,7 +182,7 @@ function changed(group, from, change) {
   for (const other of group.elements) {
     if (other !== from) other.setState(change.bytes, { modes: false, views: false });
   }
-  if (change.selections.length && group.graph.change(change.bytes)) rerun(group);
+  if (group.graph && change.selections.length && group.graph.change(change.bytes)) rerun(group);
 }
 
 /** Runs `group`'s graph, once more for each change that arrives meanwhile, and gives each element whose chart changed its new chart. */
@@ -310,7 +321,13 @@ class AvengerChart extends HTMLElement {
   /** The bytes of the element's chart: its own, or the chart of its output of its graph. */
   async chartBytes() {
     const script = this.querySelector(`script[type="${CHART_TYPE}"]`);
-    if (script) return decodeBase64(script.textContent);
+    if (script) {
+      // An element with its own bytes shares its selections with the elements of its `group`.
+      if (!this.hasAttribute("graph") && this.hasAttribute("group")) {
+        this.group ??= join(`group ${this.getAttribute("group")}`, this);
+      }
+      return decodeBase64(script.textContent);
+    }
     if (!this.hasAttribute("graph")) return undefined;
     if (!library.ChartGraph) {
       if (!graphless) {
@@ -352,7 +369,7 @@ class AvengerChart extends HTMLElement {
         transparent,
         reports: this.getAttribute("reports") ?? (this.group ? "every" : "settled"),
         onChange: (change) => {
-          if (this.group?.graph) changed(this.group, this, change);
+          if (this.group) changed(this.group, this, change);
           this.dispatchEvent(new CustomEvent("avenger-change", { detail: change, bubbles: true }));
         },
       });
