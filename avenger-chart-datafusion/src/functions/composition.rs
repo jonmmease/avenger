@@ -9,7 +9,7 @@ use arrow::{
 };
 use avenger_chart::{
     chart_field, charts_from_arrow,
-    functions::{Arg, Child, ChildOrder, Composition},
+    functions::{Arg, Child, ChildOrder, Composition, CompositionKind},
     Decode,
 };
 use datafusion_common::{exec_datafusion_err, Result, ScalarValue};
@@ -20,6 +20,27 @@ use datafusion_expr::{
 };
 
 use super::rows::{self, Rows};
+
+/// The SQL name of the aggregate of a composition: `layer_agg`, `hconcat_agg`, and `vconcat_agg`
+/// for a layer and the concats, as GoogleSQL names `STRING_AGG`, so that a scalar of the charts of
+/// a row can take the short name, and its name for a facet, which composes only rows.
+pub fn aggregate_name(spec: &Composition) -> &'static str {
+    match spec.kind {
+        CompositionKind::Layer => "layer_agg",
+        CompositionKind::HConcat => "hconcat_agg",
+        CompositionKind::VConcat => "vconcat_agg",
+        _ => spec.name,
+    }
+}
+
+/// The name of a bound composition, the column of its key, its options, and the sort options of
+/// its `ORDER BY`.
+pub(crate) type CompositionParts<'a> = (
+    &'a str,
+    Option<&'a str>,
+    &'a [Option<ScalarValue>],
+    &'a [(bool, bool)],
+);
 
 /// One bound call of a composition: the name of its composition, the column of its key, its
 /// options, and the sort options of its `ORDER BY`. It takes the charts, the keys of a facet, then
@@ -36,23 +57,51 @@ pub struct CompositionInstance {
 }
 
 impl CompositionInstance {
-    /// The bound call of the composition `spec`, whose SQL name is `name`, with the column of its
-    /// key, its checked options, and the keys of its `ORDER BY`.
+    /// The bound call of the composition `spec`, with the column of its key, its checked options,
+    /// and the keys of its `ORDER BY`.
     pub fn new(
         spec: &'static Composition,
-        name: &'static str,
         column: Option<String>,
         options: Vec<Option<ScalarValue>>,
         order_by: &[SortExpr],
     ) -> Self {
         Self {
             spec: spec.name,
-            name,
+            name: aggregate_name(spec),
             column,
             options,
             order: rows::order(order_by),
             signature: Signature::user_defined(Volatility::Immutable),
         }
+    }
+
+    /// The bound call of the composition `spec`, with the column of its key, its options, and the
+    /// sort options of its `ORDER BY`.
+    pub(crate) fn with_order(
+        spec: &'static Composition,
+        column: Option<String>,
+        options: Vec<Option<ScalarValue>>,
+        order: Vec<(bool, bool)>,
+    ) -> Self {
+        Self {
+            spec: spec.name,
+            name: aggregate_name(spec),
+            column,
+            options,
+            order,
+            signature: Signature::user_defined(Volatility::Immutable),
+        }
+    }
+
+    /// The name of the composition, the column of its key, its options, and the sort options of
+    /// its `ORDER BY`.
+    pub(crate) fn parts(&self) -> CompositionParts<'_> {
+        (
+            self.spec,
+            self.column.as_deref(),
+            &self.options,
+            &self.order,
+        )
     }
 
     fn composition(&self) -> &'static Composition {

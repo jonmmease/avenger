@@ -177,6 +177,7 @@ datafusion-datasource = { version = "55.2", default-features = false }
 datafusion-execution = { version = "55.2", default-features = false }
 datafusion-expr = { version = "55.2", default-features = false }
 datafusion-functions-aggregate = { version = "55.2", default-features = false }
+datafusion-proto-common = { version = "55.2", default-features = false }
 datafusion-physical-expr = { version = "55.2", default-features = false }
 datafusion-physical-plan = { version = "55.2", default-features = false }
 css-color-parser = "0.1.2"

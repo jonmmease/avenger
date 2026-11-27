@@ -1,4 +1,4 @@
-//! The aggregates that build avenger charts in a physical plan: a bound call of a mark, which
+//! The functions that build avenger charts in a plan: a bound call of a mark, which
 //! builds the chart of one layer from the rows of its group, and a bound call of a composition,
 //! which composes the charts of the rows of its group. A planner binds each call to one of them,
 //! so they hold their options and take only data columns.
@@ -6,11 +6,14 @@
 //! Every chart that they build names GoogleSQL's syntaxes for its format patterns,
 //! [`FORMAT_SYNTAXES`].
 
+mod bytes;
+mod combine;
 mod composition;
 mod mark;
 mod rows;
 
-pub use composition::CompositionInstance;
+pub use combine::{combine, Combine};
+pub use composition::{aggregate_name, CompositionInstance};
 pub use mark::MarkInstance;
 
 use avenger_chart::functions::{Arg, FormatSyntaxes};

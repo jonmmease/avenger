@@ -3,14 +3,18 @@ name = "avenger-chart-datafusion"
 version = "0.1.0"
 edition = "2021"
 license = "BSD-3-Clause"
-description = "The DataFusion functions that build avenger charts in physical plans: the aggregates of the marks and of the compositions"
+description = "The DataFusion functions that build avenger charts, the aggregates of the marks and of the compositions, and the codec of the plans that call them"
 readme = "README.md"
 
 [dependencies]
 arrow = { workspace = true }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
+datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-expr = { workspace = true }
+datafusion-proto = { workspace = true }
+datafusion-proto-common = { workspace = true }
+prost = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # DataFusion draws identifiers, which need the browser's source of random numbers on the web.
@@ -23,6 +27,9 @@ datafusion-functions-aggregate = { workspace = true }
 datafusion-physical-expr = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # DataFusion's metrics stamp each operator's start and end with chrono's clock, which reads the
