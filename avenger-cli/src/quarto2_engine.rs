@@ -17,7 +17,11 @@
 //! tool, a widget, or a mode an `<avenger-chart>` element too, after its images, which draws the
 //! chart in a canvas with its tools. The engine then writes the runtime of interactive charts to
 //! the q2 project's `_avenger/` folder, and the response holds the page's `header`, which loads
-//! the runtime once, when the first chart nears the screen. A chart whose message is too large to
+//! the runtime once, when the first chart nears the screen. The charts of a document that declares
+//! a selection act in the page too. When the query of one of them reads the selection, the page
+//! loads the runtime's larger library, which runs the graph of the document's queries. Otherwise
+//! each element holds its own chart and restyles by the other charts' selections, with the smaller
+//! library. A chart whose message is too large to
 //! hold in a page, or a runtime that does not write, leaves the charts as images, and the
 //! response's `warnings` say so.
 //!
@@ -339,11 +343,13 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
     let header = match (interactive, project_dir) {
         (true, Some(dir)) => match quarto2_runtime::write(&dir) {
             Ok(folder) => {
-                graph(&dir, &graphed, &mut responses, &mut warnings).await;
+                let library = graph(&dir, &graphed, &mut responses, &mut warnings).await;
                 let entry = &project.files.manifest().style.stylesheet;
                 let styles = (project.root.as_deref())
                     .and_then(|root| quarto2_runtime::styles(root, entry, &project.stylesheet));
-                Some(quarto2_runtime::header(&file, &folder, &schemes, styles))
+                Some(quarto2_runtime::header(
+                    &file, &folder, library, &schemes, styles,
+                ))
             }
             Err(error) => {
                 warnings.push(format!("the charts stay images: {error}"));
@@ -359,18 +365,21 @@ async fn run(input: &str, runtime: tokio::runtime::Handle) -> Result<Answer, Str
     })
 }
 
-/// Writes the graph of the queries of the cells `graphed` for the page, and points their elements
-/// at it, so the page's charts take their selections from each other and follow them without a
-/// server. A graph that does not build leaves each element with its own chart, which restyles by
-/// the others but does not filter, with a warning.
+/// Writes the graph of the queries of the cells `graphed` for the page, when one of their charts
+/// runs again in the page, and points their elements at it, so the page's charts take their
+/// selections from each other and follow them without a server. Returns the library that the page
+/// loads: avenger-query-web's for a page with a graph, and avenger-chart-web's for the others,
+/// whose elements keep their own charts and restyle by the selections of the document's other
+/// charts. A graph that does not build leaves the page without one, with a warning.
 async fn graph(
     dir: &std::path::Path,
     graphed: &[(usize, usize, ChartQuery, [f32; 2])],
     responses: &mut [Value],
     warnings: &mut Vec<String>,
-) {
+) -> quarto2_runtime::Library {
+    use quarto2_runtime::Library;
     if graphed.is_empty() {
-        return;
+        return Library::Chart;
     }
     let queries: Vec<ChartQuery> = graphed
         .iter()
@@ -387,6 +396,10 @@ async fn graph(
             for warning in encoded.warnings {
                 warnings.push(format!("a chart does not filter in the page: {warning}"));
             }
+            // No chart runs again in the page, so each element draws its own chart.
+            if encoded.plans == 0 {
+                return Library::Chart;
+            }
             quarto2_runtime::write_graph(dir, &encoded.bytes)
         }
         Err(error) => Err(error.to_string()),
@@ -397,7 +410,7 @@ async fn graph(
             warnings.push(format!(
                 "the charts restyle by their selections but do not filter in the page: {error}"
             ));
-            return;
+            return Library::Chart;
         }
     };
     for (output, (response, at, _, size)) in graphed.iter().enumerate() {
@@ -412,6 +425,7 @@ async fn graph(
             "metadata": {},
         });
     }
+    Library::Query
 }
 
 /// The color schemes `names` of a request, at least one, each once.
@@ -491,14 +505,19 @@ fn browser_draws(node: &avenger_chart::proto::Node) -> bool {
 
 /// The `display_data` output of the `<avenger-chart>` element of `chart`, at the natural size of
 /// its image, `size`, which holds the chart's bytes as base64, or none for a chart whose message
-/// is above [`MAX_INTERACTIVE_BYTES`].
+/// is above [`MAX_INTERACTIVE_BYTES`]. A chart with selections is of the document's group, whose
+/// elements restyle by each other's selections.
 fn element(chart: &Chart, size: [f32; 2]) -> Result<Option<Value>, String> {
     let bytes = chart.to_bytes().map_err(|error| error.to_string())?;
     if bytes.len() > MAX_INTERACTIVE_BYTES {
         return Ok(None);
     }
+    let group = match chart.selections().is_empty() {
+        true => "",
+        false => " group=\"document\"",
+    };
     let html = format!(
-        "<avenger-chart width=\"{}\" height=\"{}\">\n<script type=\"application/vnd.avenger.chart+base64\">{}</script>\n</avenger-chart>",
+        "<avenger-chart width=\"{}\" height=\"{}\"{group}>\n<script type=\"application/vnd.avenger.chart+base64\">{}</script>\n</avenger-chart>",
         size[0].round(),
         size[1].round(),
         base64::engine::general_purpose::STANDARD.encode(bytes),

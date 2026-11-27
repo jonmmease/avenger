@@ -308,17 +308,16 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
         html.starts_with(&format!("<avenger-chart width=\"{width}\"")),
         "{html}"
     );
-    // The element draws the first output of the document's graph, which the runtime's folder
-    // holds beside the runtime.
-    let graph = html
-        .split("graph=\"")
-        .nth(1)
-        .unwrap()
-        .split('"')
-        .next()
-        .unwrap();
-    assert!(html.contains("output=\"0\""), "{html}");
-    assert!(root.join("_avenger/graphs").join(graph).is_file(), "{html}");
+    // The element holds its own chart: the document declares no selection, so its page runs no
+    // graph, and the chart is of no group.
+    assert!(
+        html.contains("<script type=\"application/vnd.avenger.chart+base64\">"),
+        "{html}"
+    );
+    assert!(
+        !html.contains("graph=") && !html.contains("group="),
+        "{html}"
+    );
     // The chart's image has its size, so revealjs's auto-stretch leaves it in its figure with
     // the element.
     assert_eq!(
@@ -342,8 +341,10 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
     let folder = &root.join("_avenger/runtime");
     let mut folders = folders;
     folders.sort();
-    assert_eq!(folders, [root.join("_avenger/graphs"), folder.clone()]);
+    assert_eq!(folders, std::slice::from_ref(folder));
     for file in [
+        "avenger_chart_web_bg.wasm.gz",
+        "avenger_chart_web.js",
         "avenger_query_web_bg.wasm.gz",
         "avenger_query_web.js",
         "avenger-chart.js",
@@ -352,10 +353,12 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
     ] {
         assert!(folder.join(file).is_file(), "{file}");
     }
-    // The header gives the runtime's URL relative to the document, the fonts, the project's
-    // stylesheets, and the color schemes.
+    // The header gives the runtime's URL relative to the document, the smaller library, which
+    // draws the charts of a page without a graph, the fonts, the project's stylesheets, and the
+    // color schemes.
     let config = runtime_config(response["header"].as_str().unwrap());
     assert_eq!(config["runtime"], "../_avenger/runtime/");
+    assert_eq!(config["library"], "avenger_chart_web");
     let hash = std::fs::read_to_string(folder.join("HASH")).unwrap();
     assert_eq!(config["version"], json!(hash));
     assert_eq!(config["fonts"][0], "Lato-Bold.ttf");
@@ -514,6 +517,9 @@ fn the_charts_of_a_document_share_one_graph_whose_selections_filter_them() {
         );
     }
     assert!(graphs.iter().all(|graph| *graph == graphs[0]));
+    // The page loads the library that runs graphs.
+    let config = runtime_config(response["header"].as_str().unwrap());
+    assert_eq!(config["library"], "avenger_query_web");
     // The graph runs without the project: a brush of the scatter's horsepower filters the bars,
     // and leaves the scatter's chart as it is.
     let bytes = std::fs::read(root.join("_avenger/graphs").join(&graphs[0])).unwrap();
@@ -534,6 +540,43 @@ fn the_charts_of_a_document_share_one_graph_whose_selections_filter_them() {
     let brushed = block(graph.run(&BTreeMap::from([("brush".to_string(), vec![clause])])));
     assert_eq!(chart(&empty[0]), chart(&brushed[0]));
     assert_ne!(chart(&empty[2]), chart(&brushed[2]));
+}
+
+/// The charts of a document whose queries read no selection restyle by each other's selections
+/// with the smaller library: each element holds its own chart, in the document's group, and the
+/// page has no graph.
+#[test]
+fn the_charts_of_a_document_that_only_restyle_share_a_group_without_a_graph() {
+    let (_directory, root) = project();
+    let document = root.join("restyled.qmd");
+    std::fs::write(&document, "").unwrap();
+    let text = "```{avenger-sql}\nDECLARE brush SELECTION;\nFROM vega_datasets.cars |> AGGREGATE mark_symbol(x => Horsepower, y => Miles_per_Gallon, id => 'scatter', tools => [select(brush, type => interval(channels => ['x']))]) AS chart\n```\n\n```{avenger-sql}\nFROM vega_datasets.cars |> AGGREGATE mark_symbol(x => Horsepower, y => Acceleration, fill => IF(brush, value('steelblue'), value('lightgray'))) AS chart\n```\n\n```{avenger-sql}\nFROM vega_datasets.cars |> AGGREGATE mark_bar(x => Origin, y => COUNT(*), tools => [tooltip()]) AS chart\n```\n";
+    let mut interactive = request(&document, text);
+    interactive["interactive"] = json!(true);
+    interactive["projectDir"] = json!(root);
+    let (status, response) = engine(&interactive);
+    assert_eq!(status, 0, "{response}");
+    assert!(response.get("warnings").is_none(), "{response}");
+    let element = |cell: usize| {
+        let outputs = response["cells"][cell]["outputs"].as_array().unwrap();
+        assert_eq!(outputs.len(), 2, "{response}");
+        outputs[1]["data"]["text/html"].as_str().unwrap()
+    };
+    // The brushed scatter and the restyled one are of the document's group, with their charts.
+    for cell in 0..2 {
+        let html = element(cell);
+        assert!(html.contains(" group=\"document\">"), "{html}");
+        assert!(
+            html.contains("<script type=\"application/vnd.avenger.chart+base64\">"),
+            "{html}"
+        );
+        assert!(!html.contains("graph="), "{html}");
+    }
+    // The bars read no selection, so they are of no group.
+    assert!(!element(2).contains("group="), "{}", element(2));
+    assert!(!root.join("_avenger/graphs").exists());
+    let config = runtime_config(response["header"].as_str().unwrap());
+    assert_eq!(config["library"], "avenger_chart_web");
 }
 
 /// The rows of a run of a page's graph, run to its end on a runtime of the test's own.
