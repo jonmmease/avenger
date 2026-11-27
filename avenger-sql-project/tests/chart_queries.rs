@@ -12,10 +12,10 @@ use std::{
 
 use async_trait::async_trait;
 use avenger_sql::analysis::Overrides;
-use avenger_sql_project::{FileSource, LoadedProject, ProjectFiles};
+use avenger_sql_project::{ChartQuery, FileSource, LoadedProject, ProjectFiles};
 use datafusion::{
     arrow::{
-        array::{Int64Array, RecordBatch, StringArray},
+        array::{Date32Array, Int64Array, RecordBatch, StringArray},
         datatypes::{DataType, Field, Schema, SchemaRef},
         util::pretty::pretty_format_batches,
     },
@@ -97,6 +97,7 @@ async fn project_in(ctx: SessionContext) -> (tempfile::TempDir, LoadedProject, A
         scans: scans.clone(),
     };
     ctx.register_table("host", Arc::new(host)).unwrap();
+    ctx.register_table("events", Arc::new(events())).unwrap();
     let files = ProjectFiles::open(FileSource::directory(root.path()).unwrap())
         .await
         .unwrap();
@@ -108,6 +109,27 @@ fn write(root: &Path, path: &str, text: &str) {
     let path = root.join(path);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, text).unwrap();
+}
+
+/// The host's table `events`: a key, a value, and a date in each of four months.
+fn events() -> MemTable {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("k", DataType::Utf8, false),
+        Field::new("v", DataType::Int64, false),
+        Field::new("d", DataType::Date32, false),
+    ]));
+    // Days since 1970-01-01: 2024-01-15, 2024-02-03, 2024-02-20, 2024-03-01, 2024-04-11, 2024-04-30.
+    let days = vec![19737, 19756, 19773, 19783, 19824, 19843];
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b", "a", "c", "b", "a"])),
+            Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5, 6])),
+            Arc::new(Date32Array::from(days)),
+        ],
+    )
+    .unwrap();
+    MemTable::try_new(schema, vec![vec![batch]]).unwrap()
 }
 
 const CHART: &str = "charts/chart.av.sql";
@@ -442,4 +464,143 @@ async fn the_first_rows_of_a_baked_graph_have_the_order_of_its_runs() {
     let selections = std::collections::BTreeMap::from([("brush".to_string(), every)]);
     let ran = graph.run(&selections).await.unwrap();
     assert_eq!(chart_bytes(&ran[0]), chart_bytes(&first[0]));
+}
+
+/// The clauses of a brush of the values `v` from `low` to `high`.
+fn brushed(low: i64, high: i64) -> Vec<avenger_selection::Clause> {
+    use avenger_selection::{Clause, Condition};
+    let ends = Arc::new(Int64Array::from(vec![low, high]));
+    vec![Clause::new("scatter").condition(Condition::Range {
+        column: "v".into(),
+        channel: None,
+        ends,
+        exclude_end: false,
+        cells: None,
+    })]
+}
+
+/// The chart that the file of the baked graph of `query` builds for each of a series of states of
+/// the selection `brush`, each equal to the chart of the project's run, or the file's warnings.
+async fn file_charts(query: &ChartQuery) -> Result<Vec<Vec<u8>>, Vec<String>> {
+    use avenger_query_graph::chart_graph::ChartGraph;
+    let encoded = encode(std::slice::from_ref(query)).await;
+    if !encoded.warnings.is_empty() {
+        return Err(encoded.warnings);
+    }
+    let session = avenger_sql::bake::baked_session().unwrap();
+    let graph = ChartGraph::decode(&encoded.bytes, &session.state()).unwrap();
+    let mut charts = Vec::new();
+    for clauses in [Vec::new(), brushed(2, 3), brushed(1, 1), Vec::new()] {
+        let selections = std::collections::BTreeMap::from([("brush".to_string(), clauses)]);
+        let native = (query.clone().with_clauses(&selections).await.unwrap())
+            .collect()
+            .await
+            .unwrap();
+        let ran = graph.run(&selections).await.unwrap();
+        assert_eq!(chart_bytes(&ran[0]), chart_bytes(&native));
+        charts.push(chart_bytes(&ran[0]));
+    }
+    Ok(charts)
+}
+
+/// A session of one partition, so the groups of the marks' items keep one order from run to run.
+async fn one_partition() -> (tempfile::TempDir, LoadedProject) {
+    let config = datafusion::prelude::SessionConfig::new().with_target_partitions(1);
+    let (root, project, _) = project_in(SessionContext::new_with_config(config)).await;
+    (root, project)
+}
+
+/// The cases of the survey: a chart that filters `events` by `WHERE brush` and calls one function
+/// above the filter, by the function's name.
+const SURVEY: &[(&str, &str)] = &[
+    ("UPPER", "|> SELECT UPPER(k) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart"),
+    (
+        "layer",
+        "|> AGGREGATE layer(mark_bar(x => k, y => SUM(v)), mark_symbol(x => k, y => SUM(v))) AS chart",
+    ),
+    (
+        "FORMAT_DATE",
+        "|> SELECT FORMAT_DATE('%b', d) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "PARSE_DATE",
+        "|> SELECT PARSE_DATE('%Y-%m-%d', FORMAT_DATE('%Y-%m-01', d)) AS x, v \
+         |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "CAST AS STRING",
+        "|> SELECT CAST(v * 1.5 AS STRING) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "TO_HEX",
+        "|> SELECT TO_HEX(CAST(k AS BYTES)) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "INTERVAL",
+        "|> SELECT DATE_ADD(d, INTERVAL v DAY) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "REGEXP_CONTAINS",
+        "|> SELECT IF(REGEXP_CONTAINS(k, r'^a'), 'a', 'other') AS x, v \
+         |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "FORMAT",
+        "|> SELECT FORMAT('%d', v) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    (
+        "INITCAP",
+        "|> SELECT INITCAP(k) AS x, v |> AGGREGATE mark_bar(x => x, y => SUM(v)) AS chart",
+    ),
+    ("bin", "|> AGGREGATE mark_bar(x => bin(v), y => COUNT(*)) AS chart"),
+    (
+        "timeunit",
+        "|> AGGREGATE mark_bar(x => timeunit(d, unit => 'month'), y => COUNT(*)) AS chart",
+    ),
+    ("lump", "|> AGGREGATE mark_bar(x => lump(k, n => 1), y => COUNT(*)) AS chart"),
+    (
+        "stack",
+        "|> AGGREGATE mark_area(x => v, y => stack(COUNT(*)), color => k) AS chart",
+    ),
+    (
+        "impute",
+        "|> AGGREGATE COUNT(*) AS c GROUP BY k, v |> CALL impute(v, [k], c, value => 0) \
+         |> AGGREGATE mark_line(x => v, y => c, color => k) AS chart",
+    ),
+    (
+        "MATCH_RECOGNIZE",
+        "|> MATCH_RECOGNIZE(PARTITION BY k ORDER BY v MEASURES first(v) AS low, last(v) AS high \
+         PATTERN (up+) DEFINE up AS v > 0) |> AGGREGATE mark_bar(x => k, y => SUM(high)) AS chart",
+    ),
+];
+
+/// The cases of the survey whose charts do not filter from a graph's file yet, since a file does
+/// not hold their functions.
+const NOT_IN_FILES: &[&str] = &[
+    "bin",
+    "timeunit",
+    "lump",
+    "stack",
+    "impute",
+    "MATCH_RECOGNIZE",
+];
+
+/// Each case of the survey builds, from the file of a baked graph, the charts of the project's runs
+/// for a brush that moves, or stays as the render drew it, with a warning, when a file does not
+/// hold its functions.
+#[tokio::test]
+async fn a_graph_s_file_builds_the_charts_of_each_function() {
+    let (_root, project) = one_partition().await;
+    let mut wrong = Vec::new();
+    for (name, pipes) in SURVEY {
+        let text = format!("DECLARE brush SELECTION;\nFROM events |> WHERE brush {pipes}");
+        let query = project.run_chart(CHART, &text).await.unwrap();
+        let ran = file_charts(&query).await;
+        match (ran, NOT_IN_FILES.contains(name)) {
+            (Ok(_), false) | (Err(_), true) => {}
+            (Ok(_), true) => wrong.push(format!("{name} runs from a graph's file now")),
+            (Err(warnings), false) => wrong.push(format!("{name}: {warnings:?}")),
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
