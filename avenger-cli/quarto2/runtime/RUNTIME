@@ -1,2 +1,11 @@
-avenger-chart-web d0609fb11d285f1f7e098192741da1609bbcf111
+avenger-chart-web bd87a834433bfbbb82bd96c99b5e15fcbc1cce1d
+avenger-query-web f8529316f3b5663da07dfedbce3de4077d6ddb17
+avenger-query-graph 65cf29bac0bf47b2d27bf38394b0cc95bf393a5e
+avenger-chart-datafusion 50db68beb362b088b4784160d4bdd6968e664b7b
+avenger-selection-datafusion 8e1ef6b1d9b9a00157c89af59c427ac12fcd455f
+avenger-datafusion-shared c1923137dca6f5e48943b5bc3917db98a14edd6a
+avenger-datafusion-transforms 1c991752acf7044f0512f410fc9714f6074e1b2a
+avenger-sql 48df2ee526ac43ac69c3cc9303d8b695641b7bee
+avenger-chart f78f7a4c678d3273740ce6d50c61cb86f440f449
+datafusion 55.2.0
 format 3
