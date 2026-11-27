@@ -11,7 +11,10 @@ use std::{
 
 use avenger_chart::{results::is_chart_field, ChangeMessage};
 use avenger_chart_app::ChartChange;
-use avenger_physical_graph::page::{task_context, PageGraph};
+use avenger_physical_graph::{
+    codec::Hosts,
+    page::{task_context, PageGraph},
+};
 use avenger_selection::Clause;
 use js_sys::{Array, Promise, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -36,7 +39,9 @@ impl ChartGraph {
     /// name a function or an operator that the library lacks.
     #[wasm_bindgen(constructor)]
     pub fn new(bytes: &[u8]) -> Result<ChartGraph, JsError> {
-        let graph = PageGraph::decode(bytes, Arc::new(task_context()))
+        // The plans call avenger-sql's library, whose functions decode by their names and state.
+        let hosts = Hosts::default().with(avenger_sql::library::codec::host());
+        let graph = PageGraph::decode(bytes, Arc::new(task_context(hosts)))
             .map_err(|error| JsError::new(&error.to_string()))?;
         let reads = graph.reads();
         Ok(ChartGraph {

@@ -25,7 +25,7 @@ use datafusion_proto_common as protobuf;
 use prost::Message;
 
 use crate::{
-    codec::GraphCodec,
+    codec::{GraphCodec, Hosts},
     kept::{substitute, Kept},
     keys::{resolution_code, SelectionKey},
 };
@@ -219,8 +219,9 @@ impl SelectionFile {
 
 /// The context in which a page's plans decode and run: one partition, with DataFusion's scalar,
 /// nested, aggregate, and window functions and the scalar compositions of charts. The bound calls
-/// of marks and compositions and the operators of selections decode through the graph's codec.
-pub fn task_context() -> TaskContext {
+/// of marks and compositions, the operators of selections, and the functions of `hosts`, such
+/// as avenger-sql's library, decode through the graph's codec.
+pub fn task_context(hosts: Hosts) -> TaskContext {
     let scalar = (datafusion_functions::all_default_functions().into_iter())
         .chain(datafusion_functions_nested::all_default_nested_functions())
         .chain(crate::functions::Combine::all())
@@ -250,7 +251,9 @@ pub fn task_context() -> TaskContext {
     TaskContext::new(
         None,
         "avenger-page".to_string(),
-        SessionConfig::new().with_target_partitions(1),
+        SessionConfig::new()
+            .with_target_partitions(1)
+            .with_extension(Arc::new(hosts)),
         scalar,
         HashMap::new(),
         aggregate,
@@ -265,9 +268,9 @@ pub fn decode_plan(bytes: &[u8], ctx: &TaskContext) -> Result<Arc<dyn ExecutionP
     crate::decode::decode(&node, ctx)
 }
 
-/// The bytes of the physical plan `plan` in a graph's file.
-pub fn encode_plan(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<u8>> {
-    let node = PhysicalPlanNode::try_from_physical_plan(plan, &GraphCodec)?;
+/// The bytes of the physical plan `plan` in a graph's file, with the functions of `hosts`.
+pub fn encode_plan(plan: Arc<dyn ExecutionPlan>, hosts: &Hosts) -> Result<Vec<u8>> {
+    let node = PhysicalPlanNode::try_from_physical_plan(plan, &GraphCodec::new(hosts.clone()))?;
     Ok(node.encode_to_vec())
 }
 

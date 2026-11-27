@@ -173,8 +173,8 @@ async fn round_trip(
     let expected = collect(reset_plan_states(plan).unwrap(), ctx.task_ctx())
         .await
         .unwrap();
-    let bytes = encode_plan(cut).unwrap();
-    let page = Arc::new(task_context());
+    let bytes = encode_plan(cut, &Default::default()).unwrap();
+    let page = Arc::new(task_context(Default::default()));
     let decoded = decode_plan(&bytes, &page).unwrap();
     operators(&decoded, names);
     let decoded = substitute(decoded, &results, 1).unwrap();
@@ -252,8 +252,8 @@ async fn a_page_decodes_the_operators_and_expressions_of_charts() {
     let expected = collect(reset_plan_states(values.clone()).unwrap(), ctx.task_ctx())
         .await
         .unwrap();
-    let page = Arc::new(task_context());
-    let decoded = decode_plan(&encode_plan(values).unwrap(), &page).unwrap();
+    let page = Arc::new(task_context(Default::default()));
+    let decoded = decode_plan(&encode_plan(values, &Default::default()).unwrap(), &page).unwrap();
     operators(&decoded, &mut names);
     let ran = collect(decoded, page).await.unwrap();
     assert_eq!(
@@ -300,8 +300,8 @@ async fn a_page_names_an_operator_that_it_does_not_run() {
     let scan = plan(&ctx, "SELECT k FROM t").await;
     let (scan, _) = cut(&ctx, scan).await;
     let repartition = RepartitionExec::try_new(scan, Partitioning::RoundRobinBatch(2)).unwrap();
-    let bytes = encode_plan(Arc::new(repartition)).unwrap();
-    let error = decode_plan(&bytes, &task_context())
+    let bytes = encode_plan(Arc::new(repartition), &Default::default()).unwrap();
+    let error = decode_plan(&bytes, &task_context(Default::default()))
         .unwrap_err()
         .to_string();
     assert!(
@@ -342,8 +342,9 @@ async fn a_page_decodes_a_selection_s_operator() {
     let expected = collect(reset_plan_states(bound).unwrap(), ctx.task_ctx())
         .await
         .unwrap();
-    let page = Arc::new(task_context());
-    let decoded = decode_plan(&encode_plan(cut).unwrap(), &page).unwrap();
+    let page = Arc::new(task_context(Default::default()));
+    let bytes = encode_plan(cut, &Default::default()).unwrap();
+    let decoded = decode_plan(&bytes, &page).unwrap();
     let mut names = BTreeSet::new();
     operators(&decoded, &mut names);
     assert!(names.contains("SelectionExec"), "{names:?}");

@@ -1,16 +1,16 @@
 //! The codec of the physical plans of a graph: datafusion-proto's messages, with the leaves of cuts,
-//! the bound calls of marks and compositions, and the operators of selections as extensions, so a
-//! host that runs a graph builds the same charts and binds the same selections as the host that
-//! planned it.
+//! the bound calls of marks and compositions, the operators of selections, and the functions of
+//! the host that planned the graph as extensions, so a host that runs a graph builds the same
+//! charts and binds the same selections as the host that planned it.
 
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use arrow::datatypes::Schema;
 use avenger_selection::SelectedOptions;
 use avenger_selection_datafusion::SelectionExec;
 use datafusion_common::{exec_datafusion_err, not_impl_err, project_schema, Result};
 use datafusion_execution::TaskContext;
-use datafusion_expr::AggregateUDF;
+use datafusion_expr::{AggregateUDF, ScalarUDF};
 use datafusion_physical_plan::{empty::EmptyExec, ExecutionPlan};
 use datafusion_proto::{
     physical_plan::{
@@ -31,6 +31,43 @@ const CUT: u8 = 1;
 const MARK: u8 = 2;
 const COMPOSITION: u8 = 3;
 const SELECTION: u8 = 4;
+const HOST: u8 = 5;
+
+/// The codec of the functions that a host adds to a graph's plans beyond DataFusion's, such as the
+/// library of avenger-sql, which travel as their names and the bytes of their state, so a page
+/// that knows the same host decodes the functions that the host planned.
+pub trait HostCodec: Debug + Send + Sync {
+    /// The host's name, such as `avenger-sql`, which a session's hosts hold once.
+    fn name(&self) -> &str;
+
+    /// The bytes of the state of `udf`, when it is one of the host's functions.
+    fn encode_udf(&self, udf: &ScalarUDF) -> Option<Result<Vec<u8>>>;
+
+    /// The function named `name` with the state `bytes`, when it is one of the host's functions.
+    fn decode_udf(&self, name: &str, bytes: &[u8]) -> Option<Result<Arc<ScalarUDF>>>;
+}
+
+/// The hosts whose functions a graph's plans call, which a session holds as an extension of its
+/// configuration, so the export of a page and the page's context find them.
+#[derive(Clone, Debug, Default)]
+pub struct Hosts(pub Vec<Arc<dyn HostCodec>>);
+
+impl Hosts {
+    /// The hosts with `host`, unless they hold a host of its name.
+    pub fn with(mut self, host: Arc<dyn HostCodec>) -> Hosts {
+        if !self.0.iter().any(|known| known.name() == host.name()) {
+            self.0.push(host);
+        }
+        self
+    }
+
+    /// The hosts that `config` holds, or none.
+    pub fn of(config: &datafusion_execution::config::SessionConfig) -> Hosts {
+        (config.get_extension::<Hosts>())
+            .map(|hosts| hosts.as_ref().clone())
+            .unwrap_or_default()
+    }
+}
 
 #[derive(Clone, PartialEq, Message)]
 struct CutBytes {
@@ -75,11 +112,23 @@ fn invalid(error: impl std::fmt::Display) -> datafusion_common::DataFusionError 
     exec_datafusion_err!("the bytes of a graph's extension: {error}")
 }
 
-/// The codec of a graph's physical plans.
+/// The codec of a graph's physical plans, with the functions of `hosts`.
 #[derive(Debug, Default)]
-pub struct GraphCodec;
+pub struct GraphCodec {
+    hosts: Hosts,
+}
 
 impl GraphCodec {
+    /// The codec of the plans of a session whose configuration holds `hosts`.
+    pub fn new(hosts: Hosts) -> GraphCodec {
+        GraphCodec { hosts }
+    }
+
+    /// The codec of the plans that run in `ctx`, with the hosts of its configuration.
+    pub fn of(ctx: &TaskContext) -> GraphCodec {
+        GraphCodec::new(Hosts::of(ctx.session_config()))
+    }
+
     /// The unbound operator of a selection over `inputs`, from its bytes.
     fn decode_selection(
         &self,
@@ -194,6 +243,24 @@ impl PhysicalExtensionCodec for GraphCodec {
         };
         buf.push(CUT);
         bytes.encode(buf).map_err(invalid)
+    }
+
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        if let Some((&HOST, bytes)) = buf.split_first() {
+            return (self.hosts.0.iter())
+                .find_map(|host| host.decode_udf(name, bytes))
+                .unwrap_or_else(|| not_impl_err!("a page does not know the function {name}"));
+        }
+        not_impl_err!("a graph's codec does not know the function {name}")
+    }
+
+    fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
+        if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_udf(node)) {
+            buf.push(HOST);
+            buf.extend(bytes?);
+            return Ok(());
+        }
+        Ok(())
     }
 
     fn try_decode_udaf(&self, name: &str, buf: &[u8]) -> Result<Arc<AggregateUDF>> {

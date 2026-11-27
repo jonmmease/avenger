@@ -44,7 +44,7 @@ pub(crate) fn error_when(invalid: Expr, value: Expr, message: &str, args: Vec<Ex
     ERROR_WHEN.call(call)
 }
 
-static ERROR_WHEN: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
+pub(super) static ERROR_WHEN: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
     Arc::new(ScalarUDF::new_from_impl(ErrorWhen {
         signature: Signature::variadic_any(Volatility::Immutable),
     }))

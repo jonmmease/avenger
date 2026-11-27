@@ -1230,6 +1230,7 @@ dependencies = [
  "avenger-chart-web",
  "avenger-physical-graph",
  "avenger-selection",
+ "avenger-sql",
  "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-futures",

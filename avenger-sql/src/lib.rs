@@ -60,7 +60,8 @@ pub use pipeline::{
 /// input to the columns that its readers read, the rule that groups by the
 /// fields of a struct, such as a bin, the rule that plans an aggregate grouped by a lump
 /// without joining the lump to its rows, and `selected`, which reads a selection. Registering two
-/// times adds the rules once.
+/// times adds the rules once. The session's configuration holds the library's functions as a host
+/// of the plans of a page's graph, [`library::codec::host`].
 pub fn register(ctx: &SessionContext) -> Result<()> {
     use avenger_datafusion_shared::{InlineShared, PruneShared};
     use avenger_datafusion_transforms::{lump::LumpAggregateFusion, StructGroupSplit};
@@ -120,6 +121,11 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
     if !state.scalar_functions().contains_key("selected") {
         avenger_selection_datafusion::register(&mut *state)?;
     }
+    // The library's functions, which travel in the plans of a page's graph by their names and the
+    // bytes of their state.
+    let hosts =
+        avenger_physical_graph::codec::Hosts::of(state.config()).with(library::codec::host());
+    state.config_mut().set_extension(Arc::new(hosts));
     Ok(())
 }
 

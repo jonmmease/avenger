@@ -141,3 +141,15 @@ fn a_locales_composites_are_googlesql_formats() {
         "invalid locale data: field `time` has `%L`, which is not an element of GoogleSQL's formats"
     );
 }
+
+#[test]
+fn a_locale_and_a_zone_rebuild_from_their_spec_and_name() {
+    use avenger_format_datetime_googlesql::Zone;
+    for locale in [Locale::default(), Locale::bundled("en-US").unwrap()] {
+        assert_eq!(Locale::new(&locale.spec()).unwrap(), locale);
+    }
+    for name in ["America/New_York", "UTC", "+05:30", "-08", "UTC+5", "+00:45"] {
+        let zone = Zone::parse(name).unwrap();
+        assert_eq!(Zone::parse(&zone.name()), Some(zone), "{name}");
+    }
+}

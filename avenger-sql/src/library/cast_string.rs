@@ -39,11 +39,15 @@ pub(crate) fn cast_to_string(value: Expr, from: &Ty, zone: &str) -> Option<Expr>
         Ty::Timestamp => (cast(value, types::timestamp()), Zone::parse(zone)?),
         _ => return None,
     };
-    let udf = CastToString {
+    Some(udf(zone).call(vec![value]))
+}
+
+/// The function of [`cast_to_string`] in the time zone `zone`.
+pub(super) fn udf(zone: Zone) -> ScalarUDF {
+    ScalarUDF::new_from_impl(CastToString {
         zone,
         signature: Signature::any(1, Volatility::Immutable),
-    };
-    Some(ScalarUDF::new_from_impl(udf).call(vec![value]))
+    })
 }
 
 /// `value` as C's `printf` writes it with `%.{precision}g`.
@@ -173,8 +177,8 @@ pub(crate) fn text(array: &ArrayRef, row: usize, zone: Zone) -> Result<String> {
 /// The text of a value as GoogleSQL's `CAST(x AS STRING)` writes it, with a timestamp in the time
 /// zone `zone`.
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct CastToString {
-    zone: Zone,
+pub(super) struct CastToString {
+    pub(super) zone: Zone,
     signature: Signature,
 }
 
