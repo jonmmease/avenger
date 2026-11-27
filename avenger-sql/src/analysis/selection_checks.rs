@@ -156,6 +156,23 @@ impl Pass<'_> {
     pub(super) fn check_selections(&mut self, root: &SyntaxNode) {
         let reads = std::mem::take(&mut self.selection_reads);
         let writes = std::mem::take(&mut self.selection_writes);
+        for selection in &mut self.selections {
+            let mut fields = Some(Vec::<String>::new());
+            for write in (writes.iter())
+                .filter(|write| write.selection.eq_ignore_ascii_case(&selection.name))
+            {
+                let (Some(known), Some(written)) = (&mut fields, &write.fields) else {
+                    fields = None;
+                    break;
+                };
+                for field in written {
+                    if !known.iter().any(|known| known.eq_ignore_ascii_case(field)) {
+                        known.push(field.clone());
+                    }
+                }
+            }
+            selection.fields = fields;
+        }
         for read in &reads {
             let writers: Vec<&Write> = (writes.iter())
                 .filter(|write| write.selection.eq_ignore_ascii_case(&read.selection))

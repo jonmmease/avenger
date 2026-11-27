@@ -196,10 +196,14 @@ impl Analysis {
                 (selection.name.clone(), state)
             })
             .collect();
+        let fields = (self.selections.iter())
+            .map(|selection| (selection.name.clone(), selection.fields.clone()))
+            .collect();
         Ok(PlannedQuery {
             plan: plan.clone(),
             params: param_values(&values),
             selections,
+            fields,
         })
     }
 
@@ -301,6 +305,11 @@ pub struct PlannedQuery {
     /// The state of each selection of the script, by the selection's name: empty, with the
     /// selection's resolution, until a host sets it.
     pub selections: std::collections::BTreeMap<String, avenger_selection::SelectionState>,
+    /// The columns that each selection's clauses test, by the selection's name, as the script's
+    /// tools that write it name them: none when no tool of the script writes it, and `None`
+    /// when a tool's columns are unknown. A host that sends the query's plan to a page ships
+    /// these columns of the tables below each read of the selection.
+    pub fields: std::collections::BTreeMap<String, Option<Vec<String>>>,
 }
 
 impl PlannedQuery {
