@@ -1214,6 +1214,8 @@ dependencies = [
  "datafusion-proto-common",
  "futures",
  "prost",
+ "prost-build",
+ "protoc-bin-vendored",
  "tokio",
  "wasm-bindgen-futures",
 ]
