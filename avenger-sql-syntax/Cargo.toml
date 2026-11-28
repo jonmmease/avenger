@@ -7,5 +7,9 @@ description = "The syntax of avenger-sql: a subset of GoogleSQL, read into a syn
 [dependencies]
 rowan = { workspace = true }
 
+[dev-dependencies]
+tree-sitter = { workspace = true }
+tree-sitter-avenger-sql = { workspace = true }
+
 [build-dependencies]
 ungrammar = { workspace = true }
