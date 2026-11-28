@@ -3,9 +3,10 @@
 //! know: the bound calls of marks and compositions, the functions and the extension nodes of the
 //! host that planned the plan, and the tables that the plan scans.
 //!
-//! A function with state travels as its name and the bytes of its state. A function without
-//! state travels as its name alone, and decodes from the functions of the session that reads the
-//! plan.
+//! What the codec adds is in the messages of package `avenger.chart.datafusion.v1`, which
+//! [`proto`](crate::proto) holds: a scan travels as a `TableScan`, a function with state as its
+//! name and a `FunctionState`, and a node of a host as a `HostNode`. A function without state
+//! travels as its name alone, and decodes from the functions of the session that reads the plan.
 
 use std::{any::Any, fmt::Debug, sync::Arc};
 
@@ -26,12 +27,13 @@ use datafusion_proto::{
 };
 use prost::Message;
 
-use crate::functions::{CompositionInstance, MarkInstance};
-
-/// The kinds of the bytes of a function's state, the first byte of each.
-const MARK: u8 = 1;
-const COMPOSITION: u8 = 2;
-const HOST: u8 = 3;
+use crate::{
+    functions::{CompositionInstance, MarkInstance},
+    proto::{
+        function_state::State, table_scan::Table, CompositionState, FunctionState, HostNode,
+        MarkState, TableScan,
+    },
+};
 
 /// The codec of the functions and the extension nodes that a host adds to its plans beyond
 /// DataFusion's, such as the library and the transforms of avenger-sql. Each travels as the bytes
@@ -109,17 +111,33 @@ impl Hosts {
     }
 }
 
-/// An extension node of a host: the host's name and the bytes that it wrote.
-#[derive(Clone, PartialEq, Message)]
-struct HostNode {
-    #[prost(string, tag = "1")]
-    host: String,
-    #[prost(bytes = "vec", tag = "2")]
-    bytes: Vec<u8>,
-}
-
 fn invalid(error: impl std::fmt::Display) -> DataFusionError {
     exec_datafusion_err!("the bytes of a plan's extension: {error}")
+}
+
+/// Writes `state`, the state of a function, into `buf`. DataFusion drops an error of a function's
+/// state, and a reader finds a function that wrote nothing by its name in its session. So a state
+/// that failed writes `failed`, a state of its kind that holds nothing, which keeps the reader
+/// from its session: a mark or a composition that holds nothing is an error there, and a host
+/// reads its own.
+fn encode_state(state: Result<State>, failed: State, buf: &mut Vec<u8>) -> Result<()> {
+    let (state, result) = match state {
+        Ok(state) => (state, Ok(())),
+        Err(error) => (failed, Err(error)),
+    };
+    let state = FunctionState { state: Some(state) };
+    state.encode(buf).map_err(invalid)?;
+    result
+}
+
+/// Writes the state `bytes` of a function of a host into `buf`.
+fn encode_host(bytes: Result<Vec<u8>>, buf: &mut Vec<u8>) -> Result<()> {
+    encode_state(bytes.map(State::Host), State::Host(Vec::new()), buf)
+}
+
+/// The state of a function in `buf`, or `None` when `buf` holds no state.
+fn decode_state(buf: &[u8]) -> Result<Option<State>> {
+    Ok(FunctionState::decode(buf).map_err(invalid)?.state)
 }
 
 /// The codec of a logical plan, with the functions and the nodes of `hosts`. A scan travels as
@@ -185,8 +203,8 @@ impl LogicalExtensionCodec for PlanCodec {
         _schema: SchemaRef,
         _ctx: &TaskContext,
     ) -> Result<Arc<dyn TableProvider>> {
-        let position = <[u8; 4]>::try_from(buf).map(u32::from_le_bytes);
-        match position.ok().and_then(|at| self.tables.get(at as usize)) {
+        let table = TableScan::decode(buf).ok().and_then(|scan| scan.table);
+        match table.and_then(|Table::Position(at)| self.tables.get(at as usize)) {
             Some(table) => Ok(table.clone()),
             None => Err(invalid(format!("no table for the scan of {table_ref}"))),
         }
@@ -201,16 +219,18 @@ impl LogicalExtensionCodec for PlanCodec {
         let position = (self.tables.iter()).position(|table| Arc::ptr_eq(table, &node));
         match position {
             Some(position) => {
-                buf.extend((position as u32).to_le_bytes());
-                Ok(())
+                let table = Table::Position(position as u32);
+                let scan = TableScan { table: Some(table) };
+                scan.encode(buf).map_err(invalid)
             }
             None => not_impl_err!("the plan scans {table_ref}, which is not one of its tables"),
         }
     }
 
     fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        if let Some((&HOST, bytes)) = buf.split_first() {
-            if let Some(udf) = (self.hosts.0.iter()).find_map(|host| host.decode_udf(name, bytes)) {
+        if let Some(State::Host(bytes)) = decode_state(buf)? {
+            if let Some(udf) = (self.hosts.0.iter()).find_map(|host| host.decode_udf(name, &bytes))
+            {
                 return udf;
             }
         }
@@ -218,47 +238,46 @@ impl LogicalExtensionCodec for PlanCodec {
     }
 
     fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_udf(node)) {
-            buf.push(HOST);
-            buf.extend(bytes?);
+        match (self.hosts.0.iter()).find_map(|host| host.encode_udf(node)) {
+            Some(bytes) => encode_host(bytes, buf),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     fn try_decode_udaf(&self, name: &str, buf: &[u8]) -> Result<Arc<AggregateUDF>> {
-        match buf.split_first() {
-            Some((&MARK, bytes)) => Ok(Arc::new(AggregateUDF::new_from_impl(
-                MarkInstance::from_bytes(bytes)?,
+        match decode_state(buf)? {
+            Some(State::Mark(mark)) => Ok(Arc::new(AggregateUDF::new_from_impl(
+                MarkInstance::from_state(&mark)?,
             ))),
-            Some((&COMPOSITION, bytes)) => Ok(Arc::new(AggregateUDF::new_from_impl(
-                CompositionInstance::from_bytes(bytes)?,
+            Some(State::Composition(composition)) => Ok(Arc::new(AggregateUDF::new_from_impl(
+                CompositionInstance::from_state(&composition)?,
             ))),
-            Some((&HOST, bytes)) => (self.hosts.0.iter())
-                .find_map(|host| host.decode_udaf(name, bytes))
+            Some(State::Host(bytes)) => (self.hosts.0.iter())
+                .find_map(|host| host.decode_udaf(name, &bytes))
                 .unwrap_or_else(|| not_impl_err!("the reader does not know the aggregate {name}")),
-            _ => not_impl_err!("the reader does not know the aggregate {name}"),
+            None => not_impl_err!("the reader does not know the aggregate {name}"),
         }
     }
 
     fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
         let inner = node.inner().as_ref() as &dyn Any;
         if let Some(mark) = inner.downcast_ref::<MarkInstance>() {
-            buf.push(MARK);
-            buf.extend(mark.to_bytes()?);
+            let failed = State::Mark(MarkState::default());
+            encode_state(mark.to_state().map(State::Mark), failed, buf)
         } else if let Some(composition) = inner.downcast_ref::<CompositionInstance>() {
-            buf.push(COMPOSITION);
-            buf.extend(composition.to_bytes()?);
+            let failed = State::Composition(CompositionState::default());
+            encode_state(composition.to_state().map(State::Composition), failed, buf)
         } else if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_udaf(node)) {
-            buf.push(HOST);
-            buf.extend(bytes?);
+            encode_host(bytes, buf)
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     fn try_decode_udwf(&self, name: &str, buf: &[u8]) -> Result<Arc<WindowUDF>> {
-        if let Some((&HOST, bytes)) = buf.split_first() {
-            if let Some(udwf) = (self.hosts.0.iter()).find_map(|host| host.decode_udwf(name, bytes))
-            {
+        if let Some(State::Host(bytes)) = decode_state(buf)? {
+            let udwf = (self.hosts.0.iter()).find_map(|host| host.decode_udwf(name, &bytes));
+            if let Some(udwf) = udwf {
                 return udwf;
             }
         }
@@ -266,10 +285,9 @@ impl LogicalExtensionCodec for PlanCodec {
     }
 
     fn try_encode_udwf(&self, node: &WindowUDF, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(bytes) = (self.hosts.0.iter()).find_map(|host| host.encode_udwf(node)) {
-            buf.push(HOST);
-            buf.extend(bytes?);
+        match (self.hosts.0.iter()).find_map(|host| host.encode_udwf(node)) {
+            Some(bytes) => encode_host(bytes, buf),
+            None => Ok(()),
         }
-        Ok(())
     }
 }

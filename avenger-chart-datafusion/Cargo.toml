@@ -16,6 +16,10 @@ datafusion-proto = { workspace = true }
 datafusion-proto-common = { workspace = true }
 prost = { workspace = true }
 
+[build-dependencies]
+prost-build = { workspace = true }
+protoc-bin-vendored = { workspace = true }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # DataFusion draws identifiers, which need the browser's source of random numbers on the web.
 uuid = { version = "1", features = ["js"] }

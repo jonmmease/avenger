@@ -117,7 +117,7 @@ A file has four layers, each in the format of the code that reads it:
 - The file's messages, which hold the rest. They are the messages of package `avenger.graph.v1`, which `proto/avenger/graph/v1/graph.proto` defines and documents, and which the `proto` module exports as prost types: `ChartGraphFile`, with a `TableFile` for each table, a `ChartFile` for each chart, and a `SelectionFile` for each selection. The file records its own version, which `ChartGraphFile::from_bytes` checks, and the version of DataFusion whose messages it holds.
 - The rows of a table and of a chart, each an Arrow IPC stream in a `ResultFile`.
 - A chart's plan, an encoded `datafusion.LogicalPlanNode`, which is DataFusion's message of a logical plan. A schema is DataFusion's message too, an encoded `datafusion_common.Schema`.
-- The payloads inside a plan: what avenger-chart-datafusion's codec writes for a scan of one of the file's tables, for the state of a function, and for a node of a host. The codec and its hosts define these bytes.
+- The payloads inside a plan: what avenger-chart-datafusion's codec writes for a scan of one of the file's tables, for the state of a function, and for a node of a host. They are the messages of package `avenger.chart.datafusion.v1`, which that crate's `proto/avenger/chart/datafusion/v1/plan.proto` defines, and each host defines the bytes of its own functions and nodes inside them.
 
 The crate builds for WebAssembly, where a run spawns its computations on the page's event loop.
 

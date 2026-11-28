@@ -1,0 +1,44 @@
+// The template of a mark: a checked call of a mark function without its table, as a host that
+// sends a plan of a chart writes it, so the plan builds the same chart where it runs.
+//
+// A `bytes` field holds an encoded message of the chart format, which its comment names.
+
+syntax = "proto3";
+
+package avenger.chart.functions.v1;
+
+import "avenger/chart/v1/selection.proto";
+
+// A checked call of a mark function, which builds the chart of one layer from a table.
+message MarkTemplate {
+  // The name of the mark function, such as `mark_bar`.
+  string name = 1;
+  // The coordinate system of the mark's plot, by the name of its member of the `coord` oneof of
+  // `avenger.chart.v1.Plot`: `cartesian`, `polar`, or `geo`.
+  string coord = 2;
+  // The layer of the mark, with its encodings and their values and without a table: an encoded
+  // `avenger.chart.v1.Fragment` of the layer of the coordinate system, such as
+  // `avenger.chart.v1.CartesianLayer`.
+  bytes layer = 3;
+  // The options of the coordinate system of the plot: an encoded `avenger.chart.v1.Fragment` of
+  // the options of the coordinate system, such as `avenger.chart.v1.Cartesian`. It is unset when
+  // the call sets none.
+  optional bytes options = 4;
+  // The options of the plot other than those of its coordinate system: an encoded
+  // `avenger.chart.v1.Fragment` of an `avenger.chart.v1.Plot`. It is unset when the call sets
+  // none.
+  optional bytes plot = 5;
+  // The names of the columns that the table of the layer holds, in the order of their first
+  // channels.
+  repeated string columns = 6;
+  // The selections that the chart declares.
+  repeated TemplateSelection selections = 7;
+}
+
+// A selection that the chart of a template declares.
+message TemplateSelection {
+  // The name of the selection.
+  string name = 1;
+  // How the clauses of the selection replace each other and combine.
+  avenger.chart.v1.SelectionResolution resolution = 2;
+}

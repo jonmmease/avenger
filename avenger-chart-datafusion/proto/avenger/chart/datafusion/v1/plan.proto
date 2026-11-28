@@ -1,0 +1,84 @@
+// What the codec of the logical plans that build charts writes into DataFusion's messages of a
+// plan: what a scan of a table holds, the state of a function, and an extension node of a host.
+//
+// A `bytes` field holds a value in a format that this file does not define, which its comment
+// names: an encoded message of DataFusion or of avenger-chart, or the bytes of a host.
+
+syntax = "proto3";
+
+package avenger.chart.datafusion.v1;
+
+// What a scan of a table holds: `custom_table_data` of the scan's
+// `datafusion.CustomTableScanNode`.
+message TableScan {
+  // The table that the scan reads.
+  oneof table {
+    // The position of the table in the tables that the codec was given.
+    uint32 position = 1;
+  }
+}
+
+// The state of a function, which travels beside the function's name: `fun_definition` of the
+// function's expression, such as `datafusion.AggregateUDFExprNode`. A function without state has
+// no `fun_definition`, and a reader finds it by its name in its session.
+message FunctionState {
+  // The state, by the kind of the function.
+  oneof state {
+    // The bound call of a mark, which is an aggregate function.
+    MarkState mark = 1;
+    // The bound call of a composition, which is an aggregate function.
+    CompositionState composition = 2;
+    // The state of a function of a host, in the host's format. A reader asks each of its hosts
+    // for the function of the name and of these bytes. The bytes are empty when the host's
+    // function has no state.
+    bytes host = 3;
+  }
+}
+
+// An extension node of a host: `node` of the node's `datafusion.LogicalExtensionNode`.
+message HostNode {
+  // The name of the host, such as `avenger-sql`.
+  string host = 1;
+  // The node without its inputs, in the host's format.
+  bytes bytes = 2;
+}
+
+// The bound call of a mark: an aggregate that builds the chart of one layer from the rows of its
+// group.
+message MarkState {
+  // The template of the mark, which holds the layer's encodings and options without a table: an
+  // encoded `avenger.chart.functions.v1.MarkTemplate` of avenger-chart.
+  bytes template = 1;
+  // The fields of the columns of the mark's table: an encoded `datafusion_common.Schema`.
+  bytes fields = 2;
+  // The sort options of the keys of the call's `ORDER BY`, which order the rows of the table.
+  repeated Order order = 3;
+}
+
+// The sort options of a key of a call's `ORDER BY`.
+message Order {
+  // Whether the rows ascend by the key. Otherwise they descend.
+  bool asc = 1;
+  // Whether the nulls of the key come first. Otherwise they come last.
+  bool nulls_first = 2;
+}
+
+// The bound call of a composition: an aggregate that composes the charts of the rows of its
+// group.
+message CompositionState {
+  // The name of the composition, such as `layer` or `facet_wrap`.
+  string spec = 1;
+  // The name of the column of the key of a facet. It is unset for a composition without a key.
+  optional string column = 2;
+  // The options of the composition, one for each of its parameters, in their order.
+  repeated OptionValue options = 3;
+  // The sort options of the keys of the call's `ORDER BY`, which order the charts.
+  repeated Order order = 4;
+}
+
+// An option of a composition.
+message OptionValue {
+  // The value of the option: an encoded `datafusion_common.ScalarValue`. It is unset when the
+  // call leaves the option unset.
+  optional bytes value = 1;
+}
