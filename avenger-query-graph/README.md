@@ -112,6 +112,13 @@ A baked graph compiles its plans with `ResultStore::compile` on a store of its o
 
 `ChartGraph::encode` writes a baked graph as a file, and `ChartGraph::decode` reads the file as a baked graph. A plan travels through avenger-chart-datafusion's codec, so it must hold the aggregates of its charts and not a front end's declarations of them. The encoder checks each plan in the graph's session: the plan decodes, optimizes, and plans there. A plan that fails the check, or that does not encode, such as one with an `IN` subquery beside its selection, does not travel. Its chart keeps its rows for empty selections, and `Encoded::warnings` names it.
 
+A file has four layers, each in the format of the code that reads it:
+
+- The file's messages, which hold the rest. They are the messages of package `avenger.graph.v1`, which `proto/avenger/graph/v1/graph.proto` defines and documents, and which the `proto` module exports as prost types: `ChartGraphFile`, with a `TableFile` for each table, a `ChartFile` for each chart, and a `SelectionFile` for each selection. The file records its own version, which `ChartGraphFile::from_bytes` checks, and the version of DataFusion whose messages it holds.
+- The rows of a table and of a chart, each an Arrow IPC stream in a `ResultFile`.
+- A chart's plan, an encoded `datafusion.LogicalPlanNode`, which is DataFusion's message of a logical plan. A schema is DataFusion's message too, an encoded `datafusion_common.Schema`.
+- The payloads inside a plan: what avenger-chart-datafusion's codec writes for a scan of one of the file's tables, for the state of a function, and for a node of a host. The codec and its hosts define these bytes.
+
 The crate builds for WebAssembly, where a run spawns its computations on the page's event loop.
 
 ## Inspecting a graph
