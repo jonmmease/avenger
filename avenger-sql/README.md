@@ -204,7 +204,9 @@ The example `sql-chart` shows the chart of a query in a chart app, and `chart-lu
 
 The `bake` module is avenger-sql for a plan that bakes, which runs away from the session that planned it, such as in a page. `bake::bake_plan` prepares an unoptimized plan to travel: it analyzes the plan and simplifies its expressions, which binds each call of a mark and of a composition to the aggregate that holds the call's options as its state. The plan then holds no declaration or constructor of a chart function, so a baked plan needs none of them. The rest of the optimizer does not run, since a `selected` call names no column until a state binds it.
 
-`bake::baked_session` is the session in which baked plans run: one partition, DataFusion's functions, the scalar compositions, and what `register` adds. `register` also gives a session avenger-sql's host, `bake::host`, through which avenger-chart-datafusion's codec writes the extension nodes of avenger-sql's plans, such as a shared input.
+`bake::baked_session` is the session in which baked plans run: one partition, DataFusion's functions, the scalar compositions, and what `register` adds. `register` also gives a session avenger-sql's host, `bake::host`, through which avenger-chart-datafusion's codec writes the extension nodes of avenger-sql's plans, such as a shared input, and the state of the functions of the library and of the transforms.
+
+The host writes the messages of package `avenger.sql.v1`, which `proto/avenger/sql/v1/plan.proto` defines and documents, and which the `proto` module exports as prost types: a `Node` for an extension node, which holds a `Shared` input by its id or the bytes of a node of the transforms, and a `LibraryState`, with its `Locale`, for the state of a function of the library, such as the time zone of `$format_datetime`. A node and the state of a function of the transforms are the messages of package `avenger.transforms.v1`, which `proto/avenger/transforms/v1/plan.proto` of avenger-datafusion-transforms defines.
 
 ## Conformance with GoogleSQL
 

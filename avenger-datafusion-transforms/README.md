@@ -29,6 +29,8 @@ The module `match_recognize` holds the matcher of row pattern recognition and it
 
 The module `codec` writes the transforms of a plan as bytes and builds them again, for a front end that sends its plans to where they run, such as avenger-sql in the file of a baked chart graph: each function by its name and its state, such as the fields of a struct that `bin` makes, and a table function's node by the transform of each of its partitions, the spec of `impute` or the program of `MATCH_RECOGNIZE`, its partition columns, and its schema, with its input as its child. The node's parameters are bound when it is written, so the node that a reader builds has no arguments.
 
+The bytes are the messages of package `avenger.transforms.v1`, which `proto/avenger/transforms/v1/plan.proto` defines and documents, and which the `proto` module exports as prost types: a `Node` for an extension node, whose `TableFunction` holds an `Impute` or a `MatchRecognize`, and a `StructState` for the state of the function that makes a struct. A function without state has no bytes. A value in one of DataFusion's formats is a `bytes` field whose comment names its message: a schema, a scalar value, and a column.
+
 ## Tests
 
 The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, `impute` and `lump` against equivalent SQL, the gaps and partitions of `impute`, and the transforms' state, which their codec writes and reads again. The tests build the calls in Rust, plan the inputs and the reference queries in DataFusion's SQL, which only the tests enable, and compare the results.

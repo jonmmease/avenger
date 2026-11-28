@@ -1,0 +1,64 @@
+// What avenger-sql's host writes into the plans of avenger-chart-datafusion's codec: an extension
+// node of avenger-sql's plans, which is the `bytes` of the codec's
+// `avenger.chart.datafusion.v1.HostNode`, and the state of a function of avenger-sql's library,
+// which is the `host` of the codec's `avenger.chart.datafusion.v1.FunctionState`. The state of a
+// function of the transforms is a message of package `avenger.transforms.v1`.
+//
+// A `bytes` field holds a value in a format that this file does not define, which its comment
+// names: an encoded message of avenger-datafusion-transforms.
+
+syntax = "proto3";
+
+package avenger.sql.v1;
+
+// An extension node of avenger-sql's plans, without its inputs.
+message Node {
+  // The node, by its kind.
+  oneof kind {
+    // An input that its readers share.
+    Shared shared = 1;
+    // A node of the transforms, such as a call of `impute`: an encoded
+    // `avenger.transforms.v1.Node` of avenger-datafusion-transforms.
+    bytes transform = 2;
+  }
+}
+
+// An input that its readers share, which is the node's one input. Every reference to the input in
+// a plan is a node of its id, and the references read one run of the input.
+message Shared {
+  // The id of the input.
+  uint64 id = 1;
+}
+
+// The state of a function of dates and times of the library, such as `$format_datetime`, and of a
+// function that decodes text, such as `$from_hex`. A function reads the fields that it has, and
+// not the others.
+message LibraryState {
+  // The name of the function's time zone, such as `America/New_York` or `+05:30`.
+  string zone = 1;
+  // The locale of the names that the function formats and parses. It is unset for a function
+  // that reads no names, such as `$cast_to_string`.
+  Locale locale = 2;
+  // Whether the function gives `NULL` where it fails. Otherwise it fails the query.
+  bool safe = 3;
+}
+
+// A locale of dates and times, as the d3 time locale of its names and composites.
+message Locale {
+  // The layout of `%c`, a date and time.
+  string date_time = 1;
+  // The layout of `%x`, a date.
+  string date = 2;
+  // The layout of `%X`, a time.
+  string time = 3;
+  // The names of the two periods of a day, before and after noon.
+  repeated string periods = 4;
+  // The names of the seven days of a week, from Sunday.
+  repeated string days = 5;
+  // The short names of the seven days of a week, from Sunday.
+  repeated string short_days = 6;
+  // The names of the twelve months of a year.
+  repeated string months = 7;
+  // The short names of the twelve months of a year.
+  repeated string short_months = 8;
+}

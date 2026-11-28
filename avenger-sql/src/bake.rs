@@ -2,6 +2,10 @@
 //! a page: the host that encodes the library's functions, the transforms, and the extension nodes
 //! of avenger-sql's plans for avenger-chart-datafusion's codec, and the session in which baked
 //! plans run.
+//!
+//! The host writes an extension node as a `Node` of package `avenger.sql.v1`, which
+//! [`proto`](crate::proto) holds: a shared input by its id, and a node of the transforms by the
+//! bytes that avenger-datafusion-transforms writes for it.
 
 use std::sync::Arc;
 
@@ -15,10 +19,9 @@ use datafusion::{
     optimizer::{simplify_expressions::SimplifyExpressions, Analyzer, Optimizer},
     prelude::{SessionConfig, SessionContext},
 };
+use prost::Message;
 
-/// The kinds of the bytes of an extension node, the first byte of each.
-const SHARED: u8 = 1;
-const TRANSFORM: u8 = 2;
+use crate::proto::{node::Kind, Node, Shared};
 
 /// The host of avenger-sql's plans, which [`register`](crate::register) adds to a session.
 pub fn host() -> Arc<dyn HostCodec> {
@@ -59,18 +62,12 @@ impl HostCodec for Host {
     }
 
     fn encode_node(&self, node: &dyn UserDefinedLogicalNode) -> Option<Result<Vec<u8>>> {
-        if let Some(shared) = node.as_any().downcast_ref::<SharedNode>() {
-            let mut bytes = vec![SHARED];
-            bytes.extend(shared.to_bytes());
-            return Some(Ok(bytes));
-        }
-        // A table function of the transforms, such as `impute`.
-        let transform = transforms::encode_node(node)?;
-        Some(transform.map(|transform| {
-            let mut bytes = vec![TRANSFORM];
-            bytes.extend(transform);
-            bytes
-        }))
+        let kind = match node.as_any().downcast_ref::<SharedNode>() {
+            Some(shared) => Ok(Kind::Shared(Shared { id: shared.id })),
+            // A table function of the transforms, such as `impute`.
+            None => transforms::encode_node(node)?.map(Kind::Transform),
+        };
+        Some(kind.map(|kind| Node { kind: Some(kind) }.encode_to_vec()))
     }
 
     fn decode_node(
@@ -78,11 +75,13 @@ impl HostCodec for Host {
         bytes: &[u8],
         inputs: &[LogicalPlan],
     ) -> Result<Arc<dyn UserDefinedLogicalNode>> {
-        match (bytes.split_first(), inputs) {
-            (Some((&SHARED, bytes)), [input]) => {
-                Ok(Arc::new(SharedNode::from_bytes(bytes, input.clone())?))
+        let node = Node::decode(bytes)
+            .map_err(|error| exec_datafusion_err!("the bytes of a node of avenger-sql: {error}"))?;
+        match (node.kind, inputs) {
+            (Some(Kind::Shared(shared)), [input]) => {
+                Ok(Arc::new(SharedNode::with_id(shared.id, input.clone())))
             }
-            (Some((&TRANSFORM, bytes)), _) => match transforms::decode_node(bytes, inputs) {
+            (Some(Kind::Transform(bytes)), _) => match transforms::decode_node(&bytes, inputs) {
                 Some(node) => node,
                 None => Err(exec_datafusion_err!(
                     "the bytes of a node of avenger-sql: a transform that this build does not know"

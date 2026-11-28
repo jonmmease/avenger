@@ -69,23 +69,12 @@ pub struct SharedNode {
 }
 
 impl SharedNode {
-    /// The bytes of the node without its input: its id. A host that sends a plan to where it
-    /// runs writes them, and [`SharedNode::from_bytes`] reads them.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.id.to_le_bytes().to_vec()
-    }
-
-    /// The node of `bytes` over `input`, with the schema of `input`.
-    pub fn from_bytes(bytes: &[u8], input: LogicalPlan) -> Result<SharedNode> {
-        let Ok(id) = <[u8; 8]>::try_from(bytes) else {
-            return datafusion::common::plan_err!("the bytes of a shared node hold its id");
-        };
+    /// The node of the id `id` over `input`, with the schema of `input`. A host that sends a plan
+    /// to where it runs writes the id of each node, and a reader builds the node of the id over
+    /// the input that it decoded.
+    pub fn with_id(id: u64, input: LogicalPlan) -> SharedNode {
         let schema = Arc::clone(input.schema());
-        Ok(SharedNode {
-            id: u64::from_le_bytes(id),
-            input,
-            schema,
-        })
+        SharedNode { id, input, schema }
     }
 }
 

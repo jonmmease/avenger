@@ -894,6 +894,8 @@ dependencies = [
  "getrandom 0.3.4",
  "libm",
  "prost",
+ "prost-build",
+ "protoc-bin-vendored",
  "tokio",
 ]
 
@@ -1392,6 +1394,8 @@ dependencies = [
  "futures",
  "glob",
  "prost",
+ "prost-build",
+ "protoc-bin-vendored",
  "regex",
  "regex-syntax",
  "serde_json",
