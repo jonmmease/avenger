@@ -410,7 +410,84 @@ pub struct MarkTemplate {
     selections: Vec<(String, proto::SelectionResolution)>,
 }
 
+/// A mark template as bytes: the fields of [`MarkTemplate`], which [`MarkTemplate::from_bytes`]
+/// reads, as a host that sends a plan of a chart writes them.
+#[derive(Clone, PartialEq, Message)]
+struct TemplateBytes {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(string, tag = "2")]
+    coord: String,
+    #[prost(bytes = "bytes", tag = "3")]
+    layer: Bytes,
+    #[prost(bytes = "bytes", optional, tag = "4")]
+    options: Option<Bytes>,
+    #[prost(bytes = "bytes", optional, tag = "5")]
+    plot: Option<Bytes>,
+    #[prost(string, repeated, tag = "6")]
+    columns: Vec<String>,
+    #[prost(message, repeated, tag = "7")]
+    selections: Vec<SelectionBytes>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct SelectionBytes {
+    #[prost(string, tag = "1")]
+    name: String,
+    #[prost(enumeration = "proto::SelectionResolution", tag = "2")]
+    resolution: i32,
+}
+
 impl MarkTemplate {
+    /// The template as bytes, which [`MarkTemplate::from_bytes`] reads.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        TemplateBytes {
+            name: self.name.to_string(),
+            coord: self.coord.field().to_string(),
+            layer: self.layer.clone(),
+            options: self.options.clone(),
+            plot: self.plot.clone(),
+            columns: self.columns.clone(),
+            selections: (self.selections.iter())
+                .map(|(name, resolution)| SelectionBytes {
+                    name: name.clone(),
+                    resolution: *resolution as i32,
+                })
+                .collect(),
+        }
+        .encode_to_vec()
+    }
+
+    /// The template of the bytes `bytes`, as [`MarkTemplate::to_bytes`] writes them, or an error
+    /// for bytes of no template, or of a mark function or a coordinate system that this build
+    /// does not know.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ChartError> {
+        let invalid = |message: String| ChartError::invalid("", message);
+        let decoded = TemplateBytes::decode(bytes).map_err(|error| invalid(error.to_string()))?;
+        let mark = super::mark(&decoded.name)
+            .ok_or_else(|| invalid(format!("no mark function `{}`", decoded.name)))?;
+        let coord = [CoordKind::Cartesian, CoordKind::Polar, CoordKind::Geo]
+            .into_iter()
+            .find(|kind| kind.field() == decoded.coord)
+            .ok_or_else(|| invalid(format!("no coordinate system `{}`", decoded.coord)))?;
+        let selections = (decoded.selections.into_iter())
+            .map(|selection| {
+                let resolution = proto::SelectionResolution::try_from(selection.resolution)
+                    .map_err(|error| invalid(error.to_string()))?;
+                Ok((selection.name, resolution))
+            })
+            .collect::<Result<_, ChartError>>()?;
+        Ok(MarkTemplate {
+            name: mark.name,
+            coord,
+            layer: decoded.layer,
+            options: decoded.options,
+            plot: decoded.plot,
+            columns: decoded.columns,
+            selections,
+        })
+    }
+
     /// The name of the mark function.
     pub fn name(&self) -> &'static str {
         self.name

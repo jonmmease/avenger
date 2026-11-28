@@ -16,11 +16,7 @@ use std::{
     sync::Arc,
 };
 
-use avenger_chart::{
-    chart_field,
-    functions::{Composition, CompositionKind},
-    EXTENSION_NAME,
-};
+use avenger_chart::{chart_field, functions::Composition, EXTENSION_NAME};
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef},
     common::{internal_err, plan_datafusion_err, plan_err, Result},
@@ -34,7 +30,7 @@ use datafusion::{
     },
 };
 
-use avenger_physical_graph::functions::CompositionInstance;
+use avenger_chart_datafusion::functions::CompositionInstance;
 
 use super::declaration::column_name;
 
@@ -103,17 +99,7 @@ pub(super) fn is_chart(field: &Field) -> bool {
         == Some(EXTENSION_NAME)
 }
 
-/// The SQL name of the aggregate of a composition: `layer_agg`, `hconcat_agg`, and `vconcat_agg`
-/// for a layer and the concats, as GoogleSQL names `STRING_AGG`, so that a scalar of the charts of
-/// a row can take the short name, and its name for a facet, which composes only rows.
-pub(crate) fn aggregate_name(spec: &Composition) -> &'static str {
-    match spec.kind {
-        CompositionKind::Layer => "layer_agg",
-        CompositionKind::HConcat => "hconcat_agg",
-        CompositionKind::VConcat => "vconcat_agg",
-        _ => spec.name,
-    }
-}
+pub(crate) use avenger_chart_datafusion::functions::aggregate_name;
 
 /// The arguments of a composition before its options: the chart, and the key of a facet.
 fn leading(spec: &Composition) -> &'static [&'static str] {
@@ -256,7 +242,7 @@ fn bind(
     }
     spec.check(column.as_deref(), &checked)
         .map_err(|error| plan_datafusion_err!("{name}(): {error}"))?;
-    let instance = CompositionInstance::new(spec, name, column, options, &params.order_by);
+    let instance = CompositionInstance::new(spec, column, options, &params.order_by);
     Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
         Arc::new(AggregateUDF::new_from_impl(instance)),
         data,

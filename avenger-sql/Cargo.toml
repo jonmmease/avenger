@@ -8,7 +8,7 @@ readme = "README.md"
 [dependencies]
 async-trait = { workspace = true }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
-avenger-physical-graph = { path = "../avenger-physical-graph" }
+avenger-chart-datafusion = { path = "../avenger-chart-datafusion" }
 avenger-datafusion-shared = { path = "../avenger-datafusion-shared" }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
 avenger-format = { path = "../avenger-format" }

@@ -35,6 +35,7 @@
 //! that they read from each other, and holds the catalog of the tables that they define.
 
 pub mod analysis;
+pub mod bake;
 pub mod catalog;
 pub mod data;
 mod functions;
@@ -120,6 +121,10 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
     if !state.scalar_functions().contains_key("selected") {
         avenger_selection_datafusion::register(&mut *state)?;
     }
+    // The extension nodes of avenger-sql's plans, which travel in a plan that a host sends to
+    // where it runs, such as a page.
+    let hosts = avenger_chart_datafusion::codec::Hosts::of(state.config()).with(bake::host());
+    state.config_mut().set_extension(Arc::new(hosts));
     Ok(())
 }
 

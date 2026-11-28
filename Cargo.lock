@@ -673,6 +673,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-datafusion"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "chrono",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-datasource",
+ "datafusion-execution",
+ "datafusion-expr",
+ "datafusion-functions-aggregate",
+ "datafusion-physical-expr",
+ "datafusion-physical-plan",
+ "datafusion-proto",
+ "datafusion-proto-common",
+ "futures",
+ "getrandom 0.3.4",
+ "prost",
+ "tokio",
+ "uuid",
+ "wasm-bindgen-test",
+]
+
+[[package]]
 name = "avenger-chart-eval"
 version = "0.1.0"
 dependencies = [
@@ -1172,26 +1197,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "avenger-physical-graph"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "avenger-chart",
- "chrono",
- "datafusion-common",
- "datafusion-datasource",
- "datafusion-execution",
- "datafusion-expr",
- "datafusion-functions-aggregate",
- "datafusion-physical-expr",
- "datafusion-physical-plan",
- "futures",
- "getrandom 0.3.4",
- "uuid",
- "wasm-bindgen-test",
-]
-
-[[package]]
 name = "avenger-query-graph"
 version = "0.1.0"
 dependencies = [
@@ -1337,6 +1342,7 @@ dependencies = [
  "arrow",
  "async-trait",
  "avenger-chart",
+ "avenger-chart-datafusion",
  "avenger-chart-eval",
  "avenger-datafusion-shared",
  "avenger-datafusion-transforms",
@@ -1344,7 +1350,6 @@ dependencies = [
  "avenger-format-datetime-googlesql",
  "avenger-format-locales-d3",
  "avenger-format-number-googlesql",
- "avenger-physical-graph",
  "avenger-render-fixtures",
  "avenger-scenegraph",
  "avenger-selection",

@@ -19,16 +19,12 @@
 use std::sync::Arc;
 
 use avenger_chart::{
-    chart_field, charts_from_arrow,
-    functions::{Arg, Child, ChildOrder, Composition},
-    Decode,
+    chart_field,
+    functions::{Arg, Composition},
 };
 use datafusion::{
-    arrow::{
-        array::{ArrayRef, BinaryViewBuilder},
-        datatypes::{DataType, FieldRef},
-    },
-    common::{exec_datafusion_err, plan_datafusion_err, plan_err, Result, ScalarValue},
+    arrow::datatypes::{DataType, FieldRef},
+    common::{plan_datafusion_err, plan_err, Result, ScalarValue},
     logical_expr::{
         simplify::{ExprSimplifyResult, SimplifyContext},
         ColumnarValue, Documentation, DocumentationBuilder, Expr, ReturnFieldArgs,
@@ -181,40 +177,7 @@ impl ScalarUDFImpl for CombineFunction {
             }
         }
         let options = self.arguments(&options.iter().map(Some).collect::<Vec<_>>())?;
-        let mut charts = Vec::new();
-        for value in values {
-            let array: ArrayRef = value.into_array(rows)?;
-            match array.data_type() {
-                DataType::Null => charts.push(vec![None; rows]),
-                _ => charts.push(
-                    charts_from_arrow(array.as_ref(), Decode::Auto)
-                        .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?,
-                ),
-            }
-        }
-        let mut builder = BinaryViewBuilder::with_capacity(rows);
-        for row in 0..rows {
-            let children: Vec<Child> = (charts.iter())
-                .map(|column| Child {
-                    chart: column[row].clone(),
-                    key: None,
-                })
-                .collect();
-            let chart = (self.spec)
-                .compose(
-                    None,
-                    children,
-                    ChildOrder::AsGiven,
-                    &options,
-                    super::FORMAT_SYNTAXES,
-                )
-                .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
-            let bytes = chart
-                .to_bytes()
-                .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
-            builder.append_value(bytes);
-        }
-        Ok(ColumnarValue::Array(Arc::new(builder.finish())))
+        avenger_chart_datafusion::functions::combine(self.spec, &options, values, rows)
     }
 
     fn documentation(&self) -> Option<&Documentation> {

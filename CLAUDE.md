@@ -83,7 +83,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-selection`: Selections of rows: clauses and their conditions, pixel grids, matching over Arrow arrays
 - `avenger-selection-datafusion`: Filters of DataFusion queries by selections: `selected` and its lowering, the row tests, and pre-aggregation
 - `avenger-query-graph`: Kept results of the subplans of a document's DataFusion queries: cuts where an input is first read, keys of the inputs read, pre-aggregation for a focus
-- `avenger-physical-graph`: The DataFusion functions that build avenger charts in physical plans, natively and in WebAssembly pages: the aggregates of the marks and of the compositions
+- `avenger-chart-datafusion`: The DataFusion side of avenger's charts, natively and in WebAssembly pages: the aggregates of the marks and of the compositions, and the codec of the logical plans that call them, with the functions and the nodes of a host
 - `avenger-coords`: Plot projections between pixels and the positions of plots' dimensions, for Cartesian, polar, and map plots, and plot coordinates: a projection with the scales of its dimensions
 - `avenger-vega-scenegraph`: Vega compatibility layer
 - `avenger-eventstream`: Event handling system

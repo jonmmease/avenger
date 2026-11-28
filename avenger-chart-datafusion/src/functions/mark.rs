@@ -39,6 +39,28 @@ impl MarkInstance {
     }
 }
 
+impl MarkInstance {
+    /// The bound call of `template` whose table holds `fields`, with the sort options of its draw
+    /// order.
+    pub(crate) fn with_order(
+        template: MarkTemplate,
+        fields: Vec<FieldRef>,
+        order: Vec<(bool, bool)>,
+    ) -> Self {
+        Self {
+            template,
+            fields,
+            order,
+            signature: Signature::user_defined(Volatility::Immutable),
+        }
+    }
+
+    /// The template, the fields of the table, and the sort options of the draw order.
+    pub(crate) fn parts(&self) -> (&MarkTemplate, &[FieldRef], &[(bool, bool)]) {
+        (&self.template, &self.fields, &self.order)
+    }
+}
+
 impl AggregateUDFImpl for MarkInstance {
     fn name(&self) -> &str {
         self.template.name()
