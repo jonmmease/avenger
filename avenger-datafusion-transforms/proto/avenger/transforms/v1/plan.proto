@@ -1,0 +1,185 @@
+// What the transforms write for a plan that a front end sends to where it runs: an extension
+// node of the transforms, and the state of a function of theirs. A front end, such as avenger-sql,
+// puts them into the messages of its own plans.
+//
+// A `bytes` field holds a value in a format that this file does not define, which its comment
+// names: an encoded message of DataFusion.
+
+syntax = "proto3";
+
+package avenger.transforms.v1;
+
+// An extension node of the transforms, without its inputs.
+message Node {
+  // The node, by its kind.
+  oneof kind {
+    // A call of a table function, such as `impute`.
+    TableFunction table_function = 1;
+  }
+}
+
+// A call of a table function over an input relation, which is the node's one input. The call's
+// arguments are bound into its transform, so the node that a reader builds has none.
+message TableFunction {
+  // The transform of each partition of the input, as the call's planner made it where the plan was
+  // written.
+  oneof transform {
+    // What `impute` imputes.
+    Impute impute = 1;
+    // The matches of `MATCH_RECOGNIZE`.
+    MatchRecognize match_recognize = 2;
+  }
+  // The columns that partition the input, each an encoded `datafusion_common.Column`.
+  repeated bytes partition_by = 3;
+  // The schema of the call's result: an encoded `datafusion_common.DfSchema`.
+  bytes schema = 4;
+  // The names of the columns of the input, in order. The transform reads the input's columns by
+  // position, so a reader checks that its input has these columns.
+  repeated string input = 5;
+}
+
+// What `impute` imputes in each partition: the columns, by position in the input, and the call's
+// arguments.
+message Impute {
+  // The position of the key column.
+  uint64 key = 1;
+  // The positions of the group columns.
+  repeated uint64 groups = 2;
+  // The position of the value column.
+  uint64 val = 3;
+  // The value of added rows, of `value =>`: an encoded `datafusion_common.ScalarValue`. It is
+  // unset when a statistic gives the value.
+  optional bytes fill_value = 4;
+  // The statistic of the existing values of a group that gives the value of added rows, of
+  // `method =>`. It is unspecified when `fill_value` is set.
+  Statistic fill_stat = 5;
+  // Whether the statistic reads a frame of rows around an added row. Otherwise it reads the whole
+  // group.
+  bool framed = 6;
+  // The start of the frame, in rows from the added row, when `framed`. It is unset for a frame
+  // without a start.
+  optional int64 frame_start = 7;
+  // The end of the frame, in rows from the added row, when `framed`. It is unset for a frame
+  // without an end.
+  optional int64 frame_end = 8;
+  // Whether the call gives the values of the key, which are `keys`. Otherwise the values are the
+  // keys of the input's rows.
+  bool has_keys = 9;
+  // The values of the key that the call gives, of `keys =>`, when `has_keys`, each an encoded
+  // `datafusion_common.ScalarValue`.
+  repeated bytes keys = 10;
+  // The values of the key that the call adds to the others, of `extra_keys =>`, each an encoded
+  // `datafusion_common.ScalarValue`.
+  repeated bytes extra_keys = 11;
+  // The sequence whose gaps the call fills, of `fill_gaps =>`. It is unset for a call without
+  // one.
+  Gaps gaps = 12;
+}
+
+// A statistic of the existing values of a group.
+enum Statistic {
+  // Unset. `Impute.fill_stat` holds this value when `Impute.fill_value` gives the value of added
+  // rows.
+  STATISTIC_UNSPECIFIED = 0;
+  // The mean.
+  STATISTIC_AVG = 1;
+  // The median.
+  STATISTIC_MEDIAN = 2;
+  // The least value.
+  STATISTIC_MIN = 3;
+  // The greatest value.
+  STATISTIC_MAX = 4;
+}
+
+// The sequence of the values of a key whose gaps `impute` fills. The keys of each partition give
+// a field that the sequence leaves out.
+message Gaps {
+  // The kind of the key.
+  GapKind kind = 1;
+  // The start of the range, of the type of the key or of its `start` field: an encoded
+  // `datafusion_common.ScalarValue`.
+  optional bytes start = 2;
+  // The end of the range, exclusive, of the same type: an encoded `datafusion_common.ScalarValue`.
+  optional bytes end = 3;
+  // The step of the sequence as the width of an interval or the distance of numbers: an encoded
+  // `datafusion_common.ScalarValue`. A sequence has a `width`, a `unit`, or neither.
+  optional bytes width = 4;
+  // The step of the sequence as the unit of a time unit or of a date key, such as `month`.
+  optional string unit = 5;
+}
+
+// The kind of a key whose gaps `impute` fills.
+enum GapKind {
+  // Unset. A writer sets every field of this enum, so none holds this value.
+  GAP_KIND_UNSPECIFIED = 0;
+  // A struct `{start, end, unit}`, as `timeunit` returns.
+  GAP_KIND_TIME_UNIT = 1;
+  // A struct `{start, end}` of numbers, dates, or timestamps, as `bin` returns.
+  GAP_KIND_INTERVAL = 2;
+  // A date or a timestamp.
+  GAP_KIND_DATE = 3;
+  // A number.
+  GAP_KIND_NUMBER = 4;
+}
+
+// The matches of `MATCH_RECOGNIZE` in each partition: the columns, by position in the input, and
+// the compiled pattern.
+message MatchRecognize {
+  // The position of the column of a row's position in its partition.
+  uint64 position = 1;
+  // The positions of the boolean columns of the pattern variables, one for each variable.
+  repeated uint64 variables = 2;
+  // The names of the pattern variables, one for each variable.
+  repeated string names = 3;
+  // The instructions of the pattern's program, which starts at its first instruction.
+  repeated Instruction program = 4;
+  // Whether matching resumes at the row after a match's first row. Otherwise it resumes after the
+  // match's last row.
+  bool skip_to_next_row = 5;
+  // Whether the match of a start row is the longest one, with ties broken by the pattern's
+  // preference. Otherwise it is the one that the pattern prefers.
+  bool longest = 6;
+}
+
+// An instruction of a pattern's program.
+message Instruction {
+  // What the instruction does.
+  Operation operation = 1;
+  // The pattern variable of a label, by its position in the variables. The instruction that a
+  // split prefers and the instruction that a jump continues at, by their positions in the
+  // program. Otherwise 0.
+  uint64 a = 2;
+  // The other instruction of a split, by its position in the program. Otherwise 0.
+  uint64 b = 3;
+}
+
+// What an instruction of a pattern's program does.
+enum Operation {
+  // Unset. A writer sets every field of this enum, so none holds this value.
+  OPERATION_UNSPECIFIED = 0;
+  // Matches one row that meets the condition of the pattern variable `a`.
+  OPERATION_LABEL = 1;
+  // Continues at both of the instructions `a` and `b`, and prefers `a`.
+  OPERATION_SPLIT = 2;
+  // Continues at the instruction `a`.
+  OPERATION_JUMP = 3;
+  // Matches the start of the partition, and no row.
+  OPERATION_ANCHOR_START = 4;
+  // Matches the end of the partition, after its last row, and no row.
+  OPERATION_ANCHOR_END = 5;
+  // Ends a match.
+  OPERATION_MATCH = 6;
+}
+
+// The state of a function that makes a struct from its arguments, such as the struct of a bin:
+// the function `__make_struct` or `__make_nullable_struct`.
+message StructState {
+  // The fields of the struct, one for each argument: an encoded `datafusion_common.Schema`. A
+  // writer always sets it, also for a struct without fields, whose schema encodes as no bytes.
+  optional bytes fields = 1;
+  // Whether the struct is nullable. A nullable struct's function takes one more argument, which
+  // says whether a row's struct is null.
+  bool nullable = 2;
+  // The metadata of the struct's field.
+  map<string, string> metadata = 3;
+}

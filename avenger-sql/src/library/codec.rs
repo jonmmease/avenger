@@ -1,7 +1,8 @@
 //! The library's functions in a plan that travels, such as to a page: each travels as its name and
 //! the bytes of its state, so a reader that knows the library builds the function that the planner
-//! built. A function without state, such as `$format`, travels as its name alone. avenger-sql's
-//! host, [`bake::host`](crate::bake::host), calls these for its functions.
+//! built. The state is a `LibraryState` of package `avenger.sql.v1`, which
+//! [`proto`](crate::proto) holds. A function without state, such as `$format`, travels as its name
+//! alone. avenger-sql's host, [`bake::host`](crate::bake::host), calls these for its functions.
 
 use std::{any::Any, sync::Arc};
 
@@ -17,98 +18,68 @@ use super::{
     bytes, cast_string, datetime_format, encoding, error, interval, like, re2, string,
     string_format,
 };
-
-/// The state of a function of dates and times: its time zone by its name, its locale, and whether
-/// it gives `NULL` where it fails.
-#[derive(Clone, PartialEq, Message)]
-struct State {
-    #[prost(string, tag = "1")]
-    zone: String,
-    #[prost(message, optional, tag = "2")]
-    locale: Option<LocaleState>,
-    #[prost(bool, tag = "3")]
-    safe: bool,
-}
-
-/// A locale, by the d3 time locale of its names and composites.
-#[derive(Clone, PartialEq, Message)]
-struct LocaleState {
-    #[prost(string, tag = "1")]
-    date_time: String,
-    #[prost(string, tag = "2")]
-    date: String,
-    #[prost(string, tag = "3")]
-    time: String,
-    #[prost(string, repeated, tag = "4")]
-    periods: Vec<String>,
-    #[prost(string, repeated, tag = "5")]
-    days: Vec<String>,
-    #[prost(string, repeated, tag = "6")]
-    short_days: Vec<String>,
-    #[prost(string, repeated, tag = "7")]
-    months: Vec<String>,
-    #[prost(string, repeated, tag = "8")]
-    short_months: Vec<String>,
-}
+use crate::proto::{self, LibraryState};
 
 fn invalid(error: impl std::fmt::Display) -> datafusion::common::DataFusionError {
     exec_datafusion_err!("the bytes of a function of avenger-sql's library: {error}")
 }
 
-impl LocaleState {
-    fn of(locale: &Locale) -> LocaleState {
-        let spec = locale.spec();
-        LocaleState {
-            date_time: spec.date_time,
-            date: spec.date,
-            time: spec.time,
-            periods: spec.periods.to_vec(),
-            days: spec.days.to_vec(),
-            short_days: spec.short_days.to_vec(),
-            months: spec.months.to_vec(),
-            short_months: spec.short_months.to_vec(),
-        }
-    }
-
-    fn locale(self) -> Result<Locale> {
-        fn names<const N: usize>(names: Vec<String>) -> Result<[String; N]> {
-            names
-                .try_into()
-                .map_err(|names: Vec<String>| invalid(format!("{} names", names.len())))
-        }
-        let spec = DateTimeLocaleSpec {
-            date_time: self.date_time,
-            date: self.date,
-            time: self.time,
-            periods: names(self.periods)?,
-            days: names(self.days)?,
-            short_days: names(self.short_days)?,
-            months: names(self.months)?,
-            short_months: names(self.short_months)?,
-        };
-        Locale::new(&spec).map_err(invalid)
+/// `locale` as a state holds it: the d3 time locale of its names and composites.
+fn locale_state(locale: &Locale) -> proto::Locale {
+    let spec = locale.spec();
+    proto::Locale {
+        date_time: spec.date_time,
+        date: spec.date,
+        time: spec.time,
+        periods: spec.periods.to_vec(),
+        days: spec.days.to_vec(),
+        short_days: spec.short_days.to_vec(),
+        months: spec.months.to_vec(),
+        short_months: spec.short_months.to_vec(),
     }
 }
 
-impl State {
-    fn bytes(zone: Zone, locale: Option<&Locale>, safe: bool) -> Vec<u8> {
-        let state = State {
-            zone: zone.name(),
-            locale: locale.map(LocaleState::of),
-            safe,
-        };
-        state.encode_to_vec()
+/// The locale that `state` holds.
+fn locale_of(state: proto::Locale) -> Result<Locale> {
+    fn names<const N: usize>(names: Vec<String>) -> Result<[String; N]> {
+        names
+            .try_into()
+            .map_err(|names: Vec<String>| invalid(format!("{} names", names.len())))
     }
+    let spec = DateTimeLocaleSpec {
+        date_time: state.date_time,
+        date: state.date,
+        time: state.time,
+        periods: names(state.periods)?,
+        days: names(state.days)?,
+        short_days: names(state.short_days)?,
+        months: names(state.months)?,
+        short_months: names(state.short_months)?,
+    };
+    Locale::new(&spec).map_err(invalid)
+}
 
-    fn zone(&self) -> Result<Zone> {
-        Zone::parse(&self.zone).ok_or_else(|| invalid(format!("the time zone {}", self.zone)))
-    }
+/// The bytes of the state of a function: its time zone by its name, its locale, and whether it
+/// gives `NULL` where it fails.
+fn state_bytes(zone: Zone, locale: Option<&Locale>, safe: bool) -> Vec<u8> {
+    let state = LibraryState {
+        zone: zone.name(),
+        locale: locale.map(locale_state),
+        safe,
+    };
+    state.encode_to_vec()
+}
 
-    fn locale(&self) -> Result<Locale> {
-        match self.locale.clone() {
-            Some(locale) => locale.locale(),
-            None => Ok(Locale::default()),
-        }
+/// The time zone that `state` names.
+fn zone_of(state: &LibraryState) -> Result<Zone> {
+    Zone::parse(&state.zone).ok_or_else(|| invalid(format!("the time zone {}", state.zone)))
+}
+
+/// The locale of `state`, or the default locale when it holds none.
+fn state_locale(state: &LibraryState) -> Result<Locale> {
+    match state.locale.clone() {
+        Some(locale) => locale_of(locale),
+        None => Ok(Locale::default()),
     }
 }
 
@@ -133,27 +104,23 @@ fn stateless() -> [Arc<ScalarUDF>; 11] {
 pub(crate) fn encode_udf(udf: &ScalarUDF) -> Option<Result<Vec<u8>>> {
     let inner = udf.inner().as_ref() as &dyn Any;
     if let Some(format) = inner.downcast_ref::<datetime_format::FormatDatetime>() {
-        return Some(Ok(State::bytes(
+        return Some(Ok(state_bytes(
             format.zone,
             Some(&format.locale),
             format.safe,
         )));
     }
     if let Some(parse) = inner.downcast_ref::<datetime_format::ParseDatetime>() {
-        return Some(Ok(State::bytes(
-            parse.zone,
-            Some(&parse.locale),
-            parse.safe,
-        )));
+        return Some(Ok(state_bytes(parse.zone, Some(&parse.locale), parse.safe)));
     }
     if let Some(cast) = inner.downcast_ref::<cast_string::CastToString>() {
-        return Some(Ok(State::bytes(cast.zone, None, false)));
+        return Some(Ok(state_bytes(cast.zone, None, false)));
     }
     if inner.downcast_ref::<encoding::Encode>().is_some() {
         return Some(Ok(Vec::new()));
     }
     if let Some(decode) = inner.downcast_ref::<encoding::Decode>() {
-        return Some(Ok(State::bytes(Zone::UTC, None, decode.safe)));
+        return Some(Ok(state_bytes(Zone::UTC, None, decode.safe)));
     }
     (stateless().iter())
         .any(|function| function.name() == udf.name())
@@ -162,23 +129,27 @@ pub(crate) fn encode_udf(udf: &ScalarUDF) -> Option<Result<Vec<u8>>> {
 
 /// The library's function named `name` with the state `bytes`, when the library has one.
 pub(crate) fn decode_udf(name: &str, bytes: &[u8]) -> Option<Result<Arc<ScalarUDF>>> {
-    let state = || State::decode(bytes).map_err(invalid);
+    let state = || LibraryState::decode(bytes).map_err(invalid);
     let parse = |kind: Kind| {
         let state = state()?;
-        let udf = datetime_format::parse_udf(kind, state.zone()?, state.locale()?, state.safe);
-        Ok(Arc::new(udf))
+        let (zone, locale) = (zone_of(&state)?, state_locale(&state)?);
+        Ok(Arc::new(datetime_format::parse_udf(
+            kind, zone, locale, state.safe,
+        )))
     };
     let decoded = match name {
         "$format_datetime" => (|| {
             let state = state()?;
-            let udf = datetime_format::format_udf(state.zone()?, state.locale()?, state.safe);
-            Ok(Arc::new(udf))
+            let (zone, locale) = (zone_of(&state)?, state_locale(&state)?);
+            Ok(Arc::new(datetime_format::format_udf(
+                zone, locale, state.safe,
+            )))
         })(),
         "$parse_date" => parse(Kind::Date),
         "$parse_time" => parse(Kind::Time),
         "$parse_datetime" => parse(Kind::Datetime),
         "$parse_timestamp" => parse(Kind::Timestamp),
-        "$cast_to_string" => (|| Ok(Arc::new(cast_string::udf(state()?.zone()?))))(),
+        "$cast_to_string" => (|| Ok(Arc::new(cast_string::udf(zone_of(&state()?)?))))(),
         "$to_hex" => Ok(Arc::new(encoding::encode_udf(encoding::Encoding::Hex))),
         "$to_base64" => Ok(Arc::new(encoding::encode_udf(encoding::Encoding::Base64))),
         "$from_hex" => (|| {

@@ -36,6 +36,12 @@ pub mod codec;
 pub mod impute;
 pub mod lump;
 pub mod match_recognize;
+pub mod proto {
+    //! The prost messages of package `avenger.transforms.v1`, what the [`codec`](crate::codec)
+    //! writes for a node and for the state of a function of the transforms, generated from
+    //! `proto/avenger/transforms/v1/plan.proto`, whose comments are their documentation.
+    include!(concat!(env!("OUT_DIR"), "/avenger.transforms.v1.rs"));
+}
 pub mod stack;
 pub mod table_function;
 pub mod timeunit;

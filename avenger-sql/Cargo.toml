@@ -36,6 +36,10 @@ regex = { workspace = true }
 regex-syntax = "0.8"
 url = "2.5"
 
+[build-dependencies]
+prost-build = { workspace = true }
+protoc-bin-vendored = { workspace = true }
+
 [features]
 # The formats and compressions of the files of data scripts beyond CSV, JSON and Arrow IPC, which
 # DataFusion reads with its features of the same names. A data script that reads a format or a

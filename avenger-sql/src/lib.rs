@@ -42,6 +42,12 @@ mod functions;
 pub mod library;
 mod pipeline;
 pub mod project;
+pub mod proto {
+    //! The prost messages of package `avenger.sql.v1`, what avenger-sql's host writes into a plan
+    //! that bakes for an extension node and for the state of a function of the library, generated
+    //! from `proto/avenger/sql/v1/plan.proto`, whose comments are their documentation.
+    include!(concat!(env!("OUT_DIR"), "/avenger.sql.v1.rs"));
+}
 pub mod streaming;
 pub mod types;
 

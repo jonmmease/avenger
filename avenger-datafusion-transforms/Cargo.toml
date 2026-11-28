@@ -17,6 +17,10 @@ chrono = { workspace = true }
 futures = { workspace = true }
 libm = { workspace = true }
 
+[build-dependencies]
+prost-build = { workspace = true }
+protoc-bin-vendored = { workspace = true }
+
 # DataFusion's randomness on wasm32 comes from the browser.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
