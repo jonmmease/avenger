@@ -1,0 +1,100 @@
+// The file of a baked graph: the tables that the plans of a document's charts scan, the charts
+// with their rows and their plans, and the document's selections.
+//
+// A `bytes` field holds a value in a format that avenger does not define, which its comment names:
+// an encoded message of DataFusion, or an Arrow IPC stream.
+
+syntax = "proto3";
+
+package avenger.graph.v1;
+
+// The file of a baked graph.
+message ChartGraphFile {
+  // The version of the file's format, which a reader checks before it reads the rest.
+  uint32 version = 1;
+  // The tables that the plans of the charts scan. A plan names a table by its position in this
+  // list.
+  repeated TableFile tables = 2;
+  // The charts of the document, in the document's order.
+  repeated ChartFile charts = 3;
+  // The selections of the document.
+  repeated SelectionFile selections = 4;
+  // The version of DataFusion whose messages the file holds, such as `55.2.0`: the plans of the
+  // charts and the schemas.
+  string datafusion = 5;
+}
+
+// A table that the plans scan.
+message TableFile {
+  // The schema of the table's scan, whose columns are named by position: an encoded
+  // `datafusion_common.Schema` of the DataFusion version that `ChartGraphFile.datafusion` names.
+  bytes schema = 1;
+  // The names of the scan's columns in the plan that computed the table, one for each column of
+  // `schema`.
+  repeated string names = 2;
+  // The rows of the table, with the columns that the plans can read.
+  ResultFile result = 3;
+}
+
+// A chart of the document.
+message ChartFile {
+  // The schema of the chart's rows: an encoded `datafusion_common.Schema` of the DataFusion
+  // version that `ChartGraphFile.datafusion` names.
+  bytes schema = 1;
+  // The chart's rows for empty selections.
+  ResultFile first = 2;
+  // The chart's plan above the tables of the file: an encoded `datafusion.LogicalPlanNode` of the
+  // DataFusion version that `ChartGraphFile.datafusion` names. It is set when the chart reads a
+  // selection and its plan travels. A chart without a plan shows the chart of `first` for every
+  // state of the selections.
+  optional bytes plan = 3;
+}
+
+// A result: some of the columns of a node's output, and their rows.
+message ResultFile {
+  // The positions, in the node's output, of the columns that the result holds, in ascending
+  // order, one for each column of `ipc`.
+  repeated uint32 columns = 1;
+  // Whether the batches of `ipc` are in the order of the result's rows, which a reader such as a
+  // limit can depend on. Otherwise the batches have no order.
+  bool ordered = 2;
+  // The sort order of the rows that the plan that computed them declared, when `ordered`: the
+  // columns that order the rows, from the first key to the last. It is empty when that plan
+  // declared none.
+  repeated OrderFile ordering = 3;
+  // The rows: an Arrow IPC stream of the schema of the held columns and of the batches.
+  bytes ipc = 4;
+}
+
+// A column that orders the rows of a result.
+message OrderFile {
+  // The position of the column in the node's output.
+  uint32 column = 1;
+  // Whether the rows descend by the column. Otherwise they ascend.
+  bool descending = 2;
+  // Whether the nulls of the column come first. Otherwise they come last.
+  bool nulls_first = 3;
+}
+
+// A selection of the document.
+message SelectionFile {
+  // The name of the selection.
+  string name = 1;
+  // The placeholder of the selection's state in the plans, without `$`.
+  string placeholder = 2;
+  // How the clauses of the selection replace each other and combine.
+  Resolution resolution = 3;
+}
+
+// How the clauses of a selection replace each other and combine.
+enum Resolution {
+  // Unset. A writer sets every field of this enum, so none holds this value.
+  RESOLUTION_UNSPECIFIED = 0;
+  // A new clause replaces every other clause.
+  RESOLUTION_GLOBAL = 1;
+  // A new clause replaces the clause of its owner. A row matches when it matches any clause.
+  RESOLUTION_UNION = 2;
+  // A new clause replaces the clause of its owner. A row matches when it matches the clause of
+  // every owner that has one.
+  RESOLUTION_INTERSECT = 3;
+}
