@@ -29,22 +29,30 @@ pub(crate) enum Encoding {
 
 /// The text of the bytes `value` in `encoding`, as `TO_HEX` and `TO_BASE64` give it.
 pub(crate) fn encoded(value: Expr, encoding: Encoding) -> Expr {
-    let udf = Encode {
+    encode_udf(encoding).call(vec![value])
+}
+
+/// The function of [`encoded`].
+pub(super) fn encode_udf(encoding: Encoding) -> ScalarUDF {
+    ScalarUDF::new_from_impl(Encode {
         encoding,
         signature: Signature::any(1, Volatility::Immutable),
-    };
-    ScalarUDF::new_from_impl(udf).call(vec![value])
+    })
 }
 
 /// The bytes of the text `value` in `encoding`, as `FROM_HEX` and `FROM_BASE64` give them, with
 /// GoogleSQL's error for text outside the encoding, or `NULL` where `safe`.
 pub(crate) fn decoded(value: Expr, encoding: Encoding, safe: bool) -> Expr {
-    let udf = Decode {
+    decode_udf(encoding, safe).call(vec![value])
+}
+
+/// The function of [`decoded`].
+pub(super) fn decode_udf(encoding: Encoding, safe: bool) -> ScalarUDF {
+    ScalarUDF::new_from_impl(Decode {
         encoding,
         safe,
         signature: Signature::any(1, Volatility::Immutable),
-    };
-    ScalarUDF::new_from_impl(udf).call(vec![value])
+    })
 }
 
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -130,15 +138,15 @@ fn decode(text: &str, encoding: Encoding) -> Result<Vec<u8>, String> {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct Encode {
-    encoding: Encoding,
+pub(super) struct Encode {
+    pub(super) encoding: Encoding,
     signature: Signature,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct Decode {
-    encoding: Encoding,
-    safe: bool,
+pub(super) struct Decode {
+    pub(super) encoding: Encoding,
+    pub(super) safe: bool,
     signature: Signature,
 }
 

@@ -147,9 +147,12 @@ impl Re2Function {
     }
 }
 
-static CONTAINS: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| Re2Function::udf(Kind::Contains, 2));
-static EXTRACT: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| Re2Function::udf(Kind::Extract, 2));
-static REPLACE: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| Re2Function::udf(Kind::Replace, 3));
+pub(in crate::library) static CONTAINS: LazyLock<Arc<ScalarUDF>> =
+    LazyLock::new(|| Re2Function::udf(Kind::Contains, 2));
+pub(in crate::library) static EXTRACT: LazyLock<Arc<ScalarUDF>> =
+    LazyLock::new(|| Re2Function::udf(Kind::Extract, 2));
+pub(in crate::library) static REPLACE: LazyLock<Arc<ScalarUDF>> =
+    LazyLock::new(|| Re2Function::udf(Kind::Replace, 3));
 
 /// `REGEXP_CONTAINS(value, regexp)`: whether `value` has a match of `regexp`.
 pub(crate) fn contains(value: Expr, regexp: Expr) -> Expr {

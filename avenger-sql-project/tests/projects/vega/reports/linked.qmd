@@ -29,3 +29,11 @@ FROM vega_datasets.cars
 |> WHERE brush
 |> AGGREGATE mark_bar(x => Origin, y => count(*)) AS chart
 ```
+
+The cars of each model year that the brush selects, by the year's name, which `FORMAT_DATE` writes in the page.
+
+```{avenger-sql}
+FROM vega_datasets.cars
+|> WHERE brush
+|> AGGREGATE mark_bar(x => format_date('%Y', CAST(Year AS DATE)), y => count(*)) AS chart
+```
