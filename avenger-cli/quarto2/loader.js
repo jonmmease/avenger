@@ -1,10 +1,12 @@
 // The loader of the interactive charts of a Quarto 2 page, which `avenger quarto2-engine` puts in
 // the page's header once, inline, after the page's configuration, a JSON script `avenger-runtime`:
 // the URL of the runtime's folder relative to the page, the runtime's version, which each URL
-// carries so a browser never reads a cached file of another build, the names of its fonts, the
-// project's stylesheets, and the color schemes. A module script runs after the page parses, so the page
-// never waits for it. When the first `<avenger-chart>` nears the screen, it imports the runtime's
-// element once, which loads the library and the fonts and draws the charts.
+// carries so a browser never reads a cached file of another build, the name of the page's library,
+// `avenger_query_web` for a page whose charts run a graph and the smaller `avenger_chart_web` for
+// the others, the names of its fonts, the project's stylesheets, and the color schemes. A module
+// script runs after the page parses, so the page never waits for it. When the first
+// `<avenger-chart>` nears the screen, it imports the runtime's element once, which loads the
+// library and the fonts and draws the charts.
 const config = JSON.parse(document.getElementById("avenger-runtime").textContent);
 const base = new URL(config.runtime, document.baseURI);
 const url = (path) => {
@@ -21,8 +23,8 @@ const observer = new IntersectionObserver(
     import(url("avenger-chart.js"))
       .then(({ start }) =>
         start({
-          glue: url("avenger_query_web.js"),
-          wasm: url("avenger_query_web_bg.wasm.gz"),
+          glue: url(`${config.library}.js`),
+          wasm: url(`${config.library}_bg.wasm.gz`),
           fonts: config.fonts.map((font) => url(`fonts/${font}.gz`)),
           styles: config.styles ?? undefined,
           colorSchemes: config.colorSchemes,
