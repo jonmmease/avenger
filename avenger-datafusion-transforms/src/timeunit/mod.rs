@@ -62,7 +62,7 @@
 mod apply;
 mod calendar;
 mod choose;
-mod functions;
+pub(crate) mod functions;
 mod options;
 mod units;
 
