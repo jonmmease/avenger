@@ -9,7 +9,7 @@
 //! selection, above those tables, and each chart's rows for empty selections, which a host
 //! draws before any selection changes. [`ChartGraph::encode`] writes a baked graph as a file,
 //! and [`ChartGraph::decode`] reads the file as a baked graph, which runs as a native host runs
-//! a graph.
+//! a graph. The messages of a file are those of [`crate::proto`].
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -48,13 +48,13 @@ use prost::Message;
 use crate::{
     cut::{cut_requests, cut_schema, kept_table, scan_under, CutSource, Kept},
     graph::{Nodes, QueryGraph},
-    key::resolution_code,
+    proto::{self, ChartFile, ChartGraphFile, OrderFile, ResultFile, SelectionFile, TableFile},
     run::{node_key, projected, resolve, versions, Inputs},
     store::{ResultStore, StoreConfig},
 };
 
 /// The version of a graph's file, which a reader checks before it reads the rest.
-pub const FILE_VERSION: u32 = 1;
+pub const FILE_VERSION: u32 = 2;
 
 /// The bytes of the results that a baked graph's store keeps, and of the largest that it keeps.
 const STORE: StoreConfig = StoreConfig {
@@ -62,91 +62,38 @@ const STORE: StoreConfig = StoreConfig {
     max_result: 64 << 20,
 };
 
-/// The file of a baked graph.
-#[derive(Clone, PartialEq, Message)]
-pub struct ChartGraphFile {
-    #[prost(uint32, tag = "1")]
-    pub version: u32,
-    #[prost(message, repeated, tag = "2")]
-    pub tables: Vec<TableFile>,
-    #[prost(message, repeated, tag = "3")]
-    pub charts: Vec<ChartFile>,
-    #[prost(message, repeated, tag = "4")]
-    pub selections: Vec<SelectionFile>,
-}
-
-/// A table that the plans scan: the schema of its scan, whose columns are named by position,
-/// the names of those columns in the plan that computed the table, and its rows, with the
-/// columns that the plans can read.
-#[derive(Clone, PartialEq, Message)]
-pub struct TableFile {
-    #[prost(message, optional, tag = "1")]
-    pub schema: Option<protobuf::Schema>,
-    #[prost(string, repeated, tag = "2")]
-    pub names: Vec<String>,
-    #[prost(message, optional, tag = "3")]
-    pub result: Option<ResultFile>,
-}
-
-/// A chart of the document: the schema of its rows, its rows for empty selections, and its plan
-/// when it reads a selection and its plan travels.
-#[derive(Clone, PartialEq, Message)]
-pub struct ChartFile {
-    #[prost(message, optional, tag = "1")]
-    pub schema: Option<protobuf::Schema>,
-    #[prost(message, optional, tag = "2")]
-    pub first: Option<ResultFile>,
-    #[prost(bytes = "vec", optional, tag = "3")]
-    pub plan: Option<Vec<u8>>,
-}
-
-/// A result: the columns of its node's output that it holds, whether its batches are in the order
-/// of its rows and by which columns, and the batches as an Arrow IPC stream with their schema.
-#[derive(Clone, PartialEq, Message)]
-pub struct ResultFile {
-    #[prost(uint32, repeated, tag = "1")]
-    pub columns: Vec<u32>,
-    #[prost(bool, tag = "2")]
-    pub ordered: bool,
-    #[prost(message, repeated, tag = "3")]
-    pub ordering: Vec<OrderFile>,
-    #[prost(bytes = "vec", tag = "4")]
-    pub ipc: Vec<u8>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-pub struct OrderFile {
-    #[prost(uint32, tag = "1")]
-    pub column: u32,
-    #[prost(bool, tag = "2")]
-    pub descending: bool,
-    #[prost(bool, tag = "3")]
-    pub nulls_first: bool,
-}
-
-/// A selection of the document: its name, the placeholder of its state without `$`, and its
-/// resolution, `0` for global, `1` for union, and `2` for intersect.
-#[derive(Clone, PartialEq, Message)]
-pub struct SelectionFile {
-    #[prost(string, tag = "1")]
-    pub name: String,
-    #[prost(string, tag = "2")]
-    pub placeholder: String,
-    #[prost(uint32, tag = "3")]
-    pub resolution: u32,
-}
-
 fn invalid(error: impl std::fmt::Display) -> DataFusionError {
     exec_datafusion_err!("the file of a chart graph: {error}")
 }
 
-fn schema_file(schema: &Schema) -> Result<protobuf::Schema> {
-    protobuf::Schema::try_from(schema).map_err(invalid)
+/// The bytes of `schema` in a file: an encoded `datafusion_common.Schema`.
+fn schema_bytes(schema: &Schema) -> Result<Vec<u8>> {
+    let schema = protobuf::Schema::try_from(schema).map_err(invalid)?;
+    Ok(schema.encode_to_vec())
 }
 
-fn schema_of(file: &Option<protobuf::Schema>) -> Result<SchemaRef> {
-    let file = file.as_ref().ok_or_else(|| invalid("no schema"))?;
-    Ok(Arc::new(Schema::try_from(file).map_err(invalid)?))
+/// The schema of `bytes`, which [`schema_bytes`] wrote.
+fn schema_of(bytes: &[u8]) -> Result<SchemaRef> {
+    let schema = protobuf::Schema::decode(bytes).map_err(invalid)?;
+    Ok(Arc::new(Schema::try_from(&schema).map_err(invalid)?))
+}
+
+/// The resolution of a selection as a file names it.
+fn resolution_file(resolution: Resolution) -> proto::Resolution {
+    match resolution {
+        Resolution::Global => proto::Resolution::Global,
+        Resolution::Union => proto::Resolution::Union,
+        Resolution::Intersect => proto::Resolution::Intersect,
+    }
+}
+
+/// The resolution that a file names, which is global when the file names none.
+fn resolution_of(resolution: proto::Resolution) -> Resolution {
+    match resolution {
+        proto::Resolution::Union => Resolution::Union,
+        proto::Resolution::Intersect => Resolution::Intersect,
+        proto::Resolution::Global | proto::Resolution::Unspecified => Resolution::Global,
+    }
 }
 
 impl ChartGraphFile {
@@ -205,16 +152,6 @@ impl ResultFile {
                 })
                 .collect(),
         ))
-    }
-}
-
-impl SelectionFile {
-    fn resolution(&self) -> Resolution {
-        match self.resolution {
-            1 => Resolution::Union,
-            2 => Resolution::Intersect,
-            _ => Resolution::Global,
-        }
     }
 }
 
@@ -730,7 +667,7 @@ impl ChartGraph {
                 return internal_err!("the chart {position} of a baked graph has no rows");
             };
             let mut file = ChartFile {
-                schema: Some(schema_file(&chart.schema)?),
+                schema: schema_bytes(&chart.schema)?,
                 first: Some(ResultFile::of(first, chart.schema.clone())?),
                 plan: None,
             };
@@ -783,7 +720,7 @@ impl ChartGraph {
                 let table = &tables[*table];
                 let schema = project_schema(&table.scan, Some(&table.kept.columns))?;
                 Ok(TableFile {
-                    schema: Some(schema_file(&table.scan)?),
+                    schema: schema_bytes(&table.scan)?,
                     names: table.names.clone(),
                     result: Some(ResultFile::of(&table.kept, schema)?),
                 })
@@ -797,9 +734,10 @@ impl ChartGraph {
                 .map(|selection| SelectionFile {
                     name: selection.name.clone(),
                     placeholder: selection.placeholder.clone(),
-                    resolution: u32::from(resolution_code(selection.resolution)),
+                    resolution: resolution_file(selection.resolution).into(),
                 })
                 .collect(),
+            datafusion: datafusion::DATAFUSION_VERSION.to_string(),
         };
         Ok(Encoded {
             plans: (file.charts.iter())
@@ -851,7 +789,7 @@ impl ChartGraph {
             .map(|selection| ChartSelection {
                 name: selection.name.clone(),
                 placeholder: selection.placeholder.clone(),
-                resolution: selection.resolution(),
+                resolution: resolution_of(selection.resolution()),
                 fields: None,
             })
             .collect();

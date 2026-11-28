@@ -8,7 +8,8 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use avenger_query_graph::{
-    chart_graph::{ChartGraph, ChartGraphFile, ChartSelection, Encoded},
+    chart_graph::{ChartGraph, ChartSelection, Encoded},
+    proto::{self, ChartGraphFile},
     Inputs,
 };
 use avenger_selection::{Clause, Resolution, SelectionState};
@@ -120,6 +121,9 @@ async fn a_graph_returns_the_rows_of_its_plans() {
     let graphs = graphs(&CHARTS, &[selection("brush", Some(&["delay"]))]).await;
     assert_eq!(graphs.encoded.warnings, Vec::<String>::new());
     let file = ChartGraphFile::from_bytes(&graphs.encoded.bytes).unwrap();
+    assert_eq!(file.datafusion, datafusion::DATAFUSION_VERSION);
+    let resolution = file.selections[0].resolution();
+    assert_eq!(resolution, proto::Resolution::Intersect);
     let with_plans: Vec<bool> = (file.charts.iter().map(|chart| chart.plan.is_some())).collect();
     assert_eq!(with_plans, [true, true, false, true]);
     assert_eq!(graphs.encoded.plans, 3);

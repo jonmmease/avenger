@@ -17,6 +17,10 @@ datafusion-proto-common = { workspace = true }
 futures = { workspace = true }
 prost = { workspace = true }
 
+[build-dependencies]
+prost-build = { workspace = true }
+protoc-bin-vendored = { workspace = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt"] }
 

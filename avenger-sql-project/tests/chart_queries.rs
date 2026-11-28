@@ -402,7 +402,7 @@ async fn a_chart_graph_builds_the_charts_of_the_native_run() {
 /// brushes, once for the charts that share them, with the columns of the brush's tools.
 #[tokio::test]
 async fn the_charts_of_a_document_share_the_tables_of_their_graph() {
-    use avenger_query_graph::chart_graph::{ChartGraph, ChartGraphFile};
+    use avenger_query_graph::{chart_graph::ChartGraph, proto::ChartGraphFile};
     let (_root, project, _) = project().await;
     let first = "DECLARE brush SELECTION;\n\
                  FROM host |> WHERE brush |> AGGREGATE mark_bar(x => k, y => SUM(v)) AS chart";
