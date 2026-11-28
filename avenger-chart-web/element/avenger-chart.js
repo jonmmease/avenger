@@ -23,6 +23,17 @@
 // appears. `state(parts)` gives the bytes of the element's state: its selections, its modes, and
 // its views. The `reports` attribute picks the changes that the events carry: `settled`, by default,
 // the changes when a gesture ends, or `every`, such as each move of a brush's drag.
+//
+// An element can take its chart from a document's graph instead of its own bytes: `graph` names the
+// graph's file, relative to `start`'s `graphs`, and `output` the graph's output whose chart it
+// draws. The elements of one graph share one decoded graph and their selections: a change of one
+// element's selections restyles the others at once, an element that draws its first view later
+// starts from them, and when the graph reads the selection, as a
+// chart filtered by `WHERE brush` does, the graph runs again and each element whose chart changed
+// draws its new chart with its views and its brushes. Such an element reports every change, at most
+// once in its tool's throttle during a gesture, unless its `reports` attribute says otherwise.
+// Graphs run in avenger-query-web's library, whose module holds this library's exports too. With
+// avenger-chart-web's own library, an element of a graph keeps its images, and the page warns once.
 
 const CHART_TYPE = "application/vnd.avenger.chart+base64";
 
@@ -30,12 +41,15 @@ const CHART_TYPE = "application/vnd.avenger.chart+base64";
 let config;
 /** The library, once it loads. */
 let library;
+/** Whether the page warned that its library runs no graphs. */
+let graphless = false;
 
 /**
  * Loads the library and the fonts of `options`, and defines `<avenger-chart>`. A second call
  * returns the first one's promise. `options` holds:
  *
- * - `glue`: the URL of wasm-bindgen's module of the library, `avenger_chart_web.js`.
+ * - `glue`: the URL of wasm-bindgen's module of the library, `avenger_chart_web.js`, or
+ *   `avenger_query_web.js` for a page whose elements draw from graphs.
  * - `wasm`: the URL of the library's WebAssembly module, `.wasm`, or `.wasm.gz` as gzip.
  * - `fonts`: the URLs of the font files, the faces that `avenger-fonts` bundles first, in their
  *   order, then the page's own; a URL that ends in `.gz` is gzip.
@@ -43,6 +57,8 @@ let library;
  * - `colorSchemes`: `["light"]`, `["dark"]`, or `["light", "dark"]`. With one scheme, a chart
  *   draws in it on its background. With two, it draws on a transparent canvas and follows the
  *   `quarto-light` and `quarto-dark` classes of `body`, as Quarto's light and dark themes switch.
+ * - `graphs`: the URL of the folder of the graphs' files that elements name with `graph`, the
+ *   page's own URL by default.
  */
 export function start(options) {
   if (!start.started) {
@@ -116,6 +132,80 @@ function frame() {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/**
+ * The graphs of the page, by the URLs of their files: each with its elements, its decoded graph and
+ * the charts of its last run once it loads, the last change of each selection, and whether a run is
+ * in progress or due again.
+ */
+const graphs = new Map();
+
+/** The graph that `element` names, which it joins, and which loads on first use. */
+function graphOf(element) {
+  const url = new URL(element.getAttribute("graph"), config.graphs ?? document.baseURI).href;
+  let group = graphs.get(url);
+  if (!group) {
+    group = { elements: new Set(), graph: undefined, charts: [], selections: new Map(), running: false, again: false };
+    group.loaded = (async () => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`cannot load ${url}: status ${response.status}`);
+      group.graph = new library.ChartGraph(new Uint8Array(await response.arrayBuffer()));
+      group.charts = await group.graph.run();
+    })();
+    graphs.set(url, group);
+  }
+  group.elements.add(element);
+  return group;
+}
+
+/**
+ * Gives a change of `from`'s selections to the other elements of its graph, which restyle by them,
+ * keeps it for the elements that draw their first views later, and runs the graph again when the
+ * change writes a selection that the graph reads.
+ */
+function changed(group, from, change) {
+  // The last change of each selection, in the order of the changes.
+  for (const name of change.selections) {
+    group.selections.delete(name);
+    group.selections.set(name, change.bytes);
+  }
+  for (const other of group.elements) {
+    if (other !== from) other.setState(change.bytes, { modes: false, views: false });
+  }
+  if (change.selections.length && group.graph.change(change.bytes)) rerun(group);
+}
+
+/** Runs `group`'s graph, once more for each change that arrives meanwhile, and gives each element whose chart changed its new chart. */
+async function rerun(group) {
+  if (group.running) {
+    group.again = true;
+    return;
+  }
+  group.running = true;
+  try {
+    do {
+      group.again = false;
+      const charts = await group.graph.run();
+      for (const element of group.elements) {
+        const index = Number(element.getAttribute("output") ?? 0);
+        const bytes = charts[index];
+        if (bytes && !same(bytes, group.charts[index])) element.setChart(bytes);
+      }
+      group.charts = charts;
+    } while (group.again);
+  } catch (error) {
+    console.warn("avenger-chart: the graph did not run", error);
+  } finally {
+    group.running = false;
+  }
+}
+
+/** Whether the byte arrays `a` and `b` hold the same bytes. */
+function same(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let at = 0; at < a.length; at++) if (a[at] !== b[at]) return false;
+  return true;
+}
+
 /** Applies a call of `setState`, `setMode`, `clearSelection`, or `resetViews` to `view`. */
 function apply(view, call) {
   if (call.state) view.setState(call.state, call.parts);
@@ -163,6 +253,8 @@ class AvengerChart extends HTMLElement {
     this.replaced = false;
     /** Whether the view drew its first frame, after it applied the saved state and the calls. */
     this.drawn = false;
+    /** The graph that the element takes its chart from, once it joins it. */
+    this.group = undefined;
   }
 
   connectedCallback() {
@@ -177,6 +269,8 @@ class AvengerChart extends HTMLElement {
 
   disconnectedCallback() {
     connected.delete(this);
+    this.group?.elements.delete(this);
+    this.group = undefined;
     near.unobserve(this);
     far.unobserve(this);
     this.leave();
@@ -213,9 +307,32 @@ class AvengerChart extends HTMLElement {
     });
   }
 
-  async create() {
+  /** The bytes of the element's chart: its own, or the chart of its output of its graph. */
+  async chartBytes() {
     const script = this.querySelector(`script[type="${CHART_TYPE}"]`);
-    if (!script) return;
+    if (script) return decodeBase64(script.textContent);
+    if (!this.hasAttribute("graph")) return undefined;
+    if (!library.ChartGraph) {
+      if (!graphless) {
+        graphless = true;
+        console.warn("avenger-chart: the library runs no graphs, so its graphs' charts stay images; load avenger-query-web");
+      }
+      return undefined;
+    }
+    this.group ??= graphOf(this);
+    await this.group.loaded;
+    return this.group.charts[Number(this.getAttribute("output") ?? 0)] ?? undefined;
+  }
+
+  async create() {
+    let bytes;
+    try {
+      bytes = await this.chartBytes();
+    } catch (error) {
+      console.warn("avenger-chart: the chart stays an image", error);
+      return;
+    }
+    if (!bytes) return;
     const schemes = config.colorSchemes;
     const transparent = schemes.length > 1;
     const canvas = document.createElement("canvas");
@@ -229,13 +346,15 @@ class AvengerChart extends HTMLElement {
     this.append(canvas);
     let view;
     try {
-      view = await library.ChartView.create(canvas, decodeBase64(script.textContent), {
+      view = await library.ChartView.create(canvas, bytes, {
         styles: config.styles ?? undefined,
         colorScheme: transparent ? pageScheme() : schemes[0],
         transparent,
-        reports: this.getAttribute("reports") ?? "settled",
-        onChange: (change) =>
-          this.dispatchEvent(new CustomEvent("avenger-change", { detail: change, bubbles: true })),
+        reports: this.getAttribute("reports") ?? (this.group ? "every" : "settled"),
+        onChange: (change) => {
+          if (this.group?.graph) changed(this.group, this, change);
+          this.dispatchEvent(new CustomEvent("avenger-change", { detail: change, bubbles: true }));
+        },
       });
     } catch (error) {
       canvas.remove();
@@ -250,9 +369,15 @@ class AvengerChart extends HTMLElement {
     }
     this.view = view;
     this.canvas = canvas;
-    // The state of the last view, and the calls since, apply before the first frame shows.
+    // The state of the last view, and the calls since, apply before the first frame shows. A first
+    // view starts from the selections of its graph, which changed before the element joined it.
     try {
       if (this.saved) view.setState(this.saved);
+      else if (this.group) {
+        for (const bytes of new Set(this.group.selections.values())) {
+          view.setState(bytes, { modes: false, views: false });
+        }
+      }
       for (const call of this.pending) apply(view, call);
     } catch (error) {
       console.warn("avenger-chart: the saved state did not apply", error);

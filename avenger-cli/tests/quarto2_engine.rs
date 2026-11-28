@@ -308,10 +308,17 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
         html.starts_with(&format!("<avenger-chart width=\"{width}\"")),
         "{html}"
     );
-    assert!(
-        html.contains("application/vnd.avenger.chart+base64"),
-        "{html}"
-    );
+    // The element draws the first output of the document's graph, which the runtime's folder
+    // holds beside the runtime.
+    let graph = html
+        .split("graph=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    assert!(html.contains("output=\"0\""), "{html}");
+    assert!(root.join("_avenger/graphs").join(graph).is_file(), "{html}");
     // The chart's image has its size, so revealjs's auto-stretch leaves it in its figure with
     // the element.
     assert_eq!(
@@ -333,10 +340,12 @@ fn a_chart_with_tools_draws_interactively_from_the_project_s_runtime() {
         .map(|entry| entry.path())
         .collect();
     let folder = &root.join("_avenger/runtime");
-    assert_eq!(folders, std::slice::from_ref(folder));
+    let mut folders = folders;
+    folders.sort();
+    assert_eq!(folders, [root.join("_avenger/graphs"), folder.clone()]);
     for file in [
-        "avenger_chart_web_bg.wasm.gz",
-        "avenger_chart_web.js",
+        "avenger_query_web_bg.wasm.gz",
+        "avenger_query_web.js",
         "avenger-chart.js",
         "fonts/Lato-Regular.ttf.gz",
         "HASH",
@@ -469,4 +478,68 @@ fn a_png_has_its_size_in_css_pixels() {
         output["metadata"]["image/png"],
         json!({"width": 288.0, "height": 192.0})
     );
+}
+
+#[test]
+fn the_charts_of_a_document_share_one_graph_whose_selections_filter_them() {
+    use avenger_query_graph::chart_graph::ChartGraph;
+    use avenger_selection::{Clause, Condition};
+    use std::{collections::BTreeMap, sync::Arc};
+    let (_directory, root) = project();
+    let document = root.join("linked.qmd");
+    std::fs::write(&document, "").unwrap();
+    let text = "```{avenger-sql}\nDECLARE brush SELECTION;\nFROM vega_datasets.cars |> AGGREGATE mark_symbol(x => Horsepower, y => Miles_per_Gallon, id => 'scatter', tools => [select(brush, type => interval(channels => ['x']))]) AS chart\n```\n\n```{avenger-sql}\nFROM vega_datasets.cars |> AGGREGATE mark_symbol(x => Horsepower, y => Acceleration, fill => IF(brush, value('steelblue'), value('lightgray'))) AS chart\n```\n\n```{avenger-sql}\nFROM vega_datasets.cars |> WHERE brush |> AGGREGATE mark_bar(x => Origin, y => COUNT(*)) AS chart\n```\n";
+    let mut interactive = request(&document, text);
+    interactive["interactive"] = json!(true);
+    interactive["projectDir"] = json!(root);
+    let (status, response) = engine(&interactive);
+    assert_eq!(status, 0, "{response}");
+    assert!(response.get("warnings").is_none(), "{response}");
+    // Each chart, the brushed scatter, the restyled one, and the filtered bars, which declare no
+    // tool, has its element of the one graph, at its output.
+    let mut graphs = Vec::new();
+    for cell in 0..3 {
+        let outputs = response["cells"][cell]["outputs"].as_array().unwrap();
+        assert_eq!(outputs.len(), 2, "{response}");
+        let html = outputs[1]["data"]["text/html"].as_str().unwrap();
+        assert!(html.contains(&format!("output=\"{cell}\"")), "{html}");
+        graphs.push(
+            html.split("graph=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .to_string(),
+        );
+    }
+    assert!(graphs.iter().all(|graph| *graph == graphs[0]));
+    // The graph runs without the project: a brush of the scatter's horsepower filters the bars,
+    // and leaves the scatter's chart as it is.
+    let bytes = std::fs::read(root.join("_avenger/graphs").join(&graphs[0])).unwrap();
+    let session = avenger_sql::bake::baked_session().unwrap();
+    let graph = ChartGraph::decode(&bytes, &session.state()).unwrap();
+    let chart = |batches: &[arrow::array::RecordBatch]| {
+        use arrow::array::AsArray;
+        batches[0].column(0).as_binary_view().value(0).to_vec()
+    };
+    let empty = block(graph.run(&BTreeMap::new()));
+    let clause = Clause::new("scatter").condition(Condition::Range {
+        column: "Horsepower".into(),
+        channel: None,
+        ends: Arc::new(arrow::array::Float64Array::from(vec![150.0, 230.0])),
+        exclude_end: false,
+        cells: None,
+    });
+    let brushed = block(graph.run(&BTreeMap::from([("brush".to_string(), vec![clause])])));
+    assert_eq!(chart(&empty[0]), chart(&brushed[0]));
+    assert_ne!(chart(&empty[2]), chart(&brushed[2]));
+}
+
+/// The rows of a run of a page's graph, run to its end on a runtime of the test's own.
+fn block<T>(future: impl std::future::Future<Output = datafusion::common::Result<T>>) -> T {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    runtime.block_on(future).unwrap()
 }
