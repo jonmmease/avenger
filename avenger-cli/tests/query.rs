@@ -589,9 +589,13 @@ fn a_data_script_s_statement_shows_its_table_as_the_project_holds_it() {
     let (_directory, root) = project();
     // Any line of a statement that makes a table, a view, or a table of files.
     let (status, csv, stderr) = rows_of(&root, "data/summaries.av.sql:8");
+    // The statement gives its groups no order, so the rows come in any order.
+    let (header, rows) = csv.split_once('\n').unwrap_or((&csv, ""));
+    let mut rows: Vec<&str> = rows.lines().collect();
+    rows.sort();
     assert_eq!(
-        (status, csv.as_str(), stderr.as_str()),
-        (0, "Origin,cars\nEurope,11\nUSA,163\n", "")
+        (status, header, rows, stderr.as_str()),
+        (0, "Origin,cars", vec!["Europe,11", "USA,163"], "")
     );
     let (status, csv, _) = rows_of(&root, "data/summaries.av.sql:12");
     assert_eq!((status, csv.lines().count()), (0, 624));
