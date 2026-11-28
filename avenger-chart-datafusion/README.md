@@ -10,11 +10,11 @@ Every chart that the aggregates build names GoogleSQL's syntaxes for its format 
 
 ## Codec
 
-`codec::PlanCodec` writes and reads a logical plan that builds charts, for a host that sends a plan to where it runs, such as a page. DataFusion's messages hold the plan, and the codec adds what they do not know:
+`codec::PlanCodec` writes and reads a logical plan that builds charts, for a host that sends a plan to where it runs, such as a page. DataFusion's messages hold the plan, and the codec adds what they do not know. What it adds is in the messages of package `avenger.chart.datafusion.v1`, which `proto/avenger/chart/datafusion/v1/plan.proto` defines and documents, and which the `proto` module exports as prost types:
 
-- A mark's aggregate travels as the bytes of its template and its fields, and a composition's as the bytes of its options.
-- A function or an extension node of the host that planned the plan travels through that host's `codec::HostCodec`. A session holds its hosts as `codec::Hosts`, an extension of its configuration, so the session that writes a plan and the session that reads it find the same hosts.
-- A scan travels as the position of its table in the tables that the codec holds.
+- The aggregate of a mark or of a composition travels as a `FunctionState`. A mark's holds a `MarkState`, with its template and its fields, and a composition's holds a `CompositionState`, with its options. The template is an encoded `MarkTemplate` of avenger-chart's package `avenger.chart.functions.v1`.
+- A function or an extension node of the host that planned the plan travels through that host's `codec::HostCodec`, which gives the bytes of a function's state, the `host` member of a `FunctionState`, and the bytes of a node, in a `HostNode` with the host's name. A session holds its hosts as `codec::Hosts`, an extension of its configuration, so the session that writes a plan and the session that reads it find the same hosts.
+- A scan travels as a `TableScan`, the position of its table in the tables that the codec holds.
 
 A function without state travels as its name, and decodes from the functions of the session that reads the plan. A plan must hold the aggregates, not the declarations that a front end such as avenger-sql binds to them when it simplifies a plan's expressions.
 

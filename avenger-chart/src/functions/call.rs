@@ -410,38 +410,12 @@ pub struct MarkTemplate {
     selections: Vec<(String, proto::SelectionResolution)>,
 }
 
-/// A mark template as bytes: the fields of [`MarkTemplate`], which [`MarkTemplate::from_bytes`]
-/// reads, as a host that sends a plan of a chart writes them.
-#[derive(Clone, PartialEq, Message)]
-struct TemplateBytes {
-    #[prost(string, tag = "1")]
-    name: String,
-    #[prost(string, tag = "2")]
-    coord: String,
-    #[prost(bytes = "bytes", tag = "3")]
-    layer: Bytes,
-    #[prost(bytes = "bytes", optional, tag = "4")]
-    options: Option<Bytes>,
-    #[prost(bytes = "bytes", optional, tag = "5")]
-    plot: Option<Bytes>,
-    #[prost(string, repeated, tag = "6")]
-    columns: Vec<String>,
-    #[prost(message, repeated, tag = "7")]
-    selections: Vec<SelectionBytes>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-struct SelectionBytes {
-    #[prost(string, tag = "1")]
-    name: String,
-    #[prost(enumeration = "proto::SelectionResolution", tag = "2")]
-    resolution: i32,
-}
-
 impl MarkTemplate {
-    /// The template as bytes, which [`MarkTemplate::from_bytes`] reads.
+    /// The template as bytes, which [`MarkTemplate::from_bytes`] reads: an encoded
+    /// [`MarkTemplate`](super::proto::MarkTemplate) of package `avenger.chart.functions.v1`, as a
+    /// host that sends a plan of a chart writes it.
     pub fn to_bytes(&self) -> Vec<u8> {
-        TemplateBytes {
+        super::proto::MarkTemplate {
             name: self.name.to_string(),
             coord: self.coord.field().to_string(),
             layer: self.layer.clone(),
@@ -449,7 +423,7 @@ impl MarkTemplate {
             plot: self.plot.clone(),
             columns: self.columns.clone(),
             selections: (self.selections.iter())
-                .map(|(name, resolution)| SelectionBytes {
+                .map(|(name, resolution)| super::proto::TemplateSelection {
                     name: name.clone(),
                     resolution: *resolution as i32,
                 })
@@ -463,7 +437,8 @@ impl MarkTemplate {
     /// does not know.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ChartError> {
         let invalid = |message: String| ChartError::invalid("", message);
-        let decoded = TemplateBytes::decode(bytes).map_err(|error| invalid(error.to_string()))?;
+        let decoded = super::proto::MarkTemplate::decode(bytes)
+            .map_err(|error| invalid(error.to_string()))?;
         let mark = super::mark(&decoded.name)
             .ok_or_else(|| invalid(format!("no mark function `{}`", decoded.name)))?;
         let coord = [CoordKind::Cartesian, CoordKind::Polar, CoordKind::Geo]

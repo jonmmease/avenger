@@ -6,11 +6,11 @@
 //! Every chart that they build names GoogleSQL's syntaxes for its format patterns,
 //! [`FORMAT_SYNTAXES`].
 
-mod bytes;
 mod combine;
 mod composition;
 mod mark;
 mod rows;
+mod state;
 
 pub use combine::{combine, Combine};
 pub use composition::{aggregate_name, CompositionInstance};

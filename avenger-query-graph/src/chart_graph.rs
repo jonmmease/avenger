@@ -54,7 +54,7 @@ use crate::{
 };
 
 /// The version of a graph's file, which a reader checks before it reads the rest.
-pub const FILE_VERSION: u32 = 2;
+pub const FILE_VERSION: u32 = 3;
 
 /// The bytes of the results that a baked graph's store keeps, and of the largest that it keeps.
 const STORE: StoreConfig = StoreConfig {

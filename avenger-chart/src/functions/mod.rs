@@ -32,6 +32,12 @@ mod argument;
 mod call;
 mod compose;
 mod error;
+pub mod proto {
+    //! The prost messages of package `avenger.chart.functions.v1`, the template of a mark as
+    //! [`MarkTemplate::to_bytes`](super::MarkTemplate::to_bytes) writes it, generated from
+    //! `proto/avenger/chart/functions/v1/template.proto`, whose comments are their documentation.
+    include!(concat!(env!("OUT_DIR"), "/avenger.chart.functions.v1.rs"));
+}
 
 use std::fmt::Write;
 
@@ -41,7 +47,6 @@ pub use compose::{composition, compositions, Child, ChildOrder, Composition, Com
 pub use error::{ArgError, Expected, Reason};
 
 use crate::{
-    proto,
     validate::{is_position, scales_strings, takes_scale},
     CoordKind,
 };
@@ -66,13 +71,16 @@ impl FormatSyntaxes<'_> {
     /// with.
     pub(crate) fn chart(
         self,
-        root: impl Into<proto::NodeBuilder>,
+        root: impl Into<crate::proto::NodeBuilder>,
     ) -> Result<crate::Chart, crate::ChartError> {
         self.builder(root).build()
     }
 
     /// The builder of the chart with the root `root` and these syntaxes.
-    pub(crate) fn builder(self, root: impl Into<proto::NodeBuilder>) -> proto::ChartBuilder {
+    pub(crate) fn builder(
+        self,
+        root: impl Into<crate::proto::NodeBuilder>,
+    ) -> crate::proto::ChartBuilder {
         crate::Chart::builder(root)
             .number_format_syntax(self.number)
             .datetime_format_syntax(self.datetime)
@@ -105,14 +113,14 @@ pub struct Constructor {
     /// The parameters that the first parameter fills when it is a parameter of its own, `value`,
     /// whose argument a call then need not give, as `type` of `projection('mercator')`.
     pub fills: &'static [&'static str],
-    build: fn(&[Option<Arg>]) -> Result<proto::Fragment, ArgError>,
-    convert: fn(&Arg) -> Result<proto::Fragment, ArgError>,
+    build: fn(&[Option<Arg>]) -> Result<crate::proto::Fragment, ArgError>,
+    convert: fn(&Arg) -> Result<crate::proto::Fragment, ArgError>,
 }
 
 impl Constructor {
     /// The fragment of the constructor's message from `args`, one for each parameter, where
     /// `None` leaves a parameter unset. Missing arguments at the end are unset.
-    pub fn build(&self, args: &[Option<Arg>]) -> Result<proto::Fragment, ArgError> {
+    pub fn build(&self, args: &[Option<Arg>]) -> Result<crate::proto::Fragment, ArgError> {
         match args.len() <= self.params.len() {
             true => {
                 let mut args = args.to_vec();
@@ -125,7 +133,7 @@ impl Constructor {
 
     /// The fragment of `arg`, a plain value or a fragment of the constructor, as a parameter whose
     /// own constructor this is converts it: `foo => v` for the value `v`.
-    pub fn convert(&self, arg: &Arg) -> Result<proto::Fragment, ArgError> {
+    pub fn convert(&self, arg: &Arg) -> Result<crate::proto::Fragment, ArgError> {
         (self.convert)(arg)
     }
 }
@@ -273,7 +281,7 @@ const OTHER_OPTIONS: &[&str] = &["scale", "legend", "title", "selection_field"];
 #[derive(Debug)]
 pub struct ChannelFunction {
     pub name: &'static str,
-    pub channel: proto::Channel,
+    pub channel: crate::proto::Channel,
     /// The documentation of the channel's values.
     pub doc: &'static str,
     /// The options of the channel's encoding, which follow its value, by name.
@@ -288,7 +296,7 @@ pub fn channel_functions() -> &'static [ChannelFunction] {
         (generated::ENUM_CHANNEL.iter())
             .filter_map(|name| {
                 let upper = format!("CHANNEL_{}", name.name.to_ascii_uppercase());
-                let channel = proto::Channel::from_str_name(&upper)?;
+                let channel = crate::proto::Channel::from_str_name(&upper)?;
                 let options = match (scales_strings(channel), takes_scale(channel)) {
                     (false, _) => return None,
                     (true, true) if is_position(channel) => POSITION_OPTIONS,
@@ -488,7 +496,7 @@ impl std::fmt::Debug for Mark {
 #[derive(Debug)]
 pub struct Channel {
     pub name: &'static str,
-    pub channel: proto::Channel,
+    pub channel: crate::proto::Channel,
     pub required: bool,
     pub doc: &'static str,
 }

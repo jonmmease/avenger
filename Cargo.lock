@@ -692,6 +692,8 @@ dependencies = [
  "futures",
  "getrandom 0.3.4",
  "prost",
+ "prost-build",
+ "protoc-bin-vendored",
  "tokio",
  "uuid",
  "wasm-bindgen-test",

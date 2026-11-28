@@ -1,7 +1,9 @@
 //! Generates the prost messages of package `avenger.chart.v1` from the files in
-//! `proto/avenger/chart/v1/` with the vendored `protoc`, so that a build needs no system `protoc`.
+//! `proto/avenger/chart/v1/` with the vendored `protoc`, so that a build needs no system `protoc`,
+//! and the prost messages of package `avenger.chart.functions.v1`, the template of a mark, from
+//! `proto/avenger/chart/functions/v1/template.proto`.
 //!
-//! It also reads the descriptors of the messages and generates these files:
+//! It also reads the descriptors of the messages of `avenger.chart.v1` and generates these files:
 //!
 //! - `walk.rs`: impls of `VisitValues` for each message that holds a `ValueRef`, of `VisitTables`
 //!   for each message that holds a `TableRef`, of `VisitEnums` for each message that holds an enum
@@ -97,6 +99,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .btree_map(["."])
         .compile_protos(
             &files,
+            &[PathBuf::from("proto"), protoc_bin_vendored::include_path()?],
+        )?;
+    // The template of a mark is a package of its own, compiled apart from the format, so the
+    // descriptors, the builders, and the laws below see the format alone. Its messages name the
+    // types of the format, which `proto` in the crate holds.
+    prost_build::Config::new()
+        .protoc_executable(protoc_bin_vendored::protoc_bin_path()?)
+        .extern_path(PACKAGE, "crate::proto")
+        // The fragments of a template are `bytes::Bytes`, as a template holds them.
+        .bytes(["."])
+        .compile_protos(
+            &["proto/avenger/chart/functions/v1/template.proto"],
             &[PathBuf::from("proto"), protoc_bin_vendored::include_path()?],
         )?;
 
