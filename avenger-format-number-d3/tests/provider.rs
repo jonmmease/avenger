@@ -87,7 +87,12 @@ fn bundled_locales_match_vendored_definitions() {
     let registry = NumberLocaleRegistry::with_builtins();
     let value = -1234567.89;
     let pattern = "$,.2f";
-    for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/locales")).unwrap() {
+    for entry in std::fs::read_dir(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../avenger-format-locales-d3/locales/number"
+    ))
+    .unwrap()
+    {
         let path = entry.unwrap().path();
         if path.extension().is_none_or(|ext| ext != "json") {
             continue;
