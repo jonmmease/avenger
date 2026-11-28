@@ -475,3 +475,40 @@ FROM penguins
     assert!(warnings(text).is_empty(), "{:?}", warnings(text));
     assert!(pass::errors(text).is_empty(), "{:?}", pass::errors(text));
 }
+
+/// A selection records the columns that the clauses of its tools test: the channels' columns of
+/// an interval, the keys of a point selection, none when no tool of the script writes it, and
+/// `None` when a tool's columns are unknown.
+#[test]
+fn a_selection_records_the_columns_of_its_tools() {
+    let fields = |text: &str, name: &str| -> Option<Vec<String>> {
+        let analysis = pass::analysis(text);
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{:?}",
+            analysis.diagnostics
+        );
+        let selection = (analysis.selections.iter())
+            .find(|selection| selection.name == name)
+            .unwrap();
+        selection.fields.clone()
+    };
+    let mark = |tools: &str| {
+        format!(
+            "DECLARE brush SELECTION;
+FROM penguins
+|> AGGREGATE mark_symbol(x => body_mass_g, y => flipper_length_mm, tools => [{tools}]) AS chart"
+        )
+    };
+    let interval = mark("select(brush, type => interval(channels => ['x']))");
+    assert_eq!(
+        fields(&interval, "brush"),
+        Some(vec!["body_mass_g".to_string()])
+    );
+    let keyed = mark("select(brush, type => point(keys => ['species']))");
+    assert_eq!(fields(&keyed, "brush"), Some(vec!["species".to_string()]));
+    let unwritten = "DECLARE brush SELECTION;\nFROM penguins |> WHERE brush";
+    assert_eq!(fields(unwritten, "brush"), Some(Vec::new()));
+    let unknown = mark("select(brush, type => point())");
+    assert_eq!(fields(&unknown, "brush"), None);
+}

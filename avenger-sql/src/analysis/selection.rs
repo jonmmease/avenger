@@ -30,6 +30,10 @@ pub struct Selection {
     pub resolution: Resolution,
     /// The range of its name in its `DECLARE`.
     pub definition: TextRange,
+    /// The columns that the clauses of the script's tools that write the selection test: none
+    /// when no tool of the script writes it, and `None` when a tool's columns are unknown, such
+    /// as a point tool's without keys.
+    pub fields: Option<Vec<String>>,
 }
 
 /// The name of the placeholder of the state of the selection `name`, without its `$`, as a run
@@ -159,6 +163,7 @@ impl Pass<'_> {
                 name: text,
                 resolution: resolved,
                 definition: at,
+                fields: Some(Vec::new()),
             });
         }
         Vec::new()

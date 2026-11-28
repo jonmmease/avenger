@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+pub mod chart_graph;
 mod cut;
 mod dot;
 mod graph;

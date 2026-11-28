@@ -8,11 +8,14 @@ readme = "README.md"
 
 [dependencies]
 async-trait = { workspace = true }
+avenger-chart-datafusion = { path = "../avenger-chart-datafusion" }
 avenger-common = { path = "../avenger-common" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-selection-datafusion = { path = "../avenger-selection-datafusion" }
 datafusion = { workspace = true }
+datafusion-proto-common = { workspace = true }
 futures = { workspace = true }
+prost = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["rt"] }
@@ -23,5 +26,7 @@ wasm-bindgen-futures = "0.4.80"
 
 [dev-dependencies]
 avenger-scales = { path = "../avenger-scales" }
+# The session of a baked graph, for the test of the file of a real chart's graph.
+avenger-sql = { path = "../avenger-sql" }
 datafusion = { workspace = true, features = ["sql"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

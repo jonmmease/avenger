@@ -142,6 +142,83 @@ impl ChartQuery {
         Ok(run.batches.into_iter().next().unwrap_or_default())
     }
 
+    /// The live graph of the query's chart, as [`ChartQuery::chart_graph_of`] builds it for one
+    /// query.
+    pub fn chart_graph(&self) -> Result<avenger_query_graph::chart_graph::ChartGraph> {
+        Self::chart_graph_of(std::slice::from_ref(self))
+    }
+
+    /// The live graph of the queries of one document's charts, such as the cells of a Quarto
+    /// document, whose charts are the queries' rows in order. The queries share their selections,
+    /// with the columns that their tools test, and a variable that two of them read takes one
+    /// value, or the graph is an error. The graph bakes in avenger-sql's `baked_session`, and the
+    /// baked graph encodes as the file that a page runs.
+    pub fn chart_graph_of(
+        queries: &[ChartQuery],
+    ) -> Result<avenger_query_graph::chart_graph::ChartGraph> {
+        use avenger_query_graph::chart_graph::{ChartGraph, ChartSelection};
+        use datafusion::common::{metadata::ScalarAndMetadata, plan_err, ParamValues};
+        let Some(first) = queries.first() else {
+            return plan_err!("a chart graph needs a query");
+        };
+        let mut selections: Vec<ChartSelection> = Vec::new();
+        let mut values: std::collections::HashMap<String, ScalarAndMetadata> = Default::default();
+        for query in queries {
+            for (name, state) in &query.query.selections {
+                let fields = query.query.fields.get(name).cloned().flatten();
+                match selections.iter_mut().find(|known| known.name == *name) {
+                    // The tools of every chart write the selection, and one tool of unknown
+                    // columns makes the columns unknown.
+                    Some(known) => {
+                        known.fields = match (known.fields.take(), fields) {
+                            (Some(mut known), Some(fields)) => {
+                                for field in fields {
+                                    if !known.contains(&field) {
+                                        known.push(field);
+                                    }
+                                }
+                                Some(known)
+                            }
+                            _ => None,
+                        }
+                    }
+                    None => selections.push(ChartSelection {
+                        name: name.clone(),
+                        placeholder: avenger_sql::analysis::selection_placeholder(name),
+                        resolution: state.resolution,
+                        fields,
+                    }),
+                }
+            }
+            if let ParamValues::Map(map) = &query.query.params {
+                for (id, value) in map {
+                    match values.get(id) {
+                        Some(known) if known.value != value.value => {
+                            return plan_err!(
+                                "the variable `{id}` has another value in another chart of the \
+                                 document, which one graph cannot hold"
+                            )
+                        }
+                        _ => {
+                            values.insert(id.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let state = first.ctx.state();
+        let plans = (queries.iter())
+            .map(|query| avenger_sql::bake::bake_plan(query.query.plan.clone(), &state))
+            .collect::<Result<Vec<_>>>()?;
+        ChartGraph::new(
+            &first.store,
+            &state,
+            plans,
+            ParamValues::Map(values),
+            selections,
+        )
+    }
+
     /// The graph of the query's plan, whose listing tables a run checks before it reuses a result
     /// that reads them.
     fn compile(&self) -> Result<QueryGraph> {
